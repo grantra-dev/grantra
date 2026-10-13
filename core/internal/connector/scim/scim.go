@@ -241,3 +241,113 @@ func refs(rs []ref) []string {
 	}
 	return out
 }
+
+const (
+	userSchema  = "urn:ietf:params:scim:schemas:core:2.0:User"
+	patchSchema = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+)
+
+// send makes a write request to resource, or to one of its items when id is
+// not empty, and decodes the answer into v when v is not nil.
+func (c *Client) send(ctx context.Context, method, resource, id string, body, v any) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	u := *c.base
+	path := "/" + resource
+	u.RawPath = u.EscapedPath() + path
+	u.Path += path
+	if id != "" {
+		// Native ids can hold any character, slashes included.
+		path += "/" + id
+		u.RawPath += "/" + url.PathEscape(id)
+		u.Path += "/" + id
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/scim+json, application/json")
+	req.Header.Set("Content-Type", "application/scim+json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var e struct {
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(data, &e)
+		if e.Detail != "" {
+			return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, e.Detail)
+		}
+		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
+	}
+	if v != nil {
+		if err := json.Unmarshal(data, v); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return nil
+}
+
+// CreateAccount creates a user.
+func (c *Client) CreateAccount(ctx context.Context, a connector.NewAccount) (string, error) {
+	body := map[string]any{
+		"schemas":  []string{userSchema},
+		"userName": a.Username,
+		"active":   true,
+	}
+	if a.DisplayName != "" {
+		body["displayName"] = a.DisplayName
+		body["name"] = map[string]string{"formatted": a.DisplayName}
+	}
+	if a.Email != "" {
+		body["emails"] = []map[string]any{{"value": a.Email, "type": "work", "primary": true}}
+	}
+	if a.ExternalID != "" {
+		body["externalId"] = a.ExternalID
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := c.send(ctx, http.MethodPost, "Users", "", body, &created); err != nil {
+		return "", err
+	}
+	if created.ID == "" {
+		return "", errors.New("POST /Users: the response has no id")
+	}
+	return created.ID, nil
+}
+
+// SetActive enables or disables a user.
+func (c *Client) SetActive(ctx context.Context, accountID string, active bool) error {
+	return c.send(ctx, http.MethodPatch, "Users", accountID, map[string]any{
+		"schemas":    []string{patchSchema},
+		"Operations": []map[string]any{{"op": "replace", "path": "active", "value": active}},
+	}, nil)
+}
+
+// AddMember adds a user to a group.
+func (c *Client) AddMember(ctx context.Context, entitlementID, accountID string) error {
+	return c.send(ctx, http.MethodPatch, "Groups", entitlementID, map[string]any{
+		"schemas":    []string{patchSchema},
+		"Operations": []map[string]any{{"op": "add", "path": "members", "value": []map[string]string{{"value": accountID}}}},
+	}, nil)
+}
+
+// RemoveMember removes a user from a group.
+func (c *Client) RemoveMember(ctx context.Context, entitlementID, accountID string) error {
+	return c.send(ctx, http.MethodPatch, "Groups", entitlementID, map[string]any{
+		"schemas": []string{patchSchema},
+		"Operations": []map[string]any{{"op": "remove",
+			"path": fmt.Sprintf(`members[value eq %q]`, accountID)}},
+	}, nil)
+}
