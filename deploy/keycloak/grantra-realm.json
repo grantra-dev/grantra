@@ -1,0 +1,41 @@
+{
+  "realm": "grantra",
+  "enabled": true,
+  "displayName": "Grantra (dev)",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "bruteForceProtected": true,
+  "clients": [
+    {
+      "clientId": "grantra-console",
+      "name": "Grantra console",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*", "http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8080"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8080/*"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "grantra-admin", "description": "Full administrative access to Grantra" },
+      { "name": "grantra-auditor", "description": "Read-only access to identities and audit logs" }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin",
+      "email": "admin@grantra.local",
+      "emailVerified": true,
+      "firstName": "Grantra",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
+      "realmRoles": ["grantra-admin"]
+    }
+  ]
+}
