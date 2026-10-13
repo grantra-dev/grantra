@@ -29,11 +29,12 @@ func TestEndpoints(t *testing.T) {
 		{"unknown", fakeDB{}, "/nope", http.StatusNotFound},
 		{"home without login", fakeDB{}, "/", http.StatusOK},
 		{"me without login", fakeDB{}, "/api/v1/me", http.StatusServiceUnavailable},
+		{"identities without login", fakeDB{}, "/api/v1/identities", http.StatusServiceUnavailable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			New(log, tt.db, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			New(log, tt.db, nil, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
 			if rec.Code != tt.want {
 				t.Errorf("GET %s = %d, want %d", tt.path, rec.Code, tt.want)
 			}

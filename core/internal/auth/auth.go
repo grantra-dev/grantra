@@ -97,6 +97,13 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
+// ContextWithPrincipal returns a copy of ctx carrying p, as Require does
+// after checking the session. Handlers behind Require read it with
+// PrincipalFrom; tests use this to stand in for a signed-in person.
+func ContextWithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, principalKey{}, p)
+}
+
 // Require rejects requests without a valid session with 401 and passes the
 // signed-in person to next through the request context.
 func (s *Service) Require(next http.Handler) http.Handler {
@@ -111,7 +118,7 @@ func (s *Service) Require(next http.Handler) http.Handler {
 			http.Error(w, "not signed in", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+		next.ServeHTTP(w, r.WithContext(ContextWithPrincipal(r.Context(), p)))
 	})
 }
 

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
 )
 
 func TestSafeReturnTo(t *testing.T) {
@@ -131,45 +131,6 @@ func (idp *fakeIdP) sign(t *testing.T, c idClaims) string {
 	return raw
 }
 
-// asOrdinaryRole returns a pool that connects as a role without BYPASSRLS,
-// the way the server must run, so row-level security applies to the tests.
-func asOrdinaryRole(t *testing.T, pool *pgxpool.Pool, dbURL string) *pgxpool.Pool {
-	t.Helper()
-	ctx := context.Background()
-	var privileged bool
-	if err := pool.QueryRow(ctx,
-		`SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user`).Scan(&privileged); err != nil {
-		t.Fatal(err)
-	}
-	if !privileged {
-		return pool
-	}
-	// Test packages run in parallel and concurrent GRANTs on the same tables
-	// fail, so every test role setup takes the same advisory lock.
-	_, err := pool.Exec(ctx, `SELECT pg_advisory_xact_lock(7244618);
-	DO $$ BEGIN
-		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'grantra_auth_test') THEN
-			CREATE ROLE grantra_auth_test LOGIN PASSWORD 'grantra_auth_test' NOSUPERUSER NOBYPASSRLS;
-		END IF;
-	END $$;
-	GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO grantra_auth_test;
-	GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO grantra_auth_test;`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u, err := url.Parse(dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u.User = url.UserPassword("grantra_auth_test", "grantra_auth_test")
-	ordinary, err := db.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(ordinary.Close)
-	return ordinary
-}
-
 type harness struct {
 	t      *testing.T
 	pool   *pgxpool.Pool
@@ -183,25 +144,8 @@ type harness struct {
 // GRANTRA_TEST_DATABASE_URL is set (CI sets it).
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	dbURL := os.Getenv("GRANTRA_TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("GRANTRA_TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	pool, err := db.Open(ctx, dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	pool = asOrdinaryRole(t, pool, dbURL)
-	slug := "auth-" + strings.NewReplacer("_", "x", "-", "x").Replace(strings.ToLower(randomToken()[:12]))
-	tenant, err := db.EnsureTenant(ctx, pool, slug, "Auth test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	pool := dbtest.Open(t)
+	tenant := dbtest.Tenant(t, pool, "auth")
 
 	idp := newFakeIdP(t)
 	svc := New(Config{

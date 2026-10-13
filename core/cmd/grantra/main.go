@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/auth"
+	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
+	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/server"
 )
@@ -55,6 +57,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := authz.EnsureBuiltinApp(ctx, pool, tenantID); err != nil {
+		return err
+	}
 	if cfg.BootstrapEmail != "" {
 		created, err := db.BootstrapIdentity(ctx, pool, tenantID, cfg.BootstrapEmail)
 		if err != nil {
@@ -63,9 +68,24 @@ func run() error {
 		if created {
 			log.Info("created bootstrap identity", "email", cfg.BootstrapEmail)
 		}
+		granted, err := authz.BootstrapAdmin(ctx, pool, tenantID, cfg.BootstrapEmail)
+		if err != nil {
+			return err
+		}
+		if granted {
+			log.Warn("granted grantra-admin to the bootstrap identity because the tenant had no active admin", "email", cfg.BootstrapEmail)
+		}
 	}
 
-	var login *auth.Service
+	az, err := authz.New()
+	if err != nil {
+		return err
+	}
+
+	var (
+		login *auth.Service
+		api   *console.API
+	)
 	if cfg.OIDC.Enabled() {
 		login = auth.New(auth.Config{
 			Issuer:       cfg.OIDC.Issuer,
@@ -76,6 +96,7 @@ func run() error {
 			SessionIdle:  cfg.SessionIdle,
 			SessionMax:   cfg.SessionMax,
 		}, pool, tenantID, log)
+		api = console.New(pool, tenantID, az, log)
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
 	} else {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
@@ -83,7 +104,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.New(log, pool, login),
+		Handler:           server.New(log, pool, login, api),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
