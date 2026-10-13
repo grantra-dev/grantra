@@ -47,6 +47,9 @@ entity ReviewItem {
   reviewers: Set<Identity>,
 };
 
+// The tenant's separation of duties policies and their violations.
+entity SoD;
+
 // Action groups.
 action "read";
 action "write";
@@ -155,5 +158,18 @@ action "review_campaign.manage" in ["write"] appliesTo {
 action "review_item.decide" in ["write"] appliesTo {
   principal: Identity,
   resource: ReviewItem,
+  context: {},
+};
+
+// manage writes policies, runs scans and grants exceptions.
+action "sod.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: SoD,
+  context: {},
+};
+
+action "sod.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: SoD,
   context: {},
 };
