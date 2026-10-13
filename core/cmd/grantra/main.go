@@ -28,6 +28,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/webui"
 )
 
 func main() {
@@ -115,9 +116,14 @@ func run() error {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
 	}
 
+	ui, ok := webui.Files()
+	if !ok {
+		log.Warn("web console not built into this binary: serving the placeholder home page (run make web)")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.New(log, pool, login, api),
+		Handler:           server.New(log, pool, login, api, ui),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Long enough for a 32 MiB HR file on a slow link; no WriteTimeout,
 		// because a provisioning run asked from the console can take minutes.

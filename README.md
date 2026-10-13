@@ -19,10 +19,11 @@ Grantra aims to be an open alternative to SailPoint and CyberArk. It starts with
 | Path | What lives there |
 |---|---|
 | `core/` | Go backend (modular monolith): API, identity model, migrations |
+| `web/` | React console ([docs](docs/console.md)) |
 | `deploy/` | docker-compose dev stack, Keycloak realm, later the Helm chart |
 | `docs/` | Architecture notes and design decisions |
 
-Planned: `web/` (React console), `connectors/` and `sdk/`.
+Planned: `connectors/` and `sdk/`.
 
 ## Quick start
 
@@ -41,11 +42,14 @@ make up
 
 ## Development
 
-Requires Go 1.26+ (CI builds with the toolchain pinned in `core/go.mod`).
+Requires Go 1.26+ (CI builds with the toolchain pinned in `core/go.mod`) and Node 22+ for the console.
 
 ```sh
+make build     # console + core binary in bin/grantra
 make test      # unit tests
 make lint      # go vet + gofmt
+make web-lint  # console lint + typecheck
+make web-test  # console tests
 make test-db GRANTRA_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 ```
 
