@@ -61,6 +61,10 @@ const (
 	ManageSources      Action = "identity_source.manage"
 	SyncSource         Action = "identity_source.sync"
 	ReadLifecycle      Action = "lifecycle_event.read"
+	ReadCatalog        Action = "catalog.read"
+	ManageCatalog      Action = "catalog.manage"
+	ReadAccessRules    Action = "access_rule.read"
+	ManageAccessRules  Action = "access_rule.manage"
 )
 
 var actionGroup = map[Action]string{
@@ -74,6 +78,10 @@ var actionGroup = map[Action]string{
 	ManageSources:      "write",
 	SyncSource:         "write",
 	ReadLifecycle:      "read",
+	ReadCatalog:        "read",
+	ManageCatalog:      "write",
+	ReadAccessRules:    "read",
+	ManageAccessRules:  "write",
 }
 
 // Writes reports whether the action changes something.
@@ -133,6 +141,10 @@ func AuditLogResource() Resource { return Resource{uid: cedar.NewEntityUID("Audi
 // LifecycleResource is the tenant's identity sources (HR) and the lifecycle
 // events they produce.
 func LifecycleResource() Resource { return Resource{uid: cedar.NewEntityUID("Lifecycle", "tenant")} }
+
+// CatalogResource is the tenant's catalog of applications, entitlements and
+// business roles, with the birthright rules that hand them out.
+func CatalogResource() Resource { return Resource{uid: cedar.NewEntityUID("Catalog", "tenant")} }
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {

@@ -9,7 +9,7 @@ Grantra aims to be an open alternative to SailPoint and CyberArk. It starts with
 ## Roadmap
 
 1. **Foundations**: core data model, multi-tenancy, audit log, API, CI, console login and platform roles.
-2. **Identity Hub + IGA** *(in progress)*: HR sources and joiner/mover/leaver automation ([docs](docs/identity-lifecycle.md)), then birthright access, connectors (Entra ID, LDAP, SCIM…), access requests, access reviews, separation of duties.
+2. **Identity Hub + IGA** *(in progress)*: HR sources and joiner/mover/leaver automation ([docs](docs/identity-lifecycle.md)), catalog and birthright access ([docs](docs/access.md)), then connectors (Entra ID, LDAP, SCIM…), access requests, access reviews, separation of duties.
 3. **Integrated IAM**: Keycloak bundled and preconfigured, swappable for your own IdP.
 4. **PAM**: credential vault, just-in-time access, session recording.
 5. **Identity threat detection** and AI-assisted recommendations.
