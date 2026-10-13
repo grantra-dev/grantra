@@ -10,15 +10,6 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 )
 
-func (a *API) reviewsGuarded(r *http.Request, action authz.Action, fn func(tx pgx.Tx, me authz.Subject) error) error {
-	return a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: action, Resource: authz.ReviewsResource()}); err != nil {
-			return err
-		}
-		return fn(tx, me)
-	})
-}
-
 // launchCampaign starts an access review:
 // {"name": "Q4 review", "reviewer": "manager", "application_ids": [], "on_missing": "keep", "due_in_days": 14}.
 func (a *API) launchCampaign(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +18,7 @@ func (a *API) launchCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out reviews.Campaign
-	err := a.reviewsGuarded(r, authz.ManageCampaigns, func(tx pgx.Tx, me authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ManageCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
 		out, err = reviews.Launch(r.Context(), tx, a.tenantID, "identity:"+me.ID, in)
 		return err
 	})
@@ -36,7 +27,7 @@ func (a *API) launchCampaign(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 	var out []reviews.Campaign
-	err := a.reviewsGuarded(r, authz.ReadCampaigns, func(tx pgx.Tx, _ authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ReadCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		out, err = reviews.List(r.Context(), tx)
 		return err
 	})
@@ -45,7 +36,7 @@ func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
 	var out reviews.Campaign
-	err := a.reviewsGuarded(r, authz.ReadCampaigns, func(tx pgx.Tx, _ authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ReadCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		out, err = reviews.Get(r.Context(), tx, r.PathValue("id"))
 		return err
 	})
@@ -56,7 +47,7 @@ func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
 // as the campaign says.
 func (a *API) closeCampaign(w http.ResponseWriter, r *http.Request) {
 	var out reviews.Campaign
-	err := a.reviewsGuarded(r, authz.ManageCampaigns, func(tx pgx.Tx, me authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ManageCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
 		out, err = reviews.Close(r.Context(), tx, a.tenantID, "identity:"+me.ID, r.PathValue("id"))
 		return err
 	})

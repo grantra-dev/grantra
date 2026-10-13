@@ -7,10 +7,10 @@ A connector is how Grantra talks to an application. An *aggregation* **reads** t
 The first connector speaks [SCIM 2.0](https://scim.cloud/), which Okta, Entra ID, Slack, GitHub Enterprise, Zoom and most SaaS tools offer.
 
 ```sh
-export CRM_SCIM_TOKEN=...   # in the server's environment
+export GRANTRA_SECRET_CRM_SCIM_TOKEN=...   # in the server's environment
 curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
   "kind": "scim",
-  "config": {"base_url": "https://crm.example.com/scim/v2", "token": "env:CRM_SCIM_TOKEN"}
+  "config": {"base_url": "https://crm.example.com/scim/v2", "token": "env:GRANTRA_SECRET_CRM_SCIM_TOKEN"}
 }'
 curl -b cookies -X POST localhost:8080/api/v1/applications/$APP/aggregations
 ```
@@ -18,7 +18,7 @@ curl -b cookies -X POST localhost:8080/api/v1/applications/$APP/aggregations
 | Config | Meaning |
 |---|---|
 | `base_url` | The SCIM endpoint. Must be https; `allow_http: true` is for labs only |
-| `token` | A **reference** to the bearer token, `env:NAME`. Secrets never go in the config, so the config is safe to show and audit |
+| `token` | A **reference** to the bearer token, `env:NAME`, where `NAME` must start with `GRANTRA_SECRET_`. Secrets never go in the config, so the config is safe to show and audit. The prefix keeps a connector config from naming the server's own settings (such as `GRANTRA_DATABASE_URL`) and sending them to an outside URL |
 | `page_size` | Resources per request, default 100 |
 
 Groups become entitlements. Membership comes from each group's `members` and each user's `groups`. Users bring `userName`, primary email, `externalId` (or the enterprise `employeeNumber`), `active`, `title` and `department`.
