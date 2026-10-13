@@ -24,6 +24,8 @@ curl -b cookies -X POST localhost:8080/api/v1/access-requests -d '{
 
 A request is refused when the person already has that access, already has an open request for it, is not active, or the access would break a `prevent` [separation of duties](separation-of-duties.md) policy (checked again at approval).
 
+To warn people before they write a justification, `POST /api/v1/access-requests/preview` takes the same body without `justification` and answers the `prevent` policies the access would break, as `{"sod_conflicts": ["Payments"]}`. The console uses it on the request form.
+
 ## Approvals
 
 Each request goes through up to two approvals, in order:
@@ -64,6 +66,7 @@ The access itself is logged as `access.assigned` when it is granted and `access.
 |---|---|
 | `GET /api/v1/requestable-access` | Everyone |
 | `POST /api/v1/access-requests` | For yourself; managers for their reports; admins |
+| `POST /api/v1/access-requests/preview` | Same as asking |
 | `GET /api/v1/access-requests?scope=mine\|approvals\|all&status=&limit=&after=` | `mine` (asked by you or for you, the default) and `approvals` (waiting on you; for admins, also the steps with nobody else to ask) for everyone; `all` for admins and auditors |
 | `GET /api/v1/access-requests/{id}` | The requester, the person getting the access, every approver, admins and auditors |
 | `POST /api/v1/access-requests/{id}/decision` | `{"decision": "approve" \| "reject", "comment": "..."}`: the approver of the current step, or an admin, never the person getting the access |

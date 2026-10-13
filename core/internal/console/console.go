@@ -82,6 +82,7 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/requestable-access", a.listRequestable)
 	route("GET /api/v1/access-requests", a.listRequests)
 	route("POST /api/v1/access-requests", a.createRequest)
+	route("POST /api/v1/access-requests/preview", a.previewRequest)
 	route("GET /api/v1/access-requests/{id}", a.getRequest)
 	route("POST /api/v1/access-requests/{id}/decision", a.decideRequest)
 	route("POST /api/v1/access-requests/{id}/cancel", a.cancelRequest)

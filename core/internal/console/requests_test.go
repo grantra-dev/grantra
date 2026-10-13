@@ -32,6 +32,13 @@ func TestAccessRequests(t *testing.T) {
 	if rec := e.do(ana, http.MethodPost, "/api/v1/access-requests", `{"entitlement_id": "`+ent.ID+`"}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("no justification = %d", rec.Code)
 	}
+	preview := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{"entitlement_id": "`+ent.ID+`"}`)
+	if preview.Code != http.StatusOK || preview.Body.String() != `{"sod_conflicts":[]}`+"\n" {
+		t.Errorf("preview = %d %q", preview.Code, preview.Body)
+	}
+	if rec := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("preview without target = %d", rec.Code)
+	}
 	rec := e.do(ana, http.MethodPost, "/api/v1/access-requests", body)
 	req := decode[requests.Request](t, rec)
 	if rec.Code != http.StatusCreated || req.Status != requests.Pending {

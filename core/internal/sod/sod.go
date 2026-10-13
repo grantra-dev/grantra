@@ -287,10 +287,22 @@ const conflicts = `
 	JOIN held hb ON hb.identity_id = ha.identity_id AND (hb.role_id = sb.role_id OR hb.entitlement_id = sb.entitlement_id)
 	WHERE p.enabled`
 
-// Check reports the prevent-mode policies that giving identityID the role
-// or entitlement would violate, leaving out violations already accepted as
-// exceptions. It returns a Conflict error naming them, or nil.
+// Check returns a Conflict error naming the policies Conflicts finds, or nil.
 func Check(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID string) error {
+	names, err := Conflicts(ctx, tx, identityID, roleID, entitlementID)
+	if err != nil {
+		return err
+	}
+	if len(names) > 0 {
+		return apperr.Conflictf("this access would break separation of duties: %s", strings.Join(names, ", "))
+	}
+	return nil
+}
+
+// Conflicts names the prevent-mode policies that giving identityID the role
+// or entitlement would violate, leaving out violations already accepted as
+// exceptions.
+func Conflicts(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID string) ([]string, error) {
 	extra := `UNION SELECT $1::uuid, $2::uuid, $3::uuid
 	          UNION SELECT $1::uuid, NULL, re.entitlement_id FROM role_entitlements re WHERE re.role_id = $2::uuid`
 	rows, err := tx.Query(ctx, `
@@ -306,16 +318,9 @@ func Check(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID str
 		  AND NOT EXISTS (SELECT 1 FROM sod_violations v WHERE v.policy_id = p.id AND v.identity_id = $1 AND v.status = 'excepted')
 		ORDER BY 1`, identityID, nullable(roleID), nullable(entitlementID))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return err
-	}
-	if len(names) > 0 {
-		return apperr.Conflictf("this access would break separation of duties: %s", strings.Join(names, ", "))
-	}
-	return nil
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // ScanResult counts what a scan changed.
