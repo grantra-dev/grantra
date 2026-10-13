@@ -1,7 +1,7 @@
 {
   "realm": "grantra",
   "enabled": true,
-  "displayName": "Grantra (dev)",
+  "displayName": "Grantra Login",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "bruteForceProtected": true,
@@ -9,14 +9,16 @@
     {
       "clientId": "grantra-console",
       "name": "Grantra console",
-      "publicClient": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "grantra-dev-secret",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:5173/*", "http://localhost:8080/*"],
-      "webOrigins": ["http://localhost:5173", "http://localhost:8080"],
+      "redirectUris": ["http://localhost:8080/auth/callback"],
+      "webOrigins": ["http://localhost:8080"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8080/*"
+        "post.logout.redirect.uris": "http://localhost:8080/*"
       }
     }
   ],

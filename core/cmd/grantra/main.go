@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/server"
@@ -50,9 +51,39 @@ func run() error {
 	}
 	log.Info("database migrated")
 
+	tenantID, err := db.EnsureTenant(ctx, pool, cfg.TenantSlug, cfg.TenantName)
+	if err != nil {
+		return err
+	}
+	if cfg.BootstrapEmail != "" {
+		created, err := db.BootstrapIdentity(ctx, pool, tenantID, cfg.BootstrapEmail)
+		if err != nil {
+			return err
+		}
+		if created {
+			log.Info("created bootstrap identity", "email", cfg.BootstrapEmail)
+		}
+	}
+
+	var login *auth.Service
+	if cfg.OIDC.Enabled() {
+		login = auth.New(auth.Config{
+			Issuer:       cfg.OIDC.Issuer,
+			DiscoveryURL: cfg.OIDC.DiscoveryURL,
+			ClientID:     cfg.OIDC.ClientID,
+			ClientSecret: cfg.OIDC.ClientSecret,
+			PublicURL:    cfg.PublicURL,
+			SessionIdle:  cfg.SessionIdle,
+			SessionMax:   cfg.SessionMax,
+		}, pool, tenantID, log)
+		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
+	} else {
+		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.New(log, pool),
+		Handler:           server.New(log, pool, login),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -29,6 +29,10 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: keycloak
       KC_HEALTH_ENABLED: "true"
+      # Browsers reach Keycloak on localhost:8081 and Grantra reaches it as
+      # keycloak:8080. Tokens always carry the localhost issuer.
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "8081:8080"
     volumes:
@@ -43,6 +47,13 @@ services:
     environment:
       GRANTRA_DATABASE_URL: postgres://grantra_app:grantra@postgres:5432/grantra?sslmode=disable
       GRANTRA_LOG_LEVEL: debug
+      GRANTRA_PUBLIC_URL: http://localhost:8080
+      GRANTRA_OIDC_ISSUER: http://localhost:8081/realms/grantra
+      GRANTRA_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/grantra
+      GRANTRA_OIDC_CLIENT_ID: grantra-console
+      GRANTRA_OIDC_CLIENT_SECRET: grantra-dev-secret
+      # Lets the realm's admin user sign in before any HR source is connected.
+      GRANTRA_BOOTSTRAP_EMAIL: admin@grantra.local
     ports:
       - "8080:8080"
     depends_on:
