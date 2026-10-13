@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,10 +47,8 @@ func EnsureBuiltinApp(ctx context.Context, pool *pgxpool.Pool, tenantID string) 
 	})
 }
 
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 // ValidID reports whether id has the shape of an identity id (a UUID).
-func ValidID(id string) bool { return uuidPattern.MatchString(id) }
+func ValidID(id string) bool { return db.ValidUUID(id) }
 
 // LoadSubject returns the identity with id, with the platform roles it holds
 // right now: grants that have not expired, on an active account.

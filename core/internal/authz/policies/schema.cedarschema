@@ -17,6 +17,10 @@ entity Directory;
 // The tenant's audit log.
 entity AuditLog;
 
+// The tenant's identity sources (HR feeds) and the joiner, mover and leaver
+// events they produce.
+entity Lifecycle;
+
 // Action groups.
 action "read";
 action "write";
@@ -50,4 +54,17 @@ action "platform_role.grant", "platform_role.revoke" in ["write"] appliesTo {
   principal: Identity,
   resource: Role,
   context: { target: Identity },
+};
+
+action "identity_source.read", "lifecycle_event.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Lifecycle,
+  context: {},
+};
+
+// manage creates sources; sync feeds one and applies what changed.
+action "identity_source.manage", "identity_source.sync" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Lifecycle,
+  context: {},
 };
