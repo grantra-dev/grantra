@@ -146,3 +146,81 @@ func TestConfig(t *testing.T) {
 		t.Error("unknown kind accepted")
 	}
 }
+
+func TestWrite(t *testing.T) {
+	type call struct {
+		Method string         `json:"method"`
+		Path   string         `json:"path"`
+		Body   map[string]any `json:"body"`
+	}
+	var calls []call
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer s3cret" || r.Header.Get("Content-Type") != "application/scim+json" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		calls = append(calls, call{r.Method, r.URL.EscapedPath(), body})
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/scim/v2/Users":
+			if body["userName"] == "taken@example.com" {
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(map[string]any{"detail": "userName is already taken"}) //nolint:errcheck
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"id": "u-123"}) //nolint:errcheck
+		case r.Method == http.MethodPatch && r.URL.Path == "/scim/v2/Groups/missing":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	w, ok := newClient(t, srv.URL, "").(connector.Writer)
+	if !ok {
+		t.Fatal("the scim connector does not write")
+	}
+	ctx := context.Background()
+
+	id, err := w.CreateAccount(ctx, connector.NewAccount{Username: "ana@example.com", Email: "ana@example.com", DisplayName: "Ana", ExternalID: "E1"})
+	if err != nil || id != "u-123" {
+		t.Fatalf("create = %q, %v", id, err)
+	}
+	if _, err := w.CreateAccount(ctx, connector.NewAccount{Username: "taken@example.com"}); err == nil || !strings.Contains(err.Error(), "already taken") {
+		t.Errorf("create taken = %v", err)
+	}
+	if err := w.SetActive(ctx, "u-123", false); err != nil {
+		t.Error(err)
+	}
+	if err := w.AddMember(ctx, "g/1", "u-123"); err != nil {
+		t.Error(err)
+	}
+	if err := w.RemoveMember(ctx, "g/1", "u-123"); err != nil {
+		t.Error(err)
+	}
+	if err := w.AddMember(ctx, "missing", "u-123"); err == nil {
+		t.Error("add to a missing group succeeded")
+	}
+
+	got, _ := json.Marshal(calls)
+	for _, want := range []string{
+		`"method":"POST","path":"/scim/v2/Users"`,
+		`"userName":"ana@example.com"`,
+		`"externalId":"E1"`,
+		`"emails":[{"primary":true,"type":"work","value":"ana@example.com"}]`,
+		`"method":"PATCH","path":"/scim/v2/Users/u-123"`,
+		`{"op":"replace","path":"active","value":false}`,
+		`"path":"/scim/v2/Groups/g%2F1"`,
+		`{"op":"add","path":"members","value":[{"value":"u-123"}]}`,
+		`{"op":"remove","path":"members[value eq \"u-123\"]"}`,
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("requests miss %s:\n%s", want, got)
+		}
+	}
+}

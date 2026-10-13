@@ -73,6 +73,8 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)
 	route("PUT /api/v1/applications/{id}/connector", a.setConnector)
 	route("POST /api/v1/applications/{id}/aggregations", a.aggregate)
+	route("PUT /api/v1/applications/{id}/provisioning", a.setProvisioning)
+	route("POST /api/v1/applications/{id}/provisioning-runs", a.provision)
 	route("GET /api/v1/applications/{id}/runs", a.listConnectorRuns)
 	route("GET /api/v1/applications/{id}/accounts", a.listAccounts)
 	route("PUT /api/v1/accounts/{id}/identity", a.linkAccount)
