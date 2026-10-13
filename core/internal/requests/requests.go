@@ -28,6 +28,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
 // Request statuses.
@@ -147,6 +148,13 @@ func (in *Input) check() error {
 	return nil
 }
 
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func nullable(s string) *string {
 	if s == "" {
 		return nil
@@ -203,6 +211,9 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	}
 	if held {
 		return Request{}, apperr.Conflictf("this person already has that access")
+	}
+	if err := sod.Check(ctx, tx, in.BeneficiaryID, in.RoleID, in.EntitlementID); err != nil {
+		return Request{}, err
 	}
 
 	var id string
@@ -287,6 +298,10 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if err := tx.QueryRow(ctx,
 		`UPDATE access_requests SET status = 'approved', closed_at = now() WHERE id = $1
 		 RETURNING beneficiary_id, role_id, entitlement_id, duration_days`, id).Scan(&beneficiary, &role, &ent, &days); err != nil {
+		return err
+	}
+	// Separation of duties may have changed since the request was made.
+	if err := sod.Check(ctx, tx, beneficiary, deref(role), deref(ent)); err != nil {
 		return err
 	}
 	// An earlier, expired grant from a request makes way for this one.

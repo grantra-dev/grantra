@@ -22,7 +22,7 @@ curl -b cookies -X POST localhost:8080/api/v1/access-requests -d '{
 | `duration_days` | Optional, 1 to 365. The access ends on its own after that. Without it, the access lasts until someone removes it |
 | `beneficiary_id` | Who gets the access, when it is not the requester. Only their manager (or an admin) can ask for someone else |
 
-A request is refused when the person already has that access, already has an open request for it, or is not active.
+A request is refused when the person already has that access, already has an open request for it, is not active, or the access would break a `prevent` [separation of duties](separation-of-duties.md) policy (checked again at approval).
 
 ## Approvals
 
