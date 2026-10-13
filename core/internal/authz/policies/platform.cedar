@@ -33,6 +33,44 @@ permit (principal in Role::"grantra-auditor", action in Action::"read", resource
 forbid (principal, action == Action::"platform_role.grant", resource)
 when { context.target == principal };
 
+// Everyone can see what they could ask for.
+@id("requestable-read-all")
+permit (principal, action == Action::"requestable.read", resource);
+
+// People ask for access for themselves, and managers for their reports.
+@id("request-for-self")
+permit (principal, action == Action::"access_request.create", resource)
+when { resource == principal };
+
+@id("request-for-direct-reports")
+permit (principal, action == Action::"access_request.create", resource is Identity)
+when { resource has manager && resource.manager == principal };
+
+// A request is visible to whoever asked, whoever would get the access and
+// everyone asked to approve it.
+@id("request-read-involved")
+permit (principal, action == Action::"access_request.read", resource is AccessRequest)
+when {
+  resource.requester == principal ||
+  resource.beneficiary == principal ||
+  resource.approvers.contains(principal)
+};
+
+// The approver of the current step decides it. Admins can decide any step,
+// including the ones that wait on an admin.
+@id("request-decide-approver")
+permit (principal, action == Action::"access_request.decide", resource is AccessRequest)
+when { resource.current_approvers.contains(principal) };
+
+@id("request-cancel-own")
+permit (principal, action == Action::"access_request.cancel", resource is AccessRequest)
+when { resource.requester == principal || resource.beneficiary == principal };
+
+// Nobody approves their own access, not even an admin.
+@id("no-self-approval")
+forbid (principal, action == Action::"access_request.decide", resource is AccessRequest)
+when { resource.beneficiary == principal };
+
 // Only active identities act. Sessions already end when an identity stops
 // being active; this keeps that true for any future way in.
 @id("only-active-identities")

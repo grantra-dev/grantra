@@ -65,6 +65,12 @@ const (
 	ManageCatalog      Action = "catalog.manage"
 	ReadAccessRules    Action = "access_rule.read"
 	ManageAccessRules  Action = "access_rule.manage"
+	ReadRequestable    Action = "requestable.read"
+	CreateRequest      Action = "access_request.create"
+	ReadRequest        Action = "access_request.read"
+	ListRequests       Action = "access_request.list"
+	DecideRequest      Action = "access_request.decide"
+	CancelRequest      Action = "access_request.cancel"
 )
 
 var actionGroup = map[Action]string{
@@ -82,6 +88,12 @@ var actionGroup = map[Action]string{
 	ManageCatalog:      "write",
 	ReadAccessRules:    "read",
 	ManageAccessRules:  "write",
+	ReadRequestable:    "read",
+	CreateRequest:      "write",
+	ReadRequest:        "read",
+	ListRequests:       "read",
+	DecideRequest:      "write",
+	CancelRequest:      "write",
 }
 
 // Writes reports whether the action changes something.
@@ -145,6 +157,32 @@ func LifecycleResource() Resource { return Resource{uid: cedar.NewEntityUID("Lif
 // CatalogResource is the tenant's catalog of applications, entitlements and
 // business roles, with the birthright rules that hand them out.
 func CatalogResource() Resource { return Resource{uid: cedar.NewEntityUID("Catalog", "tenant")} }
+
+// RequestsResource is every access request of the tenant.
+func RequestsResource() Resource { return Resource{uid: cedar.NewEntityUID("Requests", "tenant")} }
+
+// AccessRequestResource is one access request: who asked, for whom, everyone
+// asked to approve it, and who may decide its current step. Empty current
+// approvers mean the step waits on an admin.
+func AccessRequestResource(id, requester, beneficiary string, approvers, current []string) Resource {
+	identities := func(ids []string) cedar.Set {
+		vals := make([]cedar.Value, 0, len(ids))
+		for _, id := range ids {
+			vals = append(vals, cedar.NewEntityUID("Identity", cedar.String(id)))
+		}
+		return cedar.NewSet(vals...)
+	}
+	e := cedar.Entity{
+		UID: cedar.NewEntityUID("AccessRequest", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{
+			"requester":         cedar.NewEntityUID("Identity", cedar.String(requester)),
+			"beneficiary":       cedar.NewEntityUID("Identity", cedar.String(beneficiary)),
+			"approvers":         identities(approvers),
+			"current_approvers": identities(current),
+		}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {
