@@ -39,6 +39,9 @@ func TestAccessRequests(t *testing.T) {
 	if rec := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("preview without target = %d", rec.Code)
 	}
+	if rec := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{"entitlement_id": "not-an-id"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("preview of an unknown entitlement = %d", rec.Code)
+	}
 	rec := e.do(ana, http.MethodPost, "/api/v1/access-requests", body)
 	req := decode[requests.Request](t, rec)
 	if rec.Code != http.StatusCreated || req.Status != requests.Pending {

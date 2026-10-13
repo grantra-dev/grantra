@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router";
 import { Layout } from "@/components/Layout";
 import { ApiError, getMe } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
+import { Approvals } from "@/pages/Approvals";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { Home } from "@/pages/Home";
 import { MyAccess } from "@/pages/MyAccess";
@@ -34,6 +35,7 @@ export function App() {
     "/my-access": <MyAccess me={me} />,
     "/request": <RequestAccess me={me} />,
     "/requests": <MyRequests me={me} />,
+    "/approvals": <Approvals me={me} />,
   };
   return (
     <Routes>
