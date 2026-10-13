@@ -77,7 +77,8 @@ curl -b cookies -X POST localhost:8080/api/v1/applications/$APP/provisioning-run
 - **Dry runs** (`?dry_run=true`) show every action and change nothing. They work while provisioning is off, to see what turning it on would do.
 - **Plans start from what is really there.** A run needs a successful aggregation of the application in the last 24 hours; otherwise the API answers `409` and asks for one.
 - **Big runs are refused** past `max_change_percent` (`409`, recorded as `refused` with its plan). Check the plan, then repeat with `?force=true` if it is right.
-- **One run at a time per application.** A run locks the application, so aggregations and other runs of it wait.
+- **One run at a time per application.** A run is recorded as `running` before it changes anything. Another run of the same application answers `409`, and aggregations of it are refused until the run ends.
+- **Nothing done is ever forgotten.** Each action is recorded, with the account or membership it changed, as soon as the application confirms it, not at the end of the run. If Grantra stops halfway (shutdown, lost database), the run ends as `interrupted`: actions marked `done` happened, actions still `planned` did not, and the next run plans those again. A run left `running` by a crash is closed as `interrupted` once it is older than the 10 minutes any run may take.
 - **Failures don't stop the run.** Each action is tried and recorded with its outcome; the run is `succeeded`, `partial` or `failed` (`502` for the last two). The next run tries again what is still missing.
 - **Everything is audited**: one `provisioning.<action>` event per action with its outcome, and `application.provisioned` per run. Runs and their actions are in `connector_runs`.
 - Accounts Grantra creates are linked to their person as `provisioned`, and memberships it adds are marked `provisioned_at`. Both survive aggregations.
