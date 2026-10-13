@@ -2,8 +2,8 @@
 //
 // A connector reads what exists in an application (aggregation): its
 // entitlements (groups, roles, licenses) and its accounts with the
-// entitlements each one holds. Writing changes back (provisioning) comes in a
-// later version of this interface.
+// entitlements each one holds. Connectors that implement Writer can also
+// change the application (provisioning).
 //
 // Connector kinds register a Factory under their name; an application's
 // connector column names the kind and its config column holds the settings.
@@ -56,6 +56,28 @@ type Reader interface {
 	// rather than a partial snapshot: a missing page would look like deleted
 	// accounts.
 	Read(ctx context.Context) (Snapshot, error)
+}
+
+// NewAccount describes an account to create.
+type NewAccount struct {
+	Username    string
+	Email       string
+	DisplayName string
+	ExternalID  string
+}
+
+// Writer changes an application. Connectors that can provision implement it
+// on top of Reader. SetActive, AddMember and RemoveMember must be safe to
+// repeat: adding a member twice or disabling a disabled account is not an
+// error.
+type Writer interface {
+	// CreateAccount creates an active account and returns its native id.
+	CreateAccount(ctx context.Context, a NewAccount) (string, error)
+	// SetActive enables or disables an account.
+	SetActive(ctx context.Context, accountID string, active bool) error
+	// AddMember and RemoveMember change who holds an entitlement.
+	AddMember(ctx context.Context, entitlementID, accountID string) error
+	RemoveMember(ctx context.Context, entitlementID, accountID string) error
 }
 
 // SecretResolver turns a secret reference from a connector config into its

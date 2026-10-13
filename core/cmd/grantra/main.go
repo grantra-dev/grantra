@@ -23,6 +23,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/provisioning"
 	"github.com/grantra-dev/grantra/core/internal/server"
 )
 
@@ -87,6 +88,7 @@ func run() error {
 	go applyDueDates(ctx, log, pool, tenantID)
 	go applyBirthright(ctx, log, pool, tenantID)
 	go aggregateApplications(ctx, log, pool, tenantID)
+	go provisionApplications(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -198,6 +200,31 @@ func aggregateApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.
 				log.WarnContext(ctx, "aggregation failed", "application", r.ApplicationID, "error", r.Error)
 			} else {
 				log.InfoContext(ctx, "aggregated application", "application", r.ApplicationID, "counts", r.Counts)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// provisionApplications writes pending changes to every application with
+// provisioning on, every five minutes.
+func provisionApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(5 * time.Minute)
+	defer tick.Stop()
+	for {
+		runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, connector.EnvSecrets)
+		if err != nil && ctx.Err() == nil {
+			log.ErrorContext(ctx, "provision applications", "err", err)
+		}
+		for _, r := range runs {
+			if r.Status == accounts.RunSucceeded {
+				log.InfoContext(ctx, "provisioned application", "application", r.ApplicationID, "counts", r.Counts)
+			} else {
+				log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
 			}
 		}
 		select {

@@ -34,6 +34,8 @@ const (
 	ByEmail      = "rule:email"
 	ByUsername   = "rule:username"
 	ByHand       = "manual"
+	// ByProvisioning marks accounts Grantra created for an identity.
+	ByProvisioning = "provisioned"
 )
 
 // SetConnector configures how Grantra reads an application. The config is
@@ -86,6 +88,11 @@ type Run struct {
 const (
 	RunSucceeded = "succeeded"
 	RunFailed    = "failed"
+	// Provisioning runs can also be dry runs (planned), partly fail, or be
+	// refused by a safety limit.
+	RunPlanned = "planned"
+	RunPartial = "partial"
+	RunRefused = "refused"
 )
 
 // readTimeout bounds how long an aggregation may spend reading.
@@ -299,7 +306,8 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		seen[a.NativeID] = true
 		prev, known := old[a.NativeID]
 		identity, by := prev.identity, prev.correlatedBy
-		if by != ByHand {
+		// Links made by hand or by provisioning are decisions, not guesses.
+		if by != ByHand && by != ByProvisioning {
 			identity, by = cand.match(a)
 		}
 		var ident, corr *string
