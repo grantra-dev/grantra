@@ -27,8 +27,14 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any, example string) b
 // guarded runs fn in a tenant transaction once the policies allow action on
 // the catalog.
 func (a *API) guarded(r *http.Request, action authz.Action, fn func(tx pgx.Tx, me authz.Subject) error) error {
+	return a.guardedOn(r, action, authz.CatalogResource(), fn)
+}
+
+// guardedOn runs fn in a tenant transaction once the policies allow action
+// on resource.
+func (a *API) guardedOn(r *http.Request, action authz.Action, resource authz.Resource, fn func(tx pgx.Tx, me authz.Subject) error) error {
 	return a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: action, Resource: authz.CatalogResource()}); err != nil {
+		if err := a.check(r.Context(), authz.Request{Principal: me, Action: action, Resource: resource}); err != nil {
 			return err
 		}
 		return fn(tx, me)

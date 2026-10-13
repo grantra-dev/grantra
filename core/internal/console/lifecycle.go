@@ -124,6 +124,15 @@ func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "dry_run and force must be true or false")
 		return
 	}
+	// Check the permission before taking the upload, so people who may not
+	// sync cannot make the server read 32 MiB bodies.
+	err := a.inTenant(r, func(_ pgx.Tx, me authz.Subject) error {
+		return a.check(r.Context(), authz.Request{Principal: me, Action: authz.SyncSource, Resource: authz.LifecycleResource()})
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
 	// Read the whole file before opening the transaction, so a slow upload
 	// does not hold locks.
 	feed, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFeedBytes))

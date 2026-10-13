@@ -53,10 +53,15 @@ func TestIdentitySources(t *testing.T) {
 	if rec := e.do(auditor, http.MethodPost, runs, feed); rec.Code != http.StatusForbidden {
 		t.Errorf("sync as auditor = %d", rec.Code)
 	}
+	// The permission is checked before the upload is read: a file over the
+	// size limit from someone who may not sync is refused, not measured.
+	if rec := e.do(auditor, http.MethodPost, runs, strings.Repeat("x", maxFeedBytes+1)); rec.Code != http.StatusForbidden {
+		t.Errorf("oversized sync as auditor = %d, want 403", rec.Code)
+	}
 	if rec := e.do(helpdesk, http.MethodGet, "/api/v1/identity-sources", ""); rec.Code != http.StatusForbidden {
 		t.Errorf("list as helpdesk = %d", rec.Code)
 	}
-	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'authz.denied' AND details->>'action' = 'identity_source.sync'`); n != 1 {
+	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'authz.denied' AND details->>'action' = 'identity_source.sync'`); n != 2 {
 		t.Errorf("denied sync audit events = %d, want 1", n)
 	}
 
