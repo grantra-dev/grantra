@@ -54,11 +54,11 @@ func TestProvisioning(t *testing.T) {
 		}
 	}))
 	defer scim.Close()
-	t.Setenv("TEST_CRM_TOKEN", "t0ken")
+	t.Setenv("GRANTRA_SECRET_TEST_CRM_TOKEN", "t0ken")
 
 	app := decode[catalog.Application](t, e.do(admin, http.MethodPost, "/api/v1/applications", `{"name": "CRM"}`))
 	base := "/api/v1/applications/" + app.ID
-	cfg := `{"kind": "scim", "config": {"base_url": "` + scim.URL + `/scim/v2", "token": "env:TEST_CRM_TOKEN", "allow_http": true}}`
+	cfg := `{"kind": "scim", "config": {"base_url": "` + scim.URL + `/scim/v2", "token": "env:GRANTRA_SECRET_TEST_CRM_TOKEN", "allow_http": true}}`
 	if rec := e.do(admin, http.MethodPut, base+"/connector", cfg); rec.Code != http.StatusNoContent {
 		t.Fatalf("set connector = %d %s", rec.Code, rec.Body)
 	}

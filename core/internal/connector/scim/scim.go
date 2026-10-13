@@ -29,7 +29,7 @@ func init() { connector.Register(Kind, New) }
 type Config struct {
 	// BaseURL is the SCIM endpoint, e.g. https://crm.example.com/scim/v2.
 	BaseURL string `json:"base_url"`
-	// Token is a reference to the bearer token, e.g. "env:CRM_SCIM_TOKEN".
+	// Token is a reference to the bearer token, e.g. "env:GRANTRA_SECRET_CRM_SCIM_TOKEN".
 	Token string `json:"token"`
 	// PageSize is how many resources to ask for per request. Default 100.
 	PageSize int `json:"page_size,omitempty"`
@@ -61,7 +61,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (connector.Reade
 		return nil, errors.New("scim config: base_url must use https (set allow_http only for labs)")
 	}
 	if cfg.Token == "" {
-		return nil, errors.New(`scim config: token is required, as a reference like "env:CRM_SCIM_TOKEN"`)
+		return nil, errors.New(`scim config: token is required, as a reference like "env:GRANTRA_SECRET_CRM_SCIM_TOKEN"`)
 	}
 	token, err := secrets(cfg.Token)
 	if err != nil {

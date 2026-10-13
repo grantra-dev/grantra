@@ -38,7 +38,7 @@ type Application struct {
 	Name      string `json:"name"`
 	Connector string `json:"connector"`
 	// Config is the connector's settings. It never holds secrets, only
-	// references to them such as "env:CRM_SCIM_TOKEN".
+	// references to them such as "env:GRANTRA_SECRET_CRM_SCIM_TOKEN".
 	Config json.RawMessage `json:"config"`
 	// Provisioning is how Grantra writes to the application, see the
 	// provisioning package.
