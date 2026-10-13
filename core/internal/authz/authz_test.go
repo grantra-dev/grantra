@@ -112,6 +112,15 @@ func TestDecisions(t *testing.T) {
 		{"helpdesk cannot sync", Request{Principal: helpdesk, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
 		{"employee cannot sync", Request{Principal: report, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
 
+		// Catalog and birthright rules.
+		{"admin manages catalog", Request{Principal: admin, Action: ManageCatalog, Resource: CatalogResource()}, true, []string{"admin-all"}},
+		{"admin manages rules", Request{Principal: admin, Action: ManageAccessRules, Resource: CatalogResource()}, true, nil},
+		{"auditor reads catalog", Request{Principal: auditor, Action: ReadCatalog, Resource: CatalogResource()}, true, nil},
+		{"auditor reads rules", Request{Principal: auditor, Action: ReadAccessRules, Resource: CatalogResource()}, true, nil},
+		{"auditor cannot change rules", Request{Principal: auditor, Action: ManageAccessRules, Resource: CatalogResource()}, false, nil},
+		{"helpdesk cannot change catalog", Request{Principal: helpdesk, Action: ManageCatalog, Resource: CatalogResource()}, false, nil},
+		{"employee cannot change rules", Request{Principal: report, Action: ManageAccessRules, Resource: CatalogResource()}, false, nil},
+
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
 		{"suspended person cannot read self", Request{Principal: suspendedAdmin, Action: ReadIdentity, Resource: IdentityResource(suspendedAdmin)}, false, nil},
