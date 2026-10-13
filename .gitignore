@@ -34,3 +34,9 @@ go.work.sum
 
 # Build output
 /bin/
+
+# Web console
+node_modules/
+/web/dist/
+/core/internal/webui/dist/*
+!/core/internal/webui/dist/.gitkeep

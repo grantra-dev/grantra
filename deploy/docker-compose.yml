@@ -43,7 +43,8 @@ services:
 
   grantra:
     build:
-      context: ../core
+      context: ..
+      dockerfile: core/Dockerfile
     environment:
       GRANTRA_DATABASE_URL: postgres://grantra_app:grantra@postgres:5432/grantra?sslmode=disable
       GRANTRA_LOG_LEVEL: debug

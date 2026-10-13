@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -23,8 +24,9 @@ var Version = "dev"
 
 // New returns the root HTTP handler. login and api may be nil when console
 // login is not configured; the endpoints that need a signed-in person then
-// answer 503.
-func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API) http.Handler {
+// answer 503. ui is the built web console; when it is nil a placeholder home
+// page is served instead.
+func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API, ui fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
 	// Liveness: the process is up.
@@ -51,14 +53,23 @@ func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API) htt
 	if login != nil && api != nil {
 		login.Register(mux)
 		api.Register(mux, login.Require)
+		// Unknown API paths answer JSON, not the console page.
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		})
 	} else {
 		mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "login is not configured"})
 		})
 	}
 
-	// Placeholder home page until the React console lands: shows who is signed
-	// in and offers login and logout.
+	if ui != nil {
+		mux.Handle("/", consoleHandler(ui))
+		return securityHeaders(mux)
+	}
+
+	// Placeholder home page for binaries built without the web console: shows
+	// who is signed in and offers login and logout.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data := struct {
 			LoginEnabled bool

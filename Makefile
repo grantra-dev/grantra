@@ -1,6 +1,12 @@
-.PHONY: build test test-db lint up down
+.PHONY: build web test test-db lint web-lint web-test up down
 
-build:
+# Builds the web console and copies it where the Go binary embeds it.
+web:
+	cd web && npm ci && npm run build
+	find core/internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
+	cp -R web/dist/. core/internal/webui/dist/
+
+build: web
 	cd core && go build -o ../bin/grantra ./cmd/grantra
 
 test:
@@ -13,6 +19,12 @@ test-db:
 
 lint:
 	cd core && go vet ./... && test -z "$$(gofmt -l .)"
+
+web-lint:
+	cd web && npm run lint && npm run typecheck
+
+web-test:
+	cd web && npm test
 
 up:
 	docker compose -f deploy/docker-compose.yml up --build
