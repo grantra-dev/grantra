@@ -57,6 +57,10 @@ const (
 	ReadPlatformRole   Action = "platform_role.read"
 	GrantPlatformRole  Action = "platform_role.grant"
 	RevokePlatformRole Action = "platform_role.revoke"
+	ReadSources        Action = "identity_source.read"
+	ManageSources      Action = "identity_source.manage"
+	SyncSource         Action = "identity_source.sync"
+	ReadLifecycle      Action = "lifecycle_event.read"
 )
 
 var actionGroup = map[Action]string{
@@ -66,7 +70,14 @@ var actionGroup = map[Action]string{
 	ReadPlatformRole:   "read",
 	GrantPlatformRole:  "write",
 	RevokePlatformRole: "write",
+	ReadSources:        "read",
+	ManageSources:      "write",
+	SyncSource:         "write",
+	ReadLifecycle:      "read",
 }
+
+// Writes reports whether the action changes something.
+func (a Action) Writes() bool { return actionGroup[a] == "write" }
 
 // Subject is an identity as policies see it.
 type Subject struct {
@@ -118,6 +129,10 @@ func DirectoryResource() Resource {
 
 // AuditLogResource is the tenant's audit log.
 func AuditLogResource() Resource { return Resource{uid: cedar.NewEntityUID("AuditLog", "tenant")} }
+
+// LifecycleResource is the tenant's identity sources (HR) and the lifecycle
+// events they produce.
+func LifecycleResource() Resource { return Resource{uid: cedar.NewEntityUID("Lifecycle", "tenant")} }
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {

@@ -11,11 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/server"
 )
 
@@ -77,6 +80,8 @@ func run() error {
 		}
 	}
 
+	go applyDueDates(ctx, log, pool, tenantID)
+
 	az, err := authz.New()
 	if err != nil {
 		return err
@@ -126,4 +131,26 @@ func run() error {
 		return srv.Shutdown(shutdownCtx)
 	}
 	return nil
+}
+
+// applyDueDates activates people whose start date has come and offboards
+// people past their end date, on start and every quarter of an hour, so dates
+// take effect between HR syncs too.
+func applyDueDates(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(15 * time.Minute)
+	defer tick.Stop()
+	for {
+		activated, left, err := lifecycle.ApplyDueDates(ctx, pool, tenantID, time.Now())
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.ErrorContext(ctx, "apply start and end dates", "err", err)
+		case activated+left > 0:
+			log.InfoContext(ctx, "applied start and end dates", "activated", activated, "left", left)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }

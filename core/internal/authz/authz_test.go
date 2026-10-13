@@ -102,6 +102,16 @@ func TestDecisions(t *testing.T) {
 		{"helpdesk cannot grant", Request{Principal: helpdesk, Action: GrantPlatformRole, Resource: RoleResource(RoleHelpdesk), Target: &report}, false, nil},
 		{"manager cannot grant", Request{Principal: manager, Action: GrantPlatformRole, Resource: RoleResource(RoleAdmin), Target: &report}, false, nil},
 
+		// Identity sources and lifecycle events.
+		{"admin syncs a source", Request{Principal: admin, Action: SyncSource, Resource: LifecycleResource()}, true, []string{"admin-all"}},
+		{"admin manages sources", Request{Principal: admin, Action: ManageSources, Resource: LifecycleResource()}, true, nil},
+		{"auditor reads sources", Request{Principal: auditor, Action: ReadSources, Resource: LifecycleResource()}, true, []string{"auditor-read-all"}},
+		{"auditor reads lifecycle events", Request{Principal: auditor, Action: ReadLifecycle, Resource: LifecycleResource()}, true, nil},
+		{"auditor cannot sync", Request{Principal: auditor, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
+		{"helpdesk cannot read sources", Request{Principal: helpdesk, Action: ReadSources, Resource: LifecycleResource()}, false, nil},
+		{"helpdesk cannot sync", Request{Principal: helpdesk, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
+		{"employee cannot sync", Request{Principal: report, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
+
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
 		{"suspended person cannot read self", Request{Principal: suspendedAdmin, Action: ReadIdentity, Resource: IdentityResource(suspendedAdmin)}, false, nil},
