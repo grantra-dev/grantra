@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
@@ -69,6 +70,14 @@ func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.CreateRequest, Resource: authz.IdentityResource(target)}); err != nil {
+			return err
+		}
+		if in.RoleID != "" {
+			err = catalog.CheckRoles(r.Context(), tx, []string{in.RoleID})
+		} else {
+			err = catalog.CheckEntitlements(r.Context(), tx, []string{in.EntitlementID})
+		}
+		if err != nil {
 			return err
 		}
 		conflicts, err = sod.Conflicts(r.Context(), tx, target.ID, in.RoleID, in.EntitlementID)

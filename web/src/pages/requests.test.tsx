@@ -1,10 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
-import { App } from "@/App";
+import { describe, expect, it } from "vitest";
 import type { AccessRequest, Me, Requestable } from "@/lib/api";
+import { ok, renderAt, serve, type Handler } from "@/test-utils";
 
 const me: Me = {
   identity_id: "me",
@@ -52,23 +50,6 @@ const pendingRequest: AccessRequest = {
   ],
 };
 
-type Handler = (init?: RequestInit) => { status: number; body: unknown };
-
-function serve(routes: Record<string, Handler>) {
-  const fetch = vi.fn(async (path: string, init?: RequestInit) => {
-    const key = `${init?.method ?? "GET"} ${path}`;
-    const r = routes[key]?.(init) ?? { status: 404, body: { error: `no route ${key}` } };
-    return new Response(JSON.stringify(r.body), {
-      status: r.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
-  vi.stubGlobal("fetch", fetch);
-  return fetch;
-}
-
-const ok = (body: unknown) => () => ({ status: 200, body });
-
 function base(requests: AccessRequest[] = []): Record<string, Handler> {
   return {
     "GET /api/v1/me": ok(me),
@@ -76,17 +57,6 @@ function base(requests: AccessRequest[] = []): Record<string, Handler> {
     "GET /api/v1/identities/me/access": ok({ assignments: [] }),
     "GET /api/v1/access-requests?scope=mine&limit=200": ok({ requests }),
   };
-}
-
-function renderAt(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
 }
 
 describe("Request access", () => {

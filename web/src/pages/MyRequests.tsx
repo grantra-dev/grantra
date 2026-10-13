@@ -1,18 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Circle, CircleDot, Minus, X } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
+import { RequestSteps } from "@/components/RequestSteps";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  cancelRequest,
-  listMyRequests,
-  type AccessRequest,
-  type ApprovalStep,
-  type Me,
-} from "@/lib/api";
+import { cancelRequest, listMyRequests, type AccessRequest, type Me } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 const statusBadges = {
@@ -102,11 +96,7 @@ function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
         {r.reason && <p className="mt-1 text-sm text-slate-500">{closingReason(r.reason)}</p>}
-        <ol className="mt-3 flex flex-col gap-1.5 border-t border-slate-100 pt-3">
-          {r.steps.map((s) => (
-            <StepLine key={s.position} s={s} />
-          ))}
-        </ol>
+        <RequestSteps steps={r.steps} />
         {cancel.error && (
           <Alert variant="error" className="mt-3">
             {cancel.error.message}
@@ -122,40 +112,4 @@ function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
 function closingReason(reason: string) {
   if (reason.startsWith("withdrawn")) return "Withdrawn.";
   return reason[0]!.toUpperCase() + reason.slice(1) + ".";
-}
-
-const kindLabels = { manager: "Manager", owner: "Owner", admin: "Grantra admins" };
-
-const stepIcons = {
-  waiting: <Circle className="size-4 text-slate-300" aria-hidden />,
-  pending: <CircleDot className="size-4 text-amber-600" aria-hidden />,
-  approved: <Check className="size-4 text-emerald-600" aria-hidden />,
-  rejected: <X className="size-4 text-red-600" aria-hidden />,
-  skipped: <Minus className="size-4 text-slate-300" aria-hidden />,
-};
-
-const stepLabels = {
-  waiting: "next",
-  pending: "deciding now",
-  approved: "approved",
-  rejected: "rejected",
-  skipped: "skipped",
-};
-
-function StepLine({ s }: { s: ApprovalStep }) {
-  const who = s.kind === "admin" ? kindLabels.admin : `${kindLabels[s.kind]}: ${s.approver_name}`;
-  return (
-    <li className="flex items-start gap-2 text-sm">
-      <span className="mt-0.5">{stepIcons[s.status]}</span>
-      <span>
-        <span className="font-medium">{who}</span>{" "}
-        <span className="text-slate-500">
-          {stepLabels[s.status]}
-          {s.decided_at && ` on ${formatDate(s.decided_at)}`}
-          {s.status === "pending" && s.due_at && `, by ${formatDate(s.due_at)} or it expires`}
-        </span>
-        {s.comment && <span className="text-slate-600"> · “{s.comment}”</span>}
-      </span>
-    </li>
-  );
 }

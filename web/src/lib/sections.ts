@@ -69,7 +69,6 @@ export const sections: Section[] = [
     description: "Access requests waiting for your decision.",
     icon: ClipboardCheck,
     visible: approves,
-    issue: 22,
   },
   {
     path: "/reviews",

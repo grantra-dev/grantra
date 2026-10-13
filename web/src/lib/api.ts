@@ -147,3 +147,14 @@ export const listMyRequests = () =>
 
 export const cancelRequest = (id: string) =>
   post<AccessRequest>(`/api/v1/access-requests/${encodeURIComponent(id)}/cancel`);
+
+export const listApprovals = () =>
+  api<{ requests: AccessRequest[] }>("/api/v1/access-requests?scope=approvals&limit=200").then(
+    (r) => r.requests,
+  );
+
+export const decideRequest = (id: string, decision: "approve" | "reject", comment: string) =>
+  post<AccessRequest>(`/api/v1/access-requests/${encodeURIComponent(id)}/decision`, {
+    decision,
+    comment,
+  });
