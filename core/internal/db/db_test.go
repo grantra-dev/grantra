@@ -58,7 +58,10 @@ func TestTenantIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if privileged {
-		_, err := pool.Exec(ctx, `DO $$ BEGIN
+		// Test packages run in parallel and concurrent GRANTs on the same
+		// tables fail, so every test role setup takes the same advisory lock.
+		_, err := pool.Exec(ctx, `SELECT pg_advisory_xact_lock(7244618);
+		DO $$ BEGIN
 			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'grantra_rls_test') THEN
 				CREATE ROLE grantra_rls_test NOLOGIN NOSUPERUSER NOBYPASSRLS;
 			END IF;
