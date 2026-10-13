@@ -174,16 +174,5 @@ func (s *Service) closeSession(ctx context.Context, token string) (string, error
 }
 
 func audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, identityID string, details map[string]any) error {
-	if details == nil {
-		details = map[string]any{}
-	}
-	var target, targetType *string
-	if identityID != "" {
-		t := "identity"
-		target, targetType = &identityID, &t
-	}
-	_, err := tx.Exec(ctx,
-		`INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id, details)
-		 VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, actor, action, targetType, target, details)
-	return err
+	return db.Audit(ctx, tx, tenantID, actor, action, "identity", identityID, details)
 }

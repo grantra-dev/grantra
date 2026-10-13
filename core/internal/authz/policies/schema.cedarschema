@@ -1,0 +1,53 @@
+// Entities and actions the console API authorizes. Policies in this directory
+// are validated against this schema in the tests.
+
+// A platform role: grantra-admin, grantra-helpdesk or grantra-auditor.
+entity Role;
+
+// A person or service. Membership in a Role means holding that platform role.
+entity Identity in [Role] {
+  status: String,
+  kind: String,
+  manager?: Identity,
+};
+
+// The list of all identities of the tenant.
+entity Directory;
+
+// The tenant's audit log.
+entity AuditLog;
+
+// Action groups.
+action "read";
+action "write";
+
+action "identity.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Identity,
+  context: {},
+};
+
+action "identity.list" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Directory,
+  context: {},
+};
+
+action "audit.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: AuditLog,
+  context: {},
+};
+
+action "platform_role.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Role,
+  context: {},
+};
+
+// target is the identity receiving or losing the role.
+action "platform_role.grant", "platform_role.revoke" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Role,
+  context: { target: Identity },
+};
