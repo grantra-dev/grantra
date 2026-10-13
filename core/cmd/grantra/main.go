@@ -24,6 +24,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
+	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/server"
 )
 
@@ -89,6 +90,7 @@ func run() error {
 	go applyBirthright(ctx, log, pool, tenantID)
 	go aggregateApplications(ctx, log, pool, tenantID)
 	go provisionApplications(ctx, log, pool, tenantID)
+	go expireRequests(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -226,6 +228,28 @@ func provisionApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.
 			} else {
 				log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
 			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// expireRequests closes access requests nobody decided in time, or for people
+// who left, and removes access whose time is up, every five minutes.
+func expireRequests(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(5 * time.Minute)
+	defer tick.Stop()
+	for {
+		h, err := requests.ExpireDue(ctx, pool, tenantID)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.ErrorContext(ctx, "expire access requests", "err", err)
+		case h.Expired+h.Cancelled+h.AccessEnded > 0:
+			log.InfoContext(ctx, "closed access requests and ended expired access",
+				"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
 		}
 		select {
 		case <-ctx.Done():

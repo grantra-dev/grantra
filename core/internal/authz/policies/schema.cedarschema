@@ -25,6 +25,18 @@ entity Lifecycle;
 // birthright rules that give them out.
 entity Catalog;
 
+// Every access request of the tenant.
+entity Requests;
+
+// One access request. approvers are everyone asked to approve it;
+// current_approvers may decide the step it waits on (empty: an admin).
+entity AccessRequest {
+  requester: Identity,
+  beneficiary: Identity,
+  approvers: Set<Identity>,
+  current_approvers: Set<Identity>,
+};
+
 // Action groups.
 action "read";
 action "write";
@@ -82,5 +94,38 @@ action "catalog.read", "access_rule.read" in ["read"] appliesTo {
 action "catalog.manage", "access_rule.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: Catalog,
+  context: {},
+};
+
+// What people can ask for: roles and entitlements outside the built-in
+// application.
+action "requestable.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Catalog,
+  context: {},
+};
+
+// resource is the person who would get the access.
+action "access_request.create" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Identity,
+  context: {},
+};
+
+action "access_request.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: AccessRequest,
+  context: {},
+};
+
+action "access_request.list" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Requests,
+  context: {},
+};
+
+action "access_request.decide", "access_request.cancel" in ["write"] appliesTo {
+  principal: Identity,
+  resource: AccessRequest,
   context: {},
 };

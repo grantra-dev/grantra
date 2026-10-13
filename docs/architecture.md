@@ -11,7 +11,7 @@ Grantra starts as a **modular monolith** in Go: one binary with well-separated m
 | Database | PostgreSQL, with row-level security for tenant isolation |
 | Policy engine | Cedar (embedded via `cedar-go`), optional OPA integration |
 | Identity provider | No home-grown IdP. Keycloak ships preconfigured and can be replaced by the customer's IdP |
-| Events / workflows | NATS JetStream and Temporal (to be added when the first workflows land) |
+| Events / workflows | NATS JetStream and Temporal (to be added when flows need them; access request approvals run as Postgres state) |
 | Frontend | React + TypeScript |
 
 ## Core data model
@@ -74,7 +74,8 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |
 | `/api/v1/identity-sources`, `/api/v1/lifecycle-events` | HR sources and joiner/mover/leaver events, see [identity-lifecycle.md](identity-lifecycle.md) |
 | `/api/v1/applications`, `/api/v1/roles`, `/api/v1/access-rules`, `/api/v1/identities/{id}/access` | Catalog, birthright rules and assigned access, see [access.md](access.md) |
-| `/api/v1/applications/{id}/connector`, `/aggregations`, `/accounts`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation and correlation, see [connectors.md](connectors.md) |
+| `/api/v1/applications/{id}/connector`, `/aggregations`, `/accounts`, `/provisioning`, `/provisioning-runs`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation, correlation and provisioning, see [connectors.md](connectors.md) |
+| `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
 
 ## Identity lifecycle
 
