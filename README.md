@@ -40,7 +40,7 @@ make up
 
 ## Development
 
-Requires Go 1.25+.
+Requires Go 1.26+ (CI builds with the toolchain pinned in `core/go.mod`).
 
 ```sh
 make test      # unit tests
