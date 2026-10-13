@@ -81,7 +81,8 @@ type Run struct {
 	Counts        map[string]int `json:"counts"`
 	Error         string         `json:"error,omitempty"`
 	StartedAt     time.Time      `json:"started_at"`
-	FinishedAt    time.Time      `json:"finished_at"`
+	// FinishedAt is empty while a provisioning run is still running.
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
 // Run statuses.
@@ -210,6 +211,16 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 	// One aggregation of an application at a time.
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM applications WHERE id = $1 FOR UPDATE`, appID); err != nil {
 		return err
+	}
+	// A provisioning run is changing the application right now; what was
+	// read may already be out of date.
+	var provisioning bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM connector_runs WHERE application_id = $1 AND status = 'running')`, appID).Scan(&provisioning); err != nil {
+		return err
+	}
+	if provisioning {
+		return &refused{"a provisioning run of this application is in progress; aggregate again once it finishes"}
 	}
 
 	var active int
@@ -405,6 +416,7 @@ func AggregateDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, ever
 			 WHERE a.connector NOT IN ($1, $2)
 			   AND NOT EXISTS (SELECT 1 FROM connector_runs r
 			                   WHERE r.application_id = a.id AND r.kind = 'aggregation' AND r.started_at > now() - make_interval(secs => $3))
+			   AND NOT EXISTS (SELECT 1 FROM connector_runs r WHERE r.application_id = a.id AND r.status = 'running')
 			 ORDER BY a.name`, manualConnector, builtinConnector, every.Seconds())
 		if err != nil {
 			return err

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -168,25 +169,53 @@ const MaxAggregationAge = 24 * time.Hour
 // runTimeout bounds how long a run may spend writing to the application.
 const runTimeout = 10 * time.Minute
 
+// recordTimeout bounds recording one action, or the end of a run, once the
+// application has answered.
+const recordTimeout = 30 * time.Second
+
 // Provision plans the changes an application needs and, unless it is a dry
 // run, carries them out. The run is recorded in connector_runs. Failures of
 // single actions do not stop the others; the run is then partial or failed.
 // The error is returned only when Grantra itself failed or the run could not
-// start (not found, provisioning off, no recent aggregation).
+// start (not found, provisioning off, no recent aggregation, another run in
+// progress).
+//
+// A run that writes is recorded as running, with its planned actions, before
+// the first change, and each change is recorded as soon as the application
+// confirms it. If Grantra stops halfway, what it already changed stays on
+// record and the run shows as interrupted; it is never lost with a rolled
+// back transaction.
 func Provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID, actor string, opts Options, secrets connector.SecretResolver) (Run, error) {
 	return provision(ctx, pool, tenantID, applicationID, actor, opts, secrets, true)
 }
+
+// ErrRunning is returned when a provisioning run of the application is
+// already in progress.
+var ErrRunning error = &apperr.Conflict{Msg: "a provisioning run of this application is already in progress"}
+
+// Run statuses beyond the ones aggregations share.
+const (
+	// RunRunning is a run still carrying out its actions.
+	RunRunning = "running"
+	// RunInterrupted is a run that stopped before finishing its actions:
+	// Grantra shut down or lost its database. Actions still "planned" did
+	// not happen; the next run plans them again.
+	RunInterrupted = "interrupted"
+)
 
 func provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID, actor string, opts Options, secrets connector.SecretResolver, recordEmpty bool) (Run, error) {
 	run := Run{Run: accounts.Run{ApplicationID: applicationID, Kind: "provisioning", Actor: actor, StartedAt: time.Now(), Counts: map[string]int{}}, Actions: []Action{}}
 	if !db.ValidUUID(applicationID) {
 		return run, apperr.ErrNotFound
 	}
-	ctx, cancel := context.WithTimeout(ctx, runTimeout)
-	defer cancel()
-	// One transaction for the whole run. Locking the application keeps
-	// aggregations and other provisioning runs of it waiting, so nobody
-	// plans from a state this run is changing.
+	var (
+		w connector.Writer
+		p *plan
+	)
+	// Plan in one transaction that locks the application, so aggregations
+	// and other runs wait and nobody plans from a state this run is about to
+	// change. A run that writes leaves the transaction recorded as running;
+	// that record keeps other runs and aggregations out until it finishes.
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		var (
 			kind     string
@@ -201,14 +230,16 @@ func provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID,
 		if err != nil {
 			return err
 		}
+		if err := closeStale(ctx, tx, tenantID, applicationID); err != nil {
+			return err
+		}
 		if err := settings.validate(); err != nil {
 			return err
 		}
 		if settings.Mode != ModeOn && !opts.DryRun {
 			return apperr.Conflictf("provisioning is off for this application; turn it on, or ask for a dry run")
 		}
-		w, err := writer(kind, config, secrets)
-		if err != nil {
+		if w, err = writer(kind, config, secrets); err != nil {
 			return err
 		}
 		var fresh bool
@@ -222,8 +253,7 @@ func provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID,
 			return apperr.Conflictf("no successful aggregation of this application in the last %s; aggregate it first so Grantra plans from what is really there", MaxAggregationAge)
 		}
 
-		p, err := loadPlan(ctx, tx, applicationID, settings)
-		if err != nil {
+		if p, err = loadPlan(ctx, tx, applicationID, settings); err != nil {
 			return err
 		}
 		run.Actions = p.actions
@@ -244,30 +274,102 @@ func provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID,
 			run.Error = fmt.Sprintf("the run would remove or disable %d of %d accounts, more than the %d%% limit; nothing was changed (check the plan, then force it if it is right)",
 				p.destructive(), p.accounts, settings.MaxChangePercent)
 		default:
-			if err := execute(ctx, tx, tenantID, applicationID, actor, w, p, run.Actions); err != nil {
-				return err
-			}
-			run.Status = outcome(run.Actions)
-			for _, a := range run.Actions {
-				if a.Status == ActionFailed {
-					run.Counts["failed"]++
-				}
-			}
+			run.Status = RunRunning
 		}
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO connector_runs (tenant_id, application_id, kind, actor, status, counts, error, started_at, actions)
-			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), $8, $9) RETURNING id, finished_at`,
+		var finished *time.Time
+		err = tx.QueryRow(ctx,
+			`INSERT INTO connector_runs (tenant_id, application_id, kind, actor, status, counts, error, started_at, actions, finished_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), $8, $9, CASE WHEN $5 = 'running' THEN NULL ELSE now() END)
+			 RETURNING id, finished_at`,
 			tenantID, applicationID, run.Kind, actor, run.Status, run.Counts, run.Error, run.StartedAt, run.Actions).
-			Scan(&run.ID, &run.FinishedAt); err != nil {
+			Scan(&run.ID, &finished)
+		if err != nil {
 			return err
 		}
-		details := map[string]any{"run_id": run.ID, "status": run.Status, "counts": run.Counts, "dry_run": opts.DryRun, "forced": opts.Force}
-		if run.Error != "" {
-			details["error"] = run.Error
+		run.FinishedAt = finished
+		if run.Status == RunRunning {
+			return nil
 		}
-		return db.Audit(ctx, tx, tenantID, actor, "application.provisioned", "application", applicationID, details)
+		return audit(ctx, tx, tenantID, actor, run, opts)
+	})
+	if err != nil || run.Status != RunRunning {
+		return run, err
+	}
+
+	// Carry out the actions. From here on the run must end on record even if
+	// the caller goes away, so the work does not follow ctx's cancellation;
+	// ctx ending only stops new actions from starting.
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runTimeout)
+	defer cancel()
+	if err := execute(ctx, wctx, pool, tenantID, applicationID, actor, w, p, run); err != nil {
+		// The run stays "running" on record; the next run of the application
+		// closes it as interrupted once it is past runTimeout.
+		return run, err
+	}
+	run.Status = outcome(run.Actions)
+	for _, a := range run.Actions {
+		if a.Status == ActionFailed {
+			run.Counts["failed"]++
+		}
+	}
+	if ctx.Err() != nil || wctx.Err() != nil {
+		run.Status = RunInterrupted
+		run.Error = "stopped before every action was carried out; actions still planned did not happen"
+	}
+	fctx, fcancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer fcancel()
+	err = db.InTenant(fctx, pool, tenantID, func(tx pgx.Tx) error {
+		var finished time.Time
+		if err := tx.QueryRow(fctx,
+			`UPDATE connector_runs SET status = $2, counts = $3, error = nullif($4, ''), finished_at = now()
+			 WHERE id = $1 RETURNING finished_at`, run.ID, run.Status, run.Counts, run.Error).Scan(&finished); err != nil {
+			return err
+		}
+		run.FinishedAt = &finished
+		return audit(fctx, tx, tenantID, actor, run, opts)
 	})
 	return run, err
+}
+
+// closeStale marks runs of the application that have been "running" for
+// longer than any run may take as interrupted, and refuses to start while one
+// is genuinely running. The caller holds the application's lock.
+func closeStale(ctx context.Context, tx pgx.Tx, tenantID, applicationID string) error {
+	rows, err := tx.Query(ctx,
+		`UPDATE connector_runs SET status = 'interrupted', finished_at = now(),
+		        error = 'Grantra stopped before the run finished; actions still planned did not happen'
+		 WHERE application_id = $1 AND status = 'running' AND started_at < now() - make_interval(secs => $2)
+		 RETURNING id`, applicationID, (runTimeout + time.Minute).Seconds())
+	if err != nil {
+		return err
+	}
+	stale, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, id := range stale {
+		if err := db.Audit(ctx, tx, tenantID, "system:provisioning", "application.provisioning_interrupted", "application", applicationID,
+			map[string]any{"run_id": id}); err != nil {
+			return err
+		}
+	}
+	var running bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM connector_runs WHERE application_id = $1 AND status = 'running')`, applicationID).Scan(&running); err != nil {
+		return err
+	}
+	if running {
+		return ErrRunning
+	}
+	return nil
+}
+
+func audit(ctx context.Context, tx pgx.Tx, tenantID, actor string, run Run, opts Options) error {
+	details := map[string]any{"run_id": run.ID, "status": run.Status, "counts": run.Counts, "dry_run": opts.DryRun, "forced": opts.Force}
+	if run.Error != "" {
+		details["error"] = run.Error
+	}
+	return db.Audit(ctx, tx, tenantID, actor, "application.provisioned", "application", run.ApplicationID, details)
 }
 
 func outcome(actions []Action) string {
@@ -526,12 +628,18 @@ func loadPlan(ctx context.Context, tx pgx.Tx, appID string, s Settings) (*plan, 
 	return p, nil
 }
 
-// execute carries out the actions in order, recording each outcome in
-// actions and the local state, so the next plan starts from what is true.
-func execute(ctx context.Context, tx pgx.Tx, tenantID, appID, actor string, w connector.Writer, p *plan, actions []Action) error {
+// execute carries out the run's actions in order. Each change goes to the
+// application first and, once it answers, is recorded in its own
+// transaction: the local state (so the next plan starts from what is true),
+// the action's outcome on the run and the audit log. stop ending keeps
+// further actions from starting; ctx bounds the calls and the writes.
+func execute(stop, ctx context.Context, pool *pgxpool.Pool, tenantID, appID, actor string, w connector.Writer, p *plan, run Run) error {
 	created := map[string]Action{} // identity -> its create action, once done
-	for n := range actions {
-		a := &actions[n]
+	for n := range run.Actions {
+		if stop.Err() != nil || ctx.Err() != nil {
+			return nil
+		}
+		a := &run.Actions[n]
 		var err error
 		switch a.Op {
 		case OpCreateAccount:
@@ -539,33 +647,8 @@ func execute(ctx context.Context, tx pgx.Tx, tenantID, appID, actor string, w co
 			a.NativeAccount, err = w.CreateAccount(ctx, connector.NewAccount{
 				Username: i.email, Email: i.email, DisplayName: i.name, ExternalID: i.externalID,
 			})
-			if err == nil {
-				attrs := map[string]string{"email": i.email, "display_name": i.name}
-				if i.externalID != "" {
-					attrs["external_id"] = i.externalID
-				}
-				err = tx.QueryRow(ctx,
-					`INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by)
-					 VALUES ($1, $2, $3, $4, $5, 'active', $6, now(), $7)
-					 ON CONFLICT (application_id, native_id) DO UPDATE SET
-					   identity_id = EXCLUDED.identity_id, status = 'active', correlated_by = EXCLUDED.correlated_by
-					 RETURNING id`, tenantID, appID, a.IdentityID, a.NativeAccount, i.email, attrs, accounts.ByProvisioning).Scan(&a.AccountID)
-				if err != nil {
-					return err
-				}
-				created[a.IdentityID] = *a
-			}
 		case OpEnableAccount, OpDisableAccount:
-			active := a.Op == OpEnableAccount
-			if err = w.SetActive(ctx, a.NativeAccount, active); err == nil {
-				status := "disabled"
-				if active {
-					status = "active"
-				}
-				if _, err := tx.Exec(ctx, `UPDATE accounts SET status = $2 WHERE id = $1`, a.AccountID, status); err != nil {
-					return err
-				}
-			}
+			err = w.SetActive(ctx, a.NativeAccount, a.Op == OpEnableAccount)
 		case OpAddMember:
 			if a.AccountID == "" {
 				c, ok := created[a.IdentityID]
@@ -575,44 +658,83 @@ func execute(ctx context.Context, tx pgx.Tx, tenantID, appID, actor string, w co
 				}
 				a.AccountID, a.NativeAccount = c.AccountID, c.NativeAccount
 			}
-			if err = w.AddMember(ctx, a.NativeEntitlement, a.NativeAccount); err == nil {
-				if _, err := tx.Exec(ctx,
-					`INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id, provisioned_at)
-					 VALUES ($1, $2, $3, now())
-					 ON CONFLICT (account_id, entitlement_id) DO UPDATE SET provisioned_at = now()`,
-					tenantID, a.AccountID, a.EntitlementID); err != nil {
-					return err
-				}
-			}
+			err = w.AddMember(ctx, a.NativeEntitlement, a.NativeAccount)
 		case OpRemoveMember:
-			if err = w.RemoveMember(ctx, a.NativeEntitlement, a.NativeAccount); err == nil {
-				if _, err := tx.Exec(ctx,
-					`DELETE FROM account_entitlements WHERE account_id = $1 AND entitlement_id = $2`, a.AccountID, a.EntitlementID); err != nil {
-					return err
-				}
-			}
+			err = w.RemoveMember(ctx, a.NativeEntitlement, a.NativeAccount)
 		default:
 			return fmt.Errorf("unknown provisioning action %q", a.Op)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
 		}
 		a.Status = ActionDone
 		if err != nil {
 			a.Status, a.Error = ActionFailed, err.Error()
 		}
-		details := map[string]any{"application_id": appID, "identity_id": a.IdentityID, "native_account": a.NativeAccount, "status": a.Status}
-		if a.NativeEntitlement != "" {
-			details["native_entitlement"] = a.NativeEntitlement
+		// The change happened: record it even if ctx ran out meanwhile.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+		err = db.InTenant(rctx, pool, tenantID, func(tx pgx.Tx) error {
+			return record(rctx, tx, tenantID, appID, actor, run.ID, n, a, p)
+		})
+		cancel()
+		if err != nil {
+			return fmt.Errorf("record %s for %s: %w", a.Op, a.NativeAccount, err)
 		}
-		if a.Error != "" {
-			details["error"] = a.Error
-		}
-		if err := db.Audit(ctx, tx, tenantID, actor, "provisioning."+a.Op, "account", a.AccountID, details); err != nil {
-			return err
+		if a.Op == OpCreateAccount && a.Status == ActionDone {
+			created[a.IdentityID] = *a
 		}
 	}
 	return nil
+}
+
+// record stores what one action did: the local state when it succeeded, its
+// outcome on the run (action n) and an audit event.
+func record(ctx context.Context, tx pgx.Tx, tenantID, appID, actor, runID string, n int, a *Action, p *plan) error {
+	if a.Status == ActionDone {
+		var err error
+		switch a.Op {
+		case OpCreateAccount:
+			i := p.identities[a.IdentityID]
+			attrs := map[string]string{"email": i.email, "display_name": i.name}
+			if i.externalID != "" {
+				attrs["external_id"] = i.externalID
+			}
+			err = tx.QueryRow(ctx,
+				`INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by)
+				 VALUES ($1, $2, $3, $4, $5, 'active', $6, now(), $7)
+				 ON CONFLICT (application_id, native_id) DO UPDATE SET
+				   identity_id = EXCLUDED.identity_id, status = 'active', correlated_by = EXCLUDED.correlated_by
+				 RETURNING id`, tenantID, appID, a.IdentityID, a.NativeAccount, i.email, attrs, accounts.ByProvisioning).Scan(&a.AccountID)
+		case OpEnableAccount, OpDisableAccount:
+			status := "disabled"
+			if a.Op == OpEnableAccount {
+				status = "active"
+			}
+			_, err = tx.Exec(ctx, `UPDATE accounts SET status = $2 WHERE id = $1`, a.AccountID, status)
+		case OpAddMember:
+			_, err = tx.Exec(ctx,
+				`INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id, provisioned_at)
+				 VALUES ($1, $2, $3, now())
+				 ON CONFLICT (account_id, entitlement_id) DO UPDATE SET provisioned_at = now()`,
+				tenantID, a.AccountID, a.EntitlementID)
+		case OpRemoveMember:
+			_, err = tx.Exec(ctx,
+				`DELETE FROM account_entitlements WHERE account_id = $1 AND entitlement_id = $2`, a.AccountID, a.EntitlementID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE connector_runs SET actions = jsonb_set(actions, ARRAY[$2::text], $3) WHERE id = $1`,
+		runID, strconv.Itoa(n), *a); err != nil {
+		return err
+	}
+	details := map[string]any{"application_id": appID, "identity_id": a.IdentityID, "native_account": a.NativeAccount, "status": a.Status, "run_id": runID}
+	if a.NativeEntitlement != "" {
+		details["native_entitlement"] = a.NativeEntitlement
+	}
+	if a.Error != "" {
+		details["error"] = a.Error
+	}
+	return db.Audit(ctx, tx, tenantID, actor, "provisioning."+a.Op, "account", a.AccountID, details)
 }
 
 // ProvisionDue provisions every application with provisioning on and a
@@ -643,6 +765,9 @@ func ProvisionDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secr
 	)
 	for _, id := range due {
 		run, err := provision(ctx, pool, tenantID, id, "system:provisioning", Options{}, secrets, false)
+		if errors.Is(err, ErrRunning) {
+			continue // someone started one from the console; it covers this pass
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return runs, ctx.Err()
