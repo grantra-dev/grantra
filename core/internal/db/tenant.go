@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,3 +71,9 @@ func Audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, targetType, 
 	}
 	return nil
 }
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ValidUUID reports whether id has the shape of a row id (a UUID), so that
+// malformed ids answer "not found" instead of failing the query.
+func ValidUUID(id string) bool { return uuidPattern.MatchString(id) }

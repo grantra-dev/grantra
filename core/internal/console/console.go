@@ -18,6 +18,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 )
 
 // API holds the console endpoints for one tenant.
@@ -46,6 +47,12 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/platform-roles", a.listPlatformRoles)
 	route("PUT /api/v1/platform-roles/{role}/members/{identity}", a.grantPlatformRole)
 	route("DELETE /api/v1/platform-roles/{role}/members/{identity}", a.revokePlatformRole)
+	route("GET /api/v1/identity-sources", a.listSources)
+	route("POST /api/v1/identity-sources", a.createSource)
+	route("GET /api/v1/identity-sources/{id}", a.getSource)
+	route("GET /api/v1/identity-sources/{id}/runs", a.listRuns)
+	route("POST /api/v1/identity-sources/{id}/runs", a.syncSource)
+	route("GET /api/v1/lifecycle-events", a.listLifecycleEvents)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming
@@ -95,7 +102,7 @@ func (a *API) check(ctx context.Context, req authz.Request) error {
 		return nil
 	}
 	a.log.InfoContext(ctx, "request denied", "identity", req.Principal.ID, "action", req.Action, "policies", d.Policies)
-	if req.Action == authz.GrantPlatformRole || req.Action == authz.RevokePlatformRole {
+	if req.Action.Writes() {
 		details := map[string]any{"action": string(req.Action), "policies": d.Policies}
 		target := ""
 		if req.Target != nil {
@@ -117,12 +124,16 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDenied):
 		writeError(w, http.StatusForbidden, "you do not have permission to do this")
-	case errors.Is(err, authz.ErrNotFound):
+	case errors.Is(err, authz.ErrNotFound), errors.Is(err, lifecycle.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, authz.ErrLastAdmin):
 		writeError(w, http.StatusConflict, "this is the last active admin; grant the role to someone else first")
 	case errors.Is(err, authz.ErrInactive):
 		writeError(w, http.StatusConflict, "platform roles can only be granted to active identities")
+	case errors.Is(err, lifecycle.ErrNameTaken):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.As(err, new(*lifecycle.InvalidError)):
+		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		a.log.ErrorContext(r.Context(), "console request failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -156,20 +167,30 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 }
 
 type identity struct {
-	ID          string    `json:"id"`
-	DisplayName string    `json:"display_name"`
-	Email       string    `json:"email,omitempty"`
-	Kind        string    `json:"kind"`
-	Status      string    `json:"status"`
-	ManagerID   string    `json:"manager_id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email,omitempty"`
+	Kind        string `json:"kind"`
+	Status      string `json:"status"`
+	ManagerID   string `json:"manager_id,omitempty"`
+	// SourceID and ExternalID say which HR source owns the identity and the
+	// employee id it has there.
+	SourceID   string         `json:"source_id,omitempty"`
+	ExternalID string         `json:"external_id,omitempty"`
+	StartDate  string         `json:"start_date,omitempty"`
+	EndDate    string         `json:"end_date,omitempty"`
+	Attributes map[string]any `json:"attributes"`
+	CreatedAt  time.Time      `json:"created_at"`
 }
 
-const identityColumns = `id, display_name, coalesce(email, ''), kind, status, coalesce(manager_id::text, ''), created_at`
+const identityColumns = `id, display_name, coalesce(email, ''), kind, status, coalesce(manager_id::text, ''),
+	coalesce(source_id::text, ''), coalesce(external_id, ''), coalesce(to_char(start_date, 'YYYY-MM-DD'), ''), coalesce(to_char(end_date, 'YYYY-MM-DD'), ''),
+	attributes, created_at`
 
 func scanIdentity(row pgx.CollectableRow) (identity, error) {
 	var i identity
-	err := row.Scan(&i.ID, &i.DisplayName, &i.Email, &i.Kind, &i.Status, &i.ManagerID, &i.CreatedAt)
+	err := row.Scan(&i.ID, &i.DisplayName, &i.Email, &i.Kind, &i.Status, &i.ManagerID,
+		&i.SourceID, &i.ExternalID, &i.StartDate, &i.EndDate, &i.Attributes, &i.CreatedAt)
 	return i, err
 }
 
