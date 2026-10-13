@@ -18,6 +18,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 )
@@ -28,11 +29,12 @@ type API struct {
 	tenantID string
 	authz    *authz.Authorizer
 	log      *slog.Logger
+	secrets  connector.SecretResolver
 }
 
 // New returns the console API for the given tenant.
 func New(pool *pgxpool.Pool, tenantID string, az *authz.Authorizer, log *slog.Logger) *API {
-	return &API{pool: pool, tenantID: tenantID, authz: az, log: log}
+	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, secrets: connector.EnvSecrets}
 }
 
 // Register adds the console routes to mux. require must reject requests that
@@ -69,6 +71,12 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/access-rules/{id}", a.getAccessRule)
 	route("PUT /api/v1/access-rules/{id}", a.saveAccessRule)
 	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)
+	route("PUT /api/v1/applications/{id}/connector", a.setConnector)
+	route("POST /api/v1/applications/{id}/aggregations", a.aggregate)
+	route("GET /api/v1/applications/{id}/runs", a.listConnectorRuns)
+	route("GET /api/v1/applications/{id}/accounts", a.listAccounts)
+	route("PUT /api/v1/accounts/{id}/identity", a.linkAccount)
+	route("GET /api/v1/identities/{id}/accounts", a.identityAccounts)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming
