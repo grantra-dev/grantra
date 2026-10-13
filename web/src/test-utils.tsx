@@ -11,7 +11,7 @@ export function serve(routes: Record<string, Handler>) {
   const fetch = vi.fn(async (path: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${path}`;
     const r = routes[key]?.(init) ?? { status: 404, body: { error: `no route ${key}` } };
-    return new Response(JSON.stringify(r.body), {
+    return new Response(r.status === 204 ? null : JSON.stringify(r.body), {
       status: r.status,
       headers: { "Content-Type": "application/json" },
     });

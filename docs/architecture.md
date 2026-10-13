@@ -66,9 +66,9 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | Endpoint | Action |
 |---|---|
 | `GET /api/v1/me` | Who you are, your platform roles, and whether you manage people or own applications |
-| `GET /api/v1/identities?limit=&after=` | `identity.list` |
+| `GET /api/v1/identities?limit=&after=&q=&status=` | `identity.list`. `q` matches name or email, ignoring case |
 | `GET /api/v1/identities/{id}` | `identity.read` |
-| `GET /api/v1/audit-events?limit=&before=` | `audit.read` |
+| `GET /api/v1/audit-events?limit=&before=&identity=` | `audit.read`. `identity` keeps what that identity did or had done to it; events name the identities behind actor and target |
 | `GET /api/v1/platform-roles` | `platform_role.read` (roles with their current members) |
 | `PUT /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.grant`, optional body `{"expires_at": "..."}` |
 | `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |

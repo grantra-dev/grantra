@@ -149,6 +149,8 @@ func TestReadAccess(t *testing.T) {
 		{auditor, "/api/v1/identities", http.StatusOK},
 		{admin, "/api/v1/identities?limit=500", http.StatusBadRequest},
 		{admin, "/api/v1/identities?after=x", http.StatusBadRequest},
+		{admin, "/api/v1/identities?status=gone", http.StatusBadRequest},
+		{admin, "/api/v1/audit-events?identity=x", http.StatusBadRequest},
 
 		{admin, "/api/v1/audit-events", http.StatusOK},
 		{auditor, "/api/v1/audit-events?limit=10", http.StatusOK},
@@ -173,6 +175,44 @@ func TestReadAccess(t *testing.T) {
 	rest := decode[struct{ Identities []identity }](t, e.do(admin, http.MethodGet, "/api/v1/identities?after="+first.Identities[3].ID, ""))
 	if len(first.Identities) != 4 || len(rest.Identities) != 2 {
 		t.Errorf("pages = %d + %d identities, want 4 + 2", len(first.Identities), len(rest.Identities))
+	}
+
+	// Searching by name or email, ignoring case, and by status.
+	found := decode[struct{ Identities []identity }](t, e.do(helpdesk, http.MethodGet, "/api/v1/identities?q=ANA", ""))
+	if len(found.Identities) != 1 || found.Identities[0].ID != ana {
+		t.Errorf("q=ANA = %+v", found.Identities)
+	}
+	found = decode[struct{ Identities []identity }](t, e.do(helpdesk, http.MethodGet, "/api/v1/identities?q=luis@example", ""))
+	if len(found.Identities) != 1 || found.Identities[0].ID != luis {
+		t.Errorf("q=luis@example = %+v", found.Identities)
+	}
+	found = decode[struct{ Identities []identity }](t, e.do(helpdesk, http.MethodGet, "/api/v1/identities?status=suspended", ""))
+	if len(found.Identities) != 0 {
+		t.Errorf("status=suspended = %+v", found.Identities)
+	}
+}
+
+func TestAuditEventsByIdentity(t *testing.T) {
+	e := newEnv(t)
+	admin := e.identity("admin", "", authz.RoleAdmin)
+	ana := e.identity("ana", "")
+	luis := e.identity("luis", "")
+	if rec := e.do(admin, http.MethodPut, "/api/v1/platform-roles/"+authz.RoleHelpdesk+"/members/"+ana, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("grant = %d %s", rec.Code, rec.Body)
+	}
+	if rec := e.do(admin, http.MethodPut, "/api/v1/platform-roles/"+authz.RoleAuditor+"/members/"+luis, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("grant = %d %s", rec.Code, rec.Body)
+	}
+	got := decode[struct{ Events []auditEvent }](t, e.do(admin, http.MethodGet, "/api/v1/audit-events?identity="+ana, ""))
+	if len(got.Events) != 1 {
+		t.Fatalf("events for ana = %+v", got.Events)
+	}
+	if ev := got.Events[0]; ev.ActorName != "admin" || ev.TargetName != "ana" || ev.Action != "platform_role.granted" {
+		t.Errorf("event = %+v", ev)
+	}
+	all := decode[struct{ Events []auditEvent }](t, e.do(admin, http.MethodGet, "/api/v1/audit-events?identity="+admin, ""))
+	if len(all.Events) != 2 {
+		t.Errorf("events by admin = %d, want 2", len(all.Events))
 	}
 }
 

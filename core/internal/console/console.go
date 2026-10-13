@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -267,15 +268,31 @@ func (a *API) getIdentity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// identityStatuses are the values identities.status allows.
+var identityStatuses = map[string]bool{"pending": true, "active": true, "suspended": true, "terminated": true}
+
 // listIdentities pages through all identities by id: ?limit=50&after=<id>.
+// ?q= keeps the ones whose name or email contains it, ignoring case, and
+// ?status= the ones in that status.
 func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 	limit, ok := pageLimit(w, r)
 	if !ok {
 		return
 	}
-	after := r.URL.Query().Get("after")
+	q := r.URL.Query()
+	after := q.Get("after")
 	if after != "" && !authz.ValidID(after) {
 		writeError(w, http.StatusBadRequest, "after must be an identity id")
+		return
+	}
+	search := strings.TrimSpace(q.Get("q"))
+	if len(search) > 200 {
+		writeError(w, http.StatusBadRequest, "q must be at most 200 characters")
+		return
+	}
+	status := q.Get("status")
+	if status != "" && !identityStatuses[status] {
+		writeError(w, http.StatusBadRequest, "status must be pending, active, suspended or terminated")
 		return
 	}
 	var out []identity
@@ -285,7 +302,10 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 		}
 		rows, err := tx.Query(r.Context(),
 			`SELECT `+identityColumns+` FROM identities
-			 WHERE $1 = '' OR id > $1::uuid ORDER BY id LIMIT $2`, after, limit)
+			 WHERE ($1 = '' OR id > $1::uuid)
+			   AND ($3 = '' OR strpos(lower(display_name), lower($3)) > 0 OR strpos(lower(coalesce(email, '')), lower($3)) > 0)
+			   AND ($4 = '' OR status = $4)
+			 ORDER BY id LIMIT $2`, after, limit, search, status)
 		if err != nil {
 			return err
 		}
@@ -300,16 +320,21 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 }
 
 type auditEvent struct {
-	ID         int64           `json:"id"`
-	OccurredAt time.Time       `json:"occurred_at"`
-	Actor      string          `json:"actor"`
-	Action     string          `json:"action"`
-	TargetType string          `json:"target_type,omitempty"`
-	TargetID   string          `json:"target_id,omitempty"`
+	ID         int64     `json:"id"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Actor      string    `json:"actor"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type,omitempty"`
+	TargetID   string    `json:"target_id,omitempty"`
+	// ActorName and TargetName are the display names of the identities the
+	// actor and target point to, when they are identities.
+	ActorName  string          `json:"actor_name,omitempty"`
+	TargetName string          `json:"target_name,omitempty"`
 	Details    json.RawMessage `json:"details"`
 }
 
 // listAuditEvents pages backwards from the newest event: ?limit=50&before=<id>.
+// ?identity=<id> keeps the events that identity did or that were done to it.
 func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	limit, ok := pageLimit(w, r)
 	if !ok {
@@ -324,20 +349,31 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		before = n
 	}
+	identityID := r.URL.Query().Get("identity")
+	if identityID != "" && !db.ValidUUID(identityID) {
+		writeError(w, http.StatusBadRequest, "identity must be an identity id")
+		return
+	}
 	var out []auditEvent
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReadAuditLog, Resource: authz.AuditLogResource()}); err != nil {
 			return err
 		}
 		rows, err := tx.Query(r.Context(),
-			`SELECT id, occurred_at, actor, action, coalesce(target_type, ''), coalesce(target_id, ''), details
-			 FROM audit_events WHERE $1 = 0 OR id < $1 ORDER BY id DESC LIMIT $2`, before, limit)
+			`SELECT e.id, e.occurred_at, e.actor, e.action, coalesce(e.target_type, ''), coalesce(e.target_id, ''),
+			        coalesce(ai.display_name, ''), coalesce(ti.display_name, ''), e.details
+			 FROM audit_events e
+			 LEFT JOIN identities ai ON e.actor = 'identity:' || ai.id::text
+			 LEFT JOIN identities ti ON e.target_type = 'identity' AND e.target_id = ti.id::text
+			 WHERE ($1 = 0 OR e.id < $1)
+			   AND ($3 = '' OR e.actor = 'identity:' || $3 OR (e.target_type = 'identity' AND e.target_id = $3))
+			 ORDER BY e.id DESC LIMIT $2`, before, limit, identityID)
 		if err != nil {
 			return err
 		}
 		out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (auditEvent, error) {
 			var e auditEvent
-			err := row.Scan(&e.ID, &e.OccurredAt, &e.Actor, &e.Action, &e.TargetType, &e.TargetID, &e.Details)
+			err := row.Scan(&e.ID, &e.OccurredAt, &e.Actor, &e.Action, &e.TargetType, &e.TargetID, &e.ActorName, &e.TargetName, &e.Details)
 			return e, err
 		})
 		return err

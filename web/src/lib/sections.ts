@@ -83,7 +83,6 @@ export const sections: Section[] = [
     description: "Find anyone and see their access and lifecycle.",
     icon: Users,
     visible: (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Helpdesk, PlatformRole.Auditor),
-    issue: 24,
   },
   {
     path: "/admin",
@@ -99,7 +98,6 @@ export const sections: Section[] = [
     description: "Every change and decision, searchable.",
     icon: FileSearch,
     visible: (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
-    issue: 24,
   },
 ];
 

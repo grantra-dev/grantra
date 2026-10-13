@@ -5,11 +5,14 @@ import { ApiError, getMe } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
 import { AccessReviews } from "@/pages/AccessReviews";
 import { Approvals } from "@/pages/Approvals";
+import { AuditLog } from "@/pages/AuditLog";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { Home } from "@/pages/Home";
 import { MyAccess } from "@/pages/MyAccess";
 import { MyRequests } from "@/pages/MyRequests";
 import { NotFound } from "@/pages/NotFound";
+import { People } from "@/pages/People";
+import { Person } from "@/pages/Person";
 import { RequestAccess } from "@/pages/RequestAccess";
 import { Centered, LoginNotConfigured, SignIn } from "@/pages/SignIn";
 
@@ -38,6 +41,12 @@ export function App() {
     "/requests": <MyRequests me={me} />,
     "/approvals": <Approvals me={me} />,
     "/reviews": <AccessReviews me={me} />,
+    "/people": <People />,
+    "/audit": <AuditLog />,
+  };
+  // Pages under a section, shown to whoever sees the section.
+  const subpages: Record<string, [string, React.ReactNode]> = {
+    "/people": ["/people/:id", <Person me={me} />],
   };
   return (
     <Routes>
@@ -45,6 +54,10 @@ export function App() {
         {visibleSections(me).map((s) => (
           <Route key={s.path} path={s.path} element={pages[s.path] ?? <ComingSoon section={s} />} />
         ))}
+        {visibleSections(me).flatMap((s) => {
+          const sub = subpages[s.path];
+          return sub ? [<Route key={sub[0]} path={sub[0]} element={sub[1]} />] : [];
+        })}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
