@@ -9,6 +9,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/provisioning"
 )
 
 // setConnector configures how Grantra reads an application:
@@ -136,4 +137,59 @@ func (a *API) identityAccounts(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	a.respond(w, r, http.StatusOK, map[string]any{"accounts": nonNil(out)}, err)
+}
+
+// setProvisioning configures how Grantra writes to an application:
+// {"mode": "on", "remove_unassigned": false, "max_change_percent": 10}.
+func (a *API) setProvisioning(w http.ResponseWriter, r *http.Request) {
+	var body provisioning.Settings
+	if !decodeBody(w, r, &body, `{"mode": "on", "remove_unassigned": false, "max_change_percent": 10}`) {
+		return
+	}
+	id := r.PathValue("id")
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
+		if body, err = provisioning.SetSettings(r.Context(), tx, id, body, a.secrets); err != nil {
+			return err
+		}
+		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "application.provisioning_set", "application", id,
+			map[string]any{"settings": body})
+	})
+	a.respond(w, r, http.StatusOK, body, err)
+}
+
+// provision writes the changes an application needs: ?dry_run=true only
+// plans them, ?force=true runs past the change limit. 200 when every action
+// succeeded or for a dry run, 409 when a safety limit refused the run, 502
+// when actions failed in the application.
+func (a *API) provision(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	dryRun, err := parseBool(q.Get("dry_run"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dry_run must be true or false")
+		return
+	}
+	force, err := parseBool(q.Get("force"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "force must be true or false")
+		return
+	}
+	var me authz.Subject
+	err = a.guarded(r, authz.ManageCatalog, func(_ pgx.Tx, s authz.Subject) error {
+		me = s
+		return nil
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	run, err := provisioning.Provision(r.Context(), a.pool, a.tenantID, r.PathValue("id"), "identity:"+me.ID,
+		provisioning.Options{DryRun: dryRun, Force: force}, a.secrets)
+	status := http.StatusOK
+	switch run.Status {
+	case accounts.RunRefused:
+		status = http.StatusConflict
+	case accounts.RunPartial, accounts.RunFailed:
+		status = http.StatusBadGateway
+	}
+	a.respond(w, r, status, run, err)
 }
