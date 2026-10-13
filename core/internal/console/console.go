@@ -85,6 +85,12 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/access-requests/{id}", a.getRequest)
 	route("POST /api/v1/access-requests/{id}/decision", a.decideRequest)
 	route("POST /api/v1/access-requests/{id}/cancel", a.cancelRequest)
+	route("GET /api/v1/review-campaigns", a.listCampaigns)
+	route("POST /api/v1/review-campaigns", a.launchCampaign)
+	route("GET /api/v1/review-campaigns/{id}", a.getCampaign)
+	route("POST /api/v1/review-campaigns/{id}/close", a.closeCampaign)
+	route("GET /api/v1/review-items", a.listReviewItems)
+	route("POST /api/v1/review-items/{id}/decision", a.decideReviewItem)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming

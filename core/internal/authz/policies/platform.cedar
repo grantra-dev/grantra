@@ -71,6 +71,17 @@ when { resource.requester == principal || resource.beneficiary == principal };
 forbid (principal, action == Action::"access_request.decide", resource is AccessRequest)
 when { resource.beneficiary == principal };
 
+// Reviewers decide the access they were asked to review. Admins can decide
+// any item, including the ones with nobody else to ask.
+@id("review-decide-reviewer")
+permit (principal, action == Action::"review_item.decide", resource is ReviewItem)
+when { resource.reviewers.contains(principal) };
+
+// Nobody reviews their own access, not even an admin.
+@id("no-self-review")
+forbid (principal, action == Action::"review_item.decide", resource is ReviewItem)
+when { resource.identity == principal };
+
 // Only active identities act. Sessions already end when an identity stops
 // being active; this keeps that true for any future way in.
 @id("only-active-identities")

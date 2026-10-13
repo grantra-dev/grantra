@@ -37,6 +37,16 @@ entity AccessRequest {
   current_approvers: Set<Identity>,
 };
 
+// The tenant's access review campaigns.
+entity Reviews;
+
+// One access to review: whose it is, and who may review it (empty: an
+// admin).
+entity ReviewItem {
+  identity: Identity,
+  reviewers: Set<Identity>,
+};
+
 // Action groups.
 action "read";
 action "write";
@@ -127,5 +137,23 @@ action "access_request.list" in ["read"] appliesTo {
 action "access_request.decide", "access_request.cancel" in ["write"] appliesTo {
   principal: Identity,
   resource: AccessRequest,
+  context: {},
+};
+
+action "review_campaign.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Reviews,
+  context: {},
+};
+
+action "review_campaign.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Reviews,
+  context: {},
+};
+
+action "review_item.decide" in ["write"] appliesTo {
+  principal: Identity,
+  resource: ReviewItem,
   context: {},
 };
