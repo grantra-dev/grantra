@@ -8,7 +8,7 @@
 // Connector kinds register a Factory under their name; an application's
 // connector column names the kind and its config column holds the settings.
 // Secrets never live in the config: it holds references such as
-// "env:CRM_SCIM_TOKEN" that a SecretResolver turns into values.
+// "env:GRANTRA_SECRET_CRM_SCIM_TOKEN" that a SecretResolver turns into values.
 package connector
 
 import (
@@ -84,12 +84,23 @@ type Writer interface {
 // value.
 type SecretResolver func(ref string) (string, error)
 
+// SecretEnvPrefix is the prefix every environment variable holding a
+// connector secret must carry. Connector configs are written by Grantra
+// admins, who are not necessarily the people running the server: without the
+// prefix, a config could name GRANTRA_DATABASE_URL or the OIDC client secret
+// as its token and send it to a server of its choosing.
+const SecretEnvPrefix = "GRANTRA_SECRET_"
+
 // EnvSecrets resolves "env:NAME" references from environment variables, which
-// is how a self-hosted install passes connector credentials.
+// is how a self-hosted install passes connector credentials. Only variables
+// named with SecretEnvPrefix can be referenced.
 func EnvSecrets(ref string) (string, error) {
 	name, ok := strings.CutPrefix(ref, "env:")
 	if !ok || name == "" {
-		return "", fmt.Errorf(`secret %q must be a reference like "env:NAME"`, ref)
+		return "", fmt.Errorf(`secret %q must be a reference like "env:%sNAME"`, ref, SecretEnvPrefix)
+	}
+	if !strings.HasPrefix(name, SecretEnvPrefix) || name == SecretEnvPrefix {
+		return "", fmt.Errorf("secret %q: only environment variables starting with %s can hold connector secrets", ref, SecretEnvPrefix)
 	}
 	v := os.Getenv(name)
 	if v == "" {
