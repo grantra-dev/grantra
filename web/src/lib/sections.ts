@@ -75,8 +75,7 @@ export const sections: Section[] = [
     title: "Access reviews",
     description: "Keep or revoke the access you are asked to review.",
     icon: ListChecks,
-    visible: approves,
-    issue: 23,
+    visible: (me) => approves(me) || hasRole(me, PlatformRole.Auditor),
   },
   {
     path: "/people",
