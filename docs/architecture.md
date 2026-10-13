@@ -73,10 +73,15 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `PUT /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.grant`, optional body `{"expires_at": "..."}` |
 | `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |
 | `/api/v1/identity-sources`, `/api/v1/lifecycle-events` | HR sources and joiner/mover/leaver events, see [identity-lifecycle.md](identity-lifecycle.md) |
+| `/api/v1/applications`, `/api/v1/roles`, `/api/v1/access-rules`, `/api/v1/identities/{id}/access` | Catalog, birthright rules and assigned access, see [access.md](access.md) |
 
 ## Identity lifecycle
 
 HR is the authority on who works at the company. An **identity source** (a CSV export today) is synced into identities, and every difference becomes a joiner, mover, leaver or rehire event in `lifecycle_events`, the outbox later stages consume. Syncs are all or nothing, can be dry-run, and refuse to offboard more than a set share of people at once. Details in [identity-lifecycle.md](identity-lifecycle.md).
+
+## Assigned access
+
+An **assignment** says an identity should have a business role or an entitlement, and why (`birthright`, `manual` or `request`). It is the desired state; accounts are the actual state, reconciled by connectors. **Birthright rules** give access by HR attributes and take it back when people stop matching; leavers lose everything. The engine consumes the lifecycle outbox. Details in [access.md](access.md).
 
 ## Tenant isolation
 

@@ -2,6 +2,7 @@ package console
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
@@ -148,6 +150,15 @@ func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.fail(w, r, err)
 		return
+	}
+	if out.Status == lifecycle.RunApplied {
+		// Give joiners and movers their birthright access now rather than on
+		// the next background pass. Failing here loses nothing: the events
+		// stay in the outbox for that pass.
+		ctx := context.WithoutCancel(r.Context())
+		if _, _, err := access.ProcessLifecycle(ctx, a.pool, a.tenantID); err != nil {
+			a.log.ErrorContext(ctx, "apply birthright access after sync", "err", err)
+		}
 	}
 	status := http.StatusOK
 	switch out.Status {

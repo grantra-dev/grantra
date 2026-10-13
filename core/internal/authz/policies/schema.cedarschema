@@ -21,6 +21,10 @@ entity AuditLog;
 // events they produce.
 entity Lifecycle;
 
+// The catalog of applications, entitlements and business roles, and the
+// birthright rules that give them out.
+entity Catalog;
+
 // Action groups.
 action "read";
 action "write";
@@ -66,5 +70,17 @@ action "identity_source.read", "lifecycle_event.read" in ["read"] appliesTo {
 action "identity_source.manage", "identity_source.sync" in ["write"] appliesTo {
   principal: Identity,
   resource: Lifecycle,
+  context: {},
+};
+
+action "catalog.read", "access_rule.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Catalog,
+  context: {},
+};
+
+action "catalog.manage", "access_rule.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Catalog,
   context: {},
 };

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
@@ -81,6 +82,7 @@ func run() error {
 	}
 
 	go applyDueDates(ctx, log, pool, tenantID)
+	go applyBirthright(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -146,6 +148,28 @@ func applyDueDates(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, te
 			log.ErrorContext(ctx, "apply start and end dates", "err", err)
 		case activated+left > 0:
 			log.InfoContext(ctx, "applied start and end dates", "activated", activated, "left", left)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// applyBirthright gives and takes birthright access for every lifecycle event
+// not yet processed, every 30 seconds. Syncs from the console also do it right
+// away; this catches due dates and anything a sync left behind.
+func applyBirthright(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		events, ch, err := access.ProcessLifecycle(ctx, pool, tenantID)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.ErrorContext(ctx, "apply birthright access", "err", err)
+		case events > 0:
+			log.InfoContext(ctx, "applied birthright access", "events", events, "added", ch.Added, "removed", ch.Removed)
 		}
 		select {
 		case <-ctx.Done():
