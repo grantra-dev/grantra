@@ -88,13 +88,7 @@ func run() error {
 		}
 	}
 
-	go applyDueDates(ctx, log, pool, tenantID)
-	go applyBirthright(ctx, log, pool, tenantID)
-	go aggregateApplications(ctx, log, pool, tenantID)
-	go provisionApplications(ctx, log, pool, tenantID)
-	go expireRequests(ctx, log, pool, tenantID)
-	go closeReviews(ctx, log, pool, tenantID)
-	go scanSoD(ctx, log, pool, tenantID)
+	startJobs(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -125,6 +119,10 @@ func run() error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           server.New(log, pool, login, api),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Long enough for a 32 MiB HR file on a slow link; no WriteTimeout,
+		// because a provisioning run asked from the console can take minutes.
+		ReadTimeout: 5 * time.Minute,
+		IdleTimeout: 2 * time.Minute,
 	}
 
 	errc := make(chan error, 1)
@@ -147,160 +145,98 @@ func run() error {
 	return nil
 }
 
-// applyDueDates activates people whose start date has come and offboards
-// people past their end date, on start and every quarter of an hour, so dates
-// take effect between HR syncs too.
-func applyDueDates(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(15 * time.Minute)
-	defer tick.Stop()
-	for {
-		activated, left, err := lifecycle.ApplyDueDates(ctx, pool, tenantID, time.Now())
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.ErrorContext(ctx, "apply start and end dates", "err", err)
-		case activated+left > 0:
-			log.InfoContext(ctx, "applied start and end dates", "activated", activated, "left", left)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
+// job is background work the server repeats on a timer. run does one pass
+// and logs what it changed; an error it returns is logged for it.
+type job struct {
+	name  string
+	every time.Duration
+	run   func(ctx context.Context) error
 }
 
-// applyBirthright gives and takes birthright access for every lifecycle event
-// not yet processed, every 30 seconds. Syncs from the console also do it right
-// away; this catches due dates and anything a sync left behind.
-func applyBirthright(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(30 * time.Second)
-	defer tick.Stop()
-	for {
-		events, ch, err := access.ProcessLifecycle(ctx, pool, tenantID)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.ErrorContext(ctx, "apply birthright access", "err", err)
-		case events > 0:
-			log.InfoContext(ctx, "applied birthright access", "events", events, "added", ch.Added, "removed", ch.Removed)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
-
-// aggregateApplications reads every application with a connector once an
-// hour, checking every five minutes which ones are due.
-func aggregateApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(5 * time.Minute)
-	defer tick.Stop()
-	for {
-		runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, connector.EnvSecrets)
-		if err != nil && ctx.Err() == nil {
-			log.ErrorContext(ctx, "aggregate applications", "err", err)
-		}
-		for _, r := range runs {
-			if r.Status == accounts.RunFailed {
-				log.WarnContext(ctx, "aggregation failed", "application", r.ApplicationID, "error", r.Error)
-			} else {
-				log.InfoContext(ctx, "aggregated application", "application", r.ApplicationID, "counts", r.Counts)
+// startJobs runs every background job once at start and then on its timer,
+// until ctx ends.
+func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	jobs := []job{
+		// Start and end dates take effect between HR syncs too.
+		{"apply start and end dates", 15 * time.Minute, func(ctx context.Context) error {
+			activated, left, err := lifecycle.ApplyDueDates(ctx, pool, tenantID, time.Now())
+			if activated+left > 0 {
+				log.InfoContext(ctx, "applied start and end dates", "activated", activated, "left", left)
 			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
-
-// provisionApplications writes pending changes to every application with
-// provisioning on, every five minutes.
-func provisionApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(5 * time.Minute)
-	defer tick.Stop()
-	for {
-		runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, connector.EnvSecrets)
-		if err != nil && ctx.Err() == nil {
-			log.ErrorContext(ctx, "provision applications", "err", err)
-		}
-		for _, r := range runs {
-			if r.Status == accounts.RunSucceeded {
-				log.InfoContext(ctx, "provisioned application", "application", r.ApplicationID, "counts", r.Counts)
-			} else {
-				log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
+			return err
+		}},
+		// Syncs from the console apply birthright access right away; this
+		// catches due dates and anything a sync left behind.
+		{"apply birthright access", 30 * time.Second, func(ctx context.Context) error {
+			events, ch, err := access.ProcessLifecycle(ctx, pool, tenantID)
+			if events > 0 {
+				log.InfoContext(ctx, "applied birthright access", "events", events, "added", ch.Added, "removed", ch.Removed)
 			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
+			return err
+		}},
+		// Every application with a connector is read once an hour.
+		{"aggregate applications", 5 * time.Minute, func(ctx context.Context) error {
+			runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, connector.EnvSecrets)
+			for _, r := range runs {
+				if r.Status == accounts.RunFailed {
+					log.WarnContext(ctx, "aggregation failed", "application", r.ApplicationID, "error", r.Error)
+				} else {
+					log.InfoContext(ctx, "aggregated application", "application", r.ApplicationID, "counts", r.Counts)
+				}
+			}
+			return err
+		}},
+		{"provision applications", 5 * time.Minute, func(ctx context.Context) error {
+			runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, connector.EnvSecrets)
+			for _, r := range runs {
+				if r.Status == accounts.RunSucceeded {
+					log.InfoContext(ctx, "provisioned application", "application", r.ApplicationID, "counts", r.Counts)
+				} else {
+					log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
+				}
+			}
+			return err
+		}},
+		// Requests nobody decided in time, or for people who left, close;
+		// access whose time is up ends.
+		{"expire access requests", 5 * time.Minute, func(ctx context.Context) error {
+			h, err := requests.ExpireDue(ctx, pool, tenantID)
+			if h.Expired+h.Cancelled+h.AccessEnded > 0 {
+				log.InfoContext(ctx, "closed access requests and ended expired access",
+					"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
+			}
+			return err
+		}},
+		{"close access reviews", 15 * time.Minute, func(ctx context.Context) error {
+			n, err := reviews.CloseDue(ctx, pool, tenantID)
+			if n > 0 {
+				log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
+			}
+			return err
+		}},
+		{"scan separation of duties", 30 * time.Minute, func(ctx context.Context) error {
+			res, err := sod.Scan(ctx, pool, tenantID)
+			if res.Detected+res.Resolved+res.ExceptionsExpired > 0 {
+				log.InfoContext(ctx, "separation of duties scan", "detected", res.Detected, "resolved", res.Resolved,
+					"exceptions_expired", res.ExceptionsExpired, "open", res.Open)
+			}
+			return err
+		}},
 	}
-}
-
-// expireRequests closes access requests nobody decided in time, or for people
-// who left, and removes access whose time is up, every five minutes.
-func expireRequests(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(5 * time.Minute)
-	defer tick.Stop()
-	for {
-		h, err := requests.ExpireDue(ctx, pool, tenantID)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.ErrorContext(ctx, "expire access requests", "err", err)
-		case h.Expired+h.Cancelled+h.AccessEnded > 0:
-			log.InfoContext(ctx, "closed access requests and ended expired access",
-				"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
-
-// closeReviews ends access review campaigns past their due date, every
-// fifteen minutes.
-func closeReviews(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(15 * time.Minute)
-	defer tick.Stop()
-	for {
-		n, err := reviews.CloseDue(ctx, pool, tenantID)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.ErrorContext(ctx, "close access reviews", "err", err)
-		case n > 0:
-			log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
-
-// scanSoD looks for separation of duties violations every half hour.
-func scanSoD(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
-	tick := time.NewTicker(30 * time.Minute)
-	defer tick.Stop()
-	for {
-		res, err := sod.Scan(ctx, pool, tenantID)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.ErrorContext(ctx, "scan separation of duties", "err", err)
-		case res.Detected+res.Resolved+res.ExceptionsExpired > 0:
-			log.InfoContext(ctx, "separation of duties scan", "detected", res.Detected, "resolved", res.Resolved,
-				"exceptions_expired", res.ExceptionsExpired, "open", res.Open)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
+	for _, j := range jobs {
+		go func() {
+			tick := time.NewTicker(j.every)
+			defer tick.Stop()
+			for {
+				if err := j.run(ctx); err != nil && ctx.Err() == nil {
+					log.ErrorContext(ctx, j.name, "err", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
 	}
 }

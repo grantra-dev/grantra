@@ -10,18 +10,9 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
-func (a *API) sodGuarded(r *http.Request, action authz.Action, fn func(tx pgx.Tx, me authz.Subject) error) error {
-	return a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: action, Resource: authz.SoDResource()}); err != nil {
-			return err
-		}
-		return fn(tx, me)
-	})
-}
-
 func (a *API) listSoDPolicies(w http.ResponseWriter, r *http.Request) {
 	var out []sod.Policy
-	err := a.sodGuarded(r, authz.ReadSoD, func(tx pgx.Tx, _ authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ReadSoD, authz.SoDResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		out, err = sod.List(r.Context(), tx)
 		return err
 	})
@@ -30,7 +21,7 @@ func (a *API) listSoDPolicies(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) getSoDPolicy(w http.ResponseWriter, r *http.Request) {
 	var out sod.Policy
-	err := a.sodGuarded(r, authz.ReadSoD, func(tx pgx.Tx, _ authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ReadSoD, authz.SoDResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		out, err = sod.Get(r.Context(), tx, r.PathValue("id"))
 		return err
 	})
@@ -50,7 +41,7 @@ func (a *API) saveSoDPolicy(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	var out sod.Policy
-	err := a.sodGuarded(r, authz.ManageSoD, func(tx pgx.Tx, me authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
 		if out, err = sod.Save(r.Context(), tx, a.tenantID, id, in); err != nil {
 			return err
 		}
@@ -61,7 +52,7 @@ func (a *API) saveSoDPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) deleteSoDPolicy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := a.sodGuarded(r, authz.ManageSoD, func(tx pgx.Tx, me authz.Subject) error {
+	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(tx pgx.Tx, me authz.Subject) error {
 		if err := sod.Delete(r.Context(), tx, id); err != nil {
 			return err
 		}
@@ -82,7 +73,7 @@ func (a *API) listSoDViolations(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	var out []sod.Violation
-	err := a.sodGuarded(r, authz.ReadSoD, func(tx pgx.Tx, _ authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ReadSoD, authz.SoDResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		out, err = sod.Violations(r.Context(), tx, sod.Filter{Status: q.Get("status"), PolicyID: q.Get("policy_id"), After: q.Get("after"), Limit: limit})
 		return err
 	})
@@ -91,7 +82,7 @@ func (a *API) listSoDViolations(w http.ResponseWriter, r *http.Request) {
 
 // scanSoD looks for violations now.
 func (a *API) scanSoD(w http.ResponseWriter, r *http.Request) {
-	err := a.sodGuarded(r, authz.ManageSoD, func(pgx.Tx, authz.Subject) error { return nil })
+	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(pgx.Tx, authz.Subject) error { return nil })
 	if err != nil {
 		a.fail(w, r, err)
 		return
@@ -110,7 +101,7 @@ func (a *API) exceptSoDViolation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out sod.Violation
-	err := a.sodGuarded(r, authz.ManageSoD, func(tx pgx.Tx, me authz.Subject) (err error) {
+	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
 		out, err = sod.Except(r.Context(), tx, a.tenantID, "identity:"+me.ID, r.PathValue("id"), body.Reason, body.Days)
 		return err
 	})
