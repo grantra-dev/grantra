@@ -27,6 +27,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
+	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
 func main() {
@@ -93,6 +94,7 @@ func run() error {
 	go provisionApplications(ctx, log, pool, tenantID)
 	go expireRequests(ctx, log, pool, tenantID)
 	go closeReviews(ctx, log, pool, tenantID)
+	go scanSoD(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -273,6 +275,27 @@ func closeReviews(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, ten
 			log.ErrorContext(ctx, "close access reviews", "err", err)
 		case n > 0:
 			log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// scanSoD looks for separation of duties violations every half hour.
+func scanSoD(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(30 * time.Minute)
+	defer tick.Stop()
+	for {
+		res, err := sod.Scan(ctx, pool, tenantID)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.ErrorContext(ctx, "scan separation of duties", "err", err)
+		case res.Detected+res.Resolved+res.ExceptionsExpired > 0:
+			log.InfoContext(ctx, "separation of duties scan", "detected", res.Detected, "resolved", res.Resolved,
+				"exceptions_expired", res.ExceptionsExpired, "open", res.Open)
 		}
 		select {
 		case <-ctx.Done():

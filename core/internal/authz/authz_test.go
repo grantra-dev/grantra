@@ -158,6 +158,12 @@ func TestDecisions(t *testing.T) {
 		{"admin decides any item", Request{Principal: admin, Action: DecideReview, Resource: item}, true, []string{"admin-all"}},
 		{"nobody reviews own access", Request{Principal: admin, Action: DecideReview, Resource: adminItem}, false, []string{"no-self-review"}},
 
+		// Separation of duties.
+		{"admin manages SoD", Request{Principal: admin, Action: ManageSoD, Resource: SoDResource()}, true, []string{"admin-all"}},
+		{"auditor reads SoD", Request{Principal: auditor, Action: ReadSoD, Resource: SoDResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot grant exceptions", Request{Principal: auditor, Action: ManageSoD, Resource: SoDResource()}, false, nil},
+		{"employee cannot read SoD", Request{Principal: report, Action: ReadSoD, Resource: SoDResource()}, false, nil},
+
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
 		{"suspended person cannot read self", Request{Principal: suspendedAdmin, Action: ReadIdentity, Resource: IdentityResource(suspendedAdmin)}, false, nil},

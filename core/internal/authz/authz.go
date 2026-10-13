@@ -74,6 +74,8 @@ const (
 	ReadCampaigns      Action = "review_campaign.read"
 	ManageCampaigns    Action = "review_campaign.manage"
 	DecideReview       Action = "review_item.decide"
+	ReadSoD            Action = "sod.read"
+	ManageSoD          Action = "sod.manage"
 )
 
 var actionGroup = map[Action]string{
@@ -100,6 +102,8 @@ var actionGroup = map[Action]string{
 	ReadCampaigns:      "read",
 	ManageCampaigns:    "write",
 	DecideReview:       "write",
+	ReadSoD:            "read",
+	ManageSoD:          "write",
 }
 
 // Writes reports whether the action changes something.
@@ -209,6 +213,9 @@ func ReviewItemResource(id, identity string, reviewers []string) Resource {
 	}
 	return Resource{uid: e.UID, entity: &e}
 }
+
+// SoDResource is the tenant's separation of duties policies and violations.
+func SoDResource() Resource { return Resource{uid: cedar.NewEntityUID("SoD", "tenant")} }
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {
