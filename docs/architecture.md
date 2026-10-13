@@ -40,7 +40,38 @@ People sign in through OpenID Connect, either with **Grantra Login** (the bundle
 | `GRANTRA_OIDC_DISCOVERY_URL` | the issuer | Where to fetch provider metadata when it differs (e.g. inside docker-compose) |
 | `GRANTRA_OIDC_CLIENT_ID` / `_SECRET` | `grantra-console` / none | Client registered at the IdP |
 | `GRANTRA_TENANT` / `GRANTRA_TENANT_NAME` | `default` / `Default` | The single tenant of a self-hosted install, created on start |
-| `GRANTRA_BOOTSTRAP_EMAIL` | none | Creates a first active identity with this email when the tenant has none |
+| `GRANTRA_BOOTSTRAP_EMAIL` | none | Creates a first active identity with this email when the tenant has none, and makes it admin while the tenant has no active admin |
+
+## Console authorization
+
+Every console API request is a question for the policy engine: *may this principal perform this action on this resource?* The answer comes from [Cedar](https://www.cedarpolicy.com/) policies evaluated in-process with `cedar-go`. Nothing is allowed unless a `permit` matches, and any matching `forbid` wins.
+
+- **Policies** live in `core/internal/authz/policies/*.cedar`, each with a unique `@id`. Tests validate them against `schema.cedarschema`, so a typo in an attribute or action fails CI.
+- **Platform roles** (`grantra-admin`, `grantra-helpdesk`, `grantra-auditor`) are entitlements of a built-in application named **Grantra** (connector `grantra`) that every tenant gets on start. Holding a role means having an active account in that application with the role's entitlement, so platform roles are governed like any other access: they can expire (`account_entitlements.expires_at`) and will be requested, approved and reviewed through the same flows. In Cedar the identity becomes a member of `Role::"<name>"`.
+- **Relationships need no assignment.** You can see your direct reports because their `manager_id` points at you; nobody grants "manager".
+- **Guards outside Cedar**: the last active admin cannot be revoked, roles go only to active identities, and refused grants and revokes land in the audit log as `authz.denied`.
+- **First admin**: when `GRANTRA_BOOTSTRAP_EMAIL` is set and the tenant has no active admin, the active identity with that email becomes admin on start (audited as `system:bootstrap`). Unset it once real admins exist if you do not want it as a recovery path.
+
+| Role | Can |
+|---|---|
+| Everyone | Read their own identity; managers read their direct reports |
+| `grantra-helpdesk` | Look up and list identities. Cannot grant anything |
+| `grantra-auditor` | Read everything (identities, audit log, platform role members). Changes nothing |
+| `grantra-admin` | Everything, except granting a platform role to themselves |
+
+### Console API
+
+All endpoints need a signed-in session and answer JSON. `403` means the policies said no.
+
+| Endpoint | Action |
+|---|---|
+| `GET /api/v1/me` | Who you are, your platform roles, and whether you manage people or own applications |
+| `GET /api/v1/identities?limit=&after=` | `identity.list` |
+| `GET /api/v1/identities/{id}` | `identity.read` |
+| `GET /api/v1/audit-events?limit=&before=` | `audit.read` |
+| `GET /api/v1/platform-roles` | `platform_role.read` (roles with their current members) |
+| `PUT /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.grant`, optional body `{"expires_at": "..."}` |
+| `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |
 
 ## Tenant isolation
 

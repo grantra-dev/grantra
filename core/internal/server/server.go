@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/auth"
+	"github.com/grantra-dev/grantra/core/internal/console"
 )
 
 // Pinger reports whether a dependency such as the database is reachable.
@@ -20,9 +21,10 @@ type Pinger interface {
 // Version is set at build time with -ldflags "-X .../server.Version=...".
 var Version = "dev"
 
-// New returns the root HTTP handler. login may be nil when console login is
-// not configured; the endpoints that need a signed-in person then answer 503.
-func New(log *slog.Logger, db Pinger, login *auth.Service) http.Handler {
+// New returns the root HTTP handler. login and api may be nil when console
+// login is not configured; the endpoints that need a signed-in person then
+// answer 503.
+func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API) http.Handler {
 	mux := http.NewServeMux()
 
 	// Liveness: the process is up.
@@ -46,14 +48,11 @@ func New(log *slog.Logger, db Pinger, login *auth.Service) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"version": Version})
 	})
 
-	if login != nil {
+	if login != nil && api != nil {
 		login.Register(mux)
-		mux.Handle("GET /api/v1/me", login.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p, _ := auth.PrincipalFrom(r.Context())
-			writeJSON(w, http.StatusOK, p)
-		})))
+		api.Register(mux, login.Require)
 	} else {
-		mux.HandleFunc("GET /api/v1/me", func(w http.ResponseWriter, _ *http.Request) {
+		mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "login is not configured"})
 		})
 	}

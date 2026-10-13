@@ -51,3 +51,22 @@ func BootstrapIdentity(ctx context.Context, pool *pgxpool.Pool, tenantID, email 
 	}
 	return created, nil
 }
+
+// Audit appends an event to the tenant's audit log. targetType and targetID
+// may be empty when the event has no target.
+func Audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, targetType, targetID string, details map[string]any) error {
+	if details == nil {
+		details = map[string]any{}
+	}
+	var tt, ti *string
+	if targetID != "" {
+		tt, ti = &targetType, &targetID
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id, details)
+		 VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, actor, action, tt, ti, details)
+	if err != nil {
+		return fmt.Errorf("audit %s: %w", action, err)
+	}
+	return nil
+}
