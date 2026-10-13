@@ -158,3 +158,81 @@ export const decideRequest = (id: string, decision: "approve" | "reject", commen
     decision,
     comment,
   });
+
+export type ReviewDecision = "pending" | "keep" | "revoke";
+
+/** One access to review in a campaign. */
+export interface ReviewItem {
+  id: string;
+  campaign_id: string;
+  campaign_name: string;
+  identity_id: string;
+  identity_name: string;
+  type: "role" | "entitlement";
+  target_id: string;
+  target_name: string;
+  application?: string;
+  risk?: Requestable["risk"];
+  origin: Assignment["origin"];
+  granted_at: string;
+  reviewer_id?: string;
+  reviewer_name?: string;
+  decision: ReviewDecision;
+  decided_by?: string;
+  decided_at?: string;
+  comment?: string;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  reviewer: "manager" | "owner";
+  application_ids: string[];
+  on_missing: "keep" | "revoke";
+  due_at: string;
+  status: "active" | "completed";
+  created_by: string;
+  created_at: string;
+  closed_at?: string;
+  /** Items by decision. */
+  progress: Partial<Record<ReviewDecision, number>>;
+}
+
+export interface NewCampaign {
+  name: string;
+  reviewer: Campaign["reviewer"];
+  application_ids: string[];
+  on_missing: Campaign["on_missing"];
+  due_in_days: number;
+}
+
+export interface Application {
+  id: string;
+  name: string;
+  connector: string;
+}
+
+export const listMyReviewItems = () =>
+  api<{ items: ReviewItem[] }>("/api/v1/review-items?scope=mine&decision=pending&limit=200").then(
+    (r) => r.items,
+  );
+
+export const decideReviewItem = (id: string, decision: "keep" | "revoke", comment: string) =>
+  post<ReviewItem>(`/api/v1/review-items/${encodeURIComponent(id)}/decision`, {
+    decision,
+    comment,
+  });
+
+export const listCampaigns = () =>
+  api<{ campaigns: Campaign[] }>("/api/v1/review-campaigns").then((r) => r.campaigns);
+
+export const launchCampaign = (c: NewCampaign) => post<Campaign>("/api/v1/review-campaigns", c);
+
+export const closeCampaign = (id: string) =>
+  post<Campaign>(`/api/v1/review-campaigns/${encodeURIComponent(id)}/close`);
+
+/** Applications in the catalog, without Grantra's own platform roles app. */
+export const listApplications = () =>
+  api<{ applications: Application[] }>("/api/v1/applications").then((r) =>
+    r.applications.filter((a) => a.connector !== "grantra"),
+  );

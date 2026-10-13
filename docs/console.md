@@ -11,7 +11,7 @@ the Cedar policies regardless of what the console shows.
 | Request access | Everyone | Done: search the catalog, ask with a reason and an optional duration. Separation of duties conflicts in `prevent` mode show before sending |
 | My requests | Everyone | Done: each request with its approval steps, who decides now and until when, and a button to withdraw it while pending |
 | Approvals | Managers, application owners, admins | Done: the requests waiting on you, soonest deadline first, approve or reject (a comment is required to reject). A final approval refused by a `prevent` separation of duties policy is explained, and the request stays pending |
-| Access reviews | Managers, application owners, admins | [#23](https://github.com/grantra-dev/grantra/issues/23) |
+| Access reviews | Managers, application owners, admins, auditors | Done: reviewers keep or revoke what they are asked to review, one by one or in bulk (bulk revoke asks for confirmation). Admins launch campaigns (by manager or by owner, all access or some applications) and close them; admins and auditors follow each campaign's progress |
 | People | Admins, helpdesk, auditors | [#24](https://github.com/grantra-dev/grantra/issues/24) |
 | Administration | Admins | [#24](https://github.com/grantra-dev/grantra/issues/24) |
 | Audit log | Admins, auditors | [#24](https://github.com/grantra-dev/grantra/issues/24) |
