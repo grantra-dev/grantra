@@ -64,6 +64,9 @@ func TestDecisions(t *testing.T) {
 	manager := Subject{ID: "boss", Status: "active", Kind: "human"}
 	report := Subject{ID: "ana", Status: "active", Kind: "human", ManagerID: "boss"}
 	peer := Subject{ID: "luis", Status: "active", Kind: "human", ManagerID: "someone-else"}
+	owner := Subject{ID: "owner", Status: "active", Kind: "human"}
+	req := AccessRequestResource("r1", report.ID, report.ID, []string{manager.ID, owner.ID}, []string{manager.ID})
+	adminReq := AccessRequestResource("r2", admin.ID, admin.ID, nil, nil)
 	suspendedAdmin := Subject{ID: "gone", Status: "suspended", Kind: "human", Roles: []string{RoleAdmin}}
 
 	tests := []struct {
@@ -120,6 +123,26 @@ func TestDecisions(t *testing.T) {
 		{"auditor cannot change rules", Request{Principal: auditor, Action: ManageAccessRules, Resource: CatalogResource()}, false, nil},
 		{"helpdesk cannot change catalog", Request{Principal: helpdesk, Action: ManageCatalog, Resource: CatalogResource()}, false, nil},
 		{"employee cannot change rules", Request{Principal: report, Action: ManageAccessRules, Resource: CatalogResource()}, false, nil},
+
+		// Access requests.
+		{"anyone reads requestable access", Request{Principal: peer, Action: ReadRequestable, Resource: CatalogResource()}, true, []string{"requestable-read-all"}},
+		{"request for self", Request{Principal: report, Action: CreateRequest, Resource: IdentityResource(report)}, true, []string{"request-for-self"}},
+		{"manager requests for report", Request{Principal: manager, Action: CreateRequest, Resource: IdentityResource(report)}, true, []string{"request-for-direct-reports"}},
+		{"peer cannot request for peer", Request{Principal: peer, Action: CreateRequest, Resource: IdentityResource(report)}, false, nil},
+		{"helpdesk cannot request for others", Request{Principal: helpdesk, Action: CreateRequest, Resource: IdentityResource(report)}, false, nil},
+		{"requester reads request", Request{Principal: report, Action: ReadRequest, Resource: req}, true, []string{"request-read-involved"}},
+		{"approver reads request", Request{Principal: owner, Action: ReadRequest, Resource: req}, true, nil},
+		{"peer cannot read request", Request{Principal: peer, Action: ReadRequest, Resource: req}, false, nil},
+		{"auditor reads request", Request{Principal: auditor, Action: ReadRequest, Resource: req}, true, []string{"auditor-read-all"}},
+		{"auditor lists requests", Request{Principal: auditor, Action: ListRequests, Resource: RequestsResource()}, true, nil},
+		{"employee cannot list requests", Request{Principal: report, Action: ListRequests, Resource: RequestsResource()}, false, nil},
+		{"current approver decides", Request{Principal: manager, Action: DecideRequest, Resource: req}, true, []string{"request-decide-approver"}},
+		{"later approver waits", Request{Principal: owner, Action: DecideRequest, Resource: req}, false, nil},
+		{"admin decides any step", Request{Principal: admin, Action: DecideRequest, Resource: req}, true, []string{"admin-all"}},
+		{"auditor cannot decide", Request{Principal: auditor, Action: DecideRequest, Resource: req}, false, nil},
+		{"nobody approves own access", Request{Principal: admin, Action: DecideRequest, Resource: adminReq}, false, []string{"no-self-approval"}},
+		{"requester cancels", Request{Principal: report, Action: CancelRequest, Resource: req}, true, []string{"request-cancel-own"}},
+		{"approver cannot cancel", Request{Principal: owner, Action: CancelRequest, Resource: req}, false, nil},
 
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},

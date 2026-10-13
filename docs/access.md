@@ -15,8 +15,8 @@ An **assignment** says an identity *should* have a role or an entitlement, and w
 | Origin | Meaning |
 |---|---|
 | `birthright` | A birthright rule gives it, while the person matches the rule |
-| `manual` | Granted by hand (coming with access requests) |
-| `request` | Approved access request (coming next) |
+| `manual` | Granted by hand |
+| `request` | An approved [access request](access-requests.md); it can end on its own after a set number of days |
 
 The same access can be held for several reasons at once (two rules, a rule and a request); each is its own assignment, and losing one reason keeps the others. Assignments are the desired state. Accounts and their entitlements are the actual state in each application; connectors will reconcile one with the other.
 
