@@ -14,9 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
+	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
+	"github.com/grantra-dev/grantra/core/internal/connector"
+	_ "github.com/grantra-dev/grantra/core/internal/connector/scim" // registers the scim connector
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
@@ -83,6 +86,7 @@ func run() error {
 
 	go applyDueDates(ctx, log, pool, tenantID)
 	go applyBirthright(ctx, log, pool, tenantID)
+	go aggregateApplications(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -170,6 +174,31 @@ func applyBirthright(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, 
 			log.ErrorContext(ctx, "apply birthright access", "err", err)
 		case events > 0:
 			log.InfoContext(ctx, "applied birthright access", "events", events, "added", ch.Added, "removed", ch.Removed)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// aggregateApplications reads every application with a connector once an
+// hour, checking every five minutes which ones are due.
+func aggregateApplications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(5 * time.Minute)
+	defer tick.Stop()
+	for {
+		runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, connector.EnvSecrets)
+		if err != nil && ctx.Err() == nil {
+			log.ErrorContext(ctx, "aggregate applications", "err", err)
+		}
+		for _, r := range runs {
+			if r.Status == accounts.RunFailed {
+				log.WarnContext(ctx, "aggregation failed", "application", r.ApplicationID, "error", r.Error)
+			} else {
+				log.InfoContext(ctx, "aggregated application", "application", r.ApplicationID, "counts", r.Counts)
+			}
 		}
 		select {
 		case <-ctx.Done():

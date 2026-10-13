@@ -10,6 +10,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -33,12 +34,15 @@ var Risks = []string{"low", "medium", "high", "critical"}
 
 // Application is a system people get access to.
 type Application struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Connector        string    `json:"connector"`
-	OwnerID          string    `json:"owner_id,omitempty"`
-	EntitlementCount int       `json:"entitlement_count"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Connector string `json:"connector"`
+	// Config is the connector's settings. It never holds secrets, only
+	// references to them such as "env:CRM_SCIM_TOKEN".
+	Config           json.RawMessage `json:"config"`
+	OwnerID          string          `json:"owner_id,omitempty"`
+	EntitlementCount int             `json:"entitlement_count"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // Entitlement is a permission inside an application.
@@ -103,7 +107,7 @@ func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID s
 	if err != nil {
 		return Application{}, err
 	}
-	a := Application{Name: name, Connector: ManualConnector, OwnerID: ownerID}
+	a := Application{Name: name, Connector: ManualConnector, Config: json.RawMessage(`{}`), OwnerID: ownerID}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO applications (tenant_id, name, connector, owner_id) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (tenant_id, name) DO NOTHING RETURNING id, created_at`,
@@ -117,7 +121,7 @@ func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID s
 // ListApplications returns every application, the built-in one included.
 func ListApplications(ctx context.Context, tx pgx.Tx) ([]Application, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT a.id, a.name, a.connector, coalesce(a.owner_id::text, ''),
+		`SELECT a.id, a.name, a.connector, a.config, coalesce(a.owner_id::text, ''),
 		        (SELECT count(*) FROM entitlements e WHERE e.application_id = a.id), a.created_at
 		 FROM applications a ORDER BY a.name`)
 	if err != nil {
@@ -125,7 +129,7 @@ func ListApplications(ctx context.Context, tx pgx.Tx) ([]Application, error) {
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Application, error) {
 		var a Application
-		err := row.Scan(&a.ID, &a.Name, &a.Connector, &a.OwnerID, &a.EntitlementCount, &a.CreatedAt)
+		err := row.Scan(&a.ID, &a.Name, &a.Connector, &a.Config, &a.OwnerID, &a.EntitlementCount, &a.CreatedAt)
 		return a, err
 	})
 }

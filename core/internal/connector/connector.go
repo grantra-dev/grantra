@@ -1,0 +1,122 @@
+// Package connector is how Grantra talks to the applications it governs.
+//
+// A connector reads what exists in an application (aggregation): its
+// entitlements (groups, roles, licenses) and its accounts with the
+// entitlements each one holds. Writing changes back (provisioning) comes in a
+// later version of this interface.
+//
+// Connector kinds register a Factory under their name; an application's
+// connector column names the kind and its config column holds the settings.
+// Secrets never live in the config: it holds references such as
+// "env:CRM_SCIM_TOKEN" that a SecretResolver turns into values.
+package connector
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+)
+
+// Entitlement is a permission as the application describes it.
+type Entitlement struct {
+	NativeID    string
+	Name        string
+	Description string
+}
+
+// Account is a login as the application describes it.
+type Account struct {
+	NativeID    string
+	Username    string
+	Email       string
+	DisplayName string
+	// ExternalID is the id the application keeps for the person in the
+	// company's records, often the HR employee id.
+	ExternalID string
+	Active     bool
+	// Entitlements are the native ids of the entitlements the account holds.
+	Entitlements []string
+	Attributes   map[string]string
+}
+
+// Snapshot is everything an aggregation read.
+type Snapshot struct {
+	Entitlements []Entitlement
+	Accounts     []Account
+}
+
+// Reader reads an application.
+type Reader interface {
+	// Read returns every entitlement and account. It must return an error
+	// rather than a partial snapshot: a missing page would look like deleted
+	// accounts.
+	Read(ctx context.Context) (Snapshot, error)
+}
+
+// SecretResolver turns a secret reference from a connector config into its
+// value.
+type SecretResolver func(ref string) (string, error)
+
+// EnvSecrets resolves "env:NAME" references from environment variables, which
+// is how a self-hosted install passes connector credentials.
+func EnvSecrets(ref string) (string, error) {
+	name, ok := strings.CutPrefix(ref, "env:")
+	if !ok || name == "" {
+		return "", fmt.Errorf(`secret %q must be a reference like "env:NAME"`, ref)
+	}
+	v := os.Getenv(name)
+	if v == "" {
+		return "", fmt.Errorf("environment variable %s is not set", name)
+	}
+	return v, nil
+}
+
+// Factory builds a connector from its config. It must validate the config
+// and fail on anything unknown, so typos surface when the connector is set up.
+type Factory func(config json.RawMessage, secrets SecretResolver) (Reader, error)
+
+var (
+	mu        sync.RWMutex
+	factories = map[string]Factory{}
+)
+
+// Register makes a connector kind available. It panics on a duplicate name.
+func Register(kind string, f Factory) {
+	mu.Lock()
+	defer mu.Unlock()
+	if _, dup := factories[kind]; dup {
+		panic("connector " + kind + " registered twice")
+	}
+	factories[kind] = f
+}
+
+// ErrUnknownKind is returned for a connector kind nobody registered.
+var ErrUnknownKind = errors.New("unknown connector")
+
+// New builds a connector of the given kind.
+func New(kind string, config json.RawMessage, secrets SecretResolver) (Reader, error) {
+	mu.RLock()
+	f, ok := factories[kind]
+	mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("%w %q (available: %s)", ErrUnknownKind, kind, strings.Join(Kinds(), ", "))
+	}
+	return f(config, secrets)
+}
+
+// Kinds lists the registered connector kinds.
+func Kinds() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]string, 0, len(factories))
+	for k := range factories {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
