@@ -13,13 +13,13 @@ import (
 )
 
 // setConnector configures how Grantra reads an application:
-// {"kind": "scim", "config": {"base_url": "...", "token": "env:CRM_SCIM_TOKEN"}}.
+// {"kind": "scim", "config": {"base_url": "...", "token": "env:GRANTRA_SECRET_CRM_SCIM_TOKEN"}}.
 func (a *API) setConnector(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Kind   string          `json:"kind"`
 		Config json.RawMessage `json:"config"`
 	}
-	if !decodeBody(w, r, &body, `{"kind": "scim", "config": {"base_url": "https://crm.example.com/scim/v2", "token": "env:CRM_SCIM_TOKEN"}}`) {
+	if !decodeBody(w, r, &body, `{"kind": "scim", "config": {"base_url": "https://crm.example.com/scim/v2", "token": "env:GRANTRA_SECRET_CRM_SCIM_TOKEN"}}`) {
 		return
 	}
 	id := r.PathValue("id")

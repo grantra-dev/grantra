@@ -36,11 +36,11 @@ func TestConnectorsAndAccounts(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"totalResults": len(res), "Resources": res}) //nolint:errcheck
 	}))
 	defer scim.Close()
-	t.Setenv("TEST_CRM_TOKEN", "t0ken")
+	t.Setenv("GRANTRA_SECRET_TEST_CRM_TOKEN", "t0ken")
 
 	app := decode[catalog.Application](t, e.do(admin, http.MethodPost, "/api/v1/applications", `{"name": "CRM"}`))
 	conn := "/api/v1/applications/" + app.ID + "/connector"
-	cfg := `{"kind": "scim", "config": {"base_url": "` + scim.URL + `/scim/v2", "token": "env:TEST_CRM_TOKEN", "allow_http": true}}`
+	cfg := `{"kind": "scim", "config": {"base_url": "` + scim.URL + `/scim/v2", "token": "env:GRANTRA_SECRET_TEST_CRM_TOKEN", "allow_http": true}}`
 	if rec := e.do(auditor, http.MethodPut, conn, cfg); rec.Code != http.StatusForbidden {
 		t.Errorf("auditor sets connector = %d", rec.Code)
 	}
