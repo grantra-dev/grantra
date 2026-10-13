@@ -24,6 +24,24 @@ Grantra starts as a **modular monolith** in Go: one binary with well-separated m
 - **Role**: a business role bundling entitlements across applications.
 - **Audit event**: an append-only record of everything that happens.
 
+## Console login
+
+People sign in through OpenID Connect, either with **Grantra Login** (the bundled Keycloak, realm `grantra`) or with the company's own IdP (Entra ID, Okta...). Grantra never stores passwords.
+
+- **Flow**: authorization code with PKCE, a `nonce` checked in the ID token, and a short-lived cookie that ties the callback to the browser that started the login. Grantra is a confidential client.
+- **Who you are**: a login is linked to an identity by `(issuer, subject)` in `identity_logins`. The first login links by *verified* email; later ones go by subject. Logins never create identities: someone the IdP knows but Grantra does not gets a 403.
+- **Sessions**: server-side, in `sessions`. The browser holds only an opaque `HttpOnly`, `SameSite=Lax` cookie; the database holds its SHA-256. Sessions end after `GRANTRA_SESSION_IDLE` of inactivity (30 min), after `GRANTRA_SESSION_MAX` (8 h), on logout (which also ends the IdP session), or as soon as the identity stops being `active`, so offboarding cuts access at the next request.
+- **Audit**: `auth.login`, `auth.login_denied` and `auth.logout` land in `audit_events`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GRANTRA_PUBLIC_URL` | `http://localhost:8080` | Browser-facing URL; builds the callback URL. Cookies are `Secure` when it is https |
+| `GRANTRA_OIDC_ISSUER` | (none: login off) | Issuer URL, exactly as in tokens |
+| `GRANTRA_OIDC_DISCOVERY_URL` | the issuer | Where to fetch provider metadata when it differs (e.g. inside docker-compose) |
+| `GRANTRA_OIDC_CLIENT_ID` / `_SECRET` | `grantra-console` / none | Client registered at the IdP |
+| `GRANTRA_TENANT` / `GRANTRA_TENANT_NAME` | `default` / `Default` | The single tenant of a self-hosted install, created on start |
+| `GRANTRA_BOOTSTRAP_EMAIL` | none | Creates a first active identity with this email when the tenant has none |
+
 ## Tenant isolation
 
 Every tenant-owned table has a `tenant_id` column and a row-level security policy. The server sets the tenant for each transaction:

@@ -34,8 +34,9 @@ make up
 
 | Service | URL | Dev credentials |
 |---|---|---|
+| Grantra console | http://localhost:8080 | Sign in with `admin` / `admin` |
 | Grantra API | http://localhost:8080/healthz | |
-| Keycloak | http://localhost:8081 | `admin` / `admin` (realm `grantra`, user `admin` / `admin`) |
+| Grantra Login (Keycloak) | http://localhost:8081 | `admin` / `admin` (realm `grantra`, user `admin` / `admin`) |
 | PostgreSQL | localhost:5432 | `grantra_app` / `grantra` |
 
 ## Development
