@@ -71,6 +71,9 @@ const (
 	ListRequests       Action = "access_request.list"
 	DecideRequest      Action = "access_request.decide"
 	CancelRequest      Action = "access_request.cancel"
+	ReadCampaigns      Action = "review_campaign.read"
+	ManageCampaigns    Action = "review_campaign.manage"
+	DecideReview       Action = "review_item.decide"
 )
 
 var actionGroup = map[Action]string{
@@ -94,6 +97,9 @@ var actionGroup = map[Action]string{
 	ListRequests:       "read",
 	DecideRequest:      "write",
 	CancelRequest:      "write",
+	ReadCampaigns:      "read",
+	ManageCampaigns:    "write",
+	DecideReview:       "write",
 }
 
 // Writes reports whether the action changes something.
@@ -179,6 +185,26 @@ func AccessRequestResource(id, requester, beneficiary string, approvers, current
 			"beneficiary":       cedar.NewEntityUID("Identity", cedar.String(beneficiary)),
 			"approvers":         identities(approvers),
 			"current_approvers": identities(current),
+		}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
+
+// ReviewsResource is the tenant's access review campaigns.
+func ReviewsResource() Resource { return Resource{uid: cedar.NewEntityUID("Reviews", "tenant")} }
+
+// ReviewItemResource is one access to review: whose access it is and who may
+// review it. Empty reviewers mean an admin reviews it.
+func ReviewItemResource(id, identity string, reviewers []string) Resource {
+	vals := make([]cedar.Value, 0, len(reviewers))
+	for _, r := range reviewers {
+		vals = append(vals, cedar.NewEntityUID("Identity", cedar.String(r)))
+	}
+	e := cedar.Entity{
+		UID: cedar.NewEntityUID("ReviewItem", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{
+			"identity":  cedar.NewEntityUID("Identity", cedar.String(identity)),
+			"reviewers": cedar.NewSet(vals...),
 		}),
 	}
 	return Resource{uid: e.UID, entity: &e}

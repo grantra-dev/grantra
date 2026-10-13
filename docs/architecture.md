@@ -76,6 +76,7 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `/api/v1/applications`, `/api/v1/roles`, `/api/v1/access-rules`, `/api/v1/identities/{id}/access` | Catalog, birthright rules and assigned access, see [access.md](access.md) |
 | `/api/v1/applications/{id}/connector`, `/aggregations`, `/accounts`, `/provisioning`, `/provisioning-runs`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation, correlation and provisioning, see [connectors.md](connectors.md) |
 | `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
+| `/api/v1/review-campaigns`, `/api/v1/review-items` | Access reviews, see [access-reviews.md](access-reviews.md) |
 
 ## Identity lifecycle
 

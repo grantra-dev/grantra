@@ -25,6 +25,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
 	"github.com/grantra-dev/grantra/core/internal/requests"
+	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
 )
 
@@ -91,6 +92,7 @@ func run() error {
 	go aggregateApplications(ctx, log, pool, tenantID)
 	go provisionApplications(ctx, log, pool, tenantID)
 	go expireRequests(ctx, log, pool, tenantID)
+	go closeReviews(ctx, log, pool, tenantID)
 
 	az, err := authz.New()
 	if err != nil {
@@ -250,6 +252,27 @@ func expireRequests(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, t
 		case h.Expired+h.Cancelled+h.AccessEnded > 0:
 			log.InfoContext(ctx, "closed access requests and ended expired access",
 				"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// closeReviews ends access review campaigns past their due date, every
+// fifteen minutes.
+func closeReviews(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+	tick := time.NewTicker(15 * time.Minute)
+	defer tick.Stop()
+	for {
+		n, err := reviews.CloseDue(ctx, pool, tenantID)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.ErrorContext(ctx, "close access reviews", "err", err)
+		case n > 0:
+			log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
 		}
 		select {
 		case <-ctx.Done():

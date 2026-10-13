@@ -67,6 +67,8 @@ func TestDecisions(t *testing.T) {
 	owner := Subject{ID: "owner", Status: "active", Kind: "human"}
 	req := AccessRequestResource("r1", report.ID, report.ID, []string{manager.ID, owner.ID}, []string{manager.ID})
 	adminReq := AccessRequestResource("r2", admin.ID, admin.ID, nil, nil)
+	item := ReviewItemResource("i1", report.ID, []string{manager.ID})
+	adminItem := ReviewItemResource("i2", admin.ID, nil)
 	suspendedAdmin := Subject{ID: "gone", Status: "suspended", Kind: "human", Roles: []string{RoleAdmin}}
 
 	tests := []struct {
@@ -143,6 +145,18 @@ func TestDecisions(t *testing.T) {
 		{"nobody approves own access", Request{Principal: admin, Action: DecideRequest, Resource: adminReq}, false, []string{"no-self-approval"}},
 		{"requester cancels", Request{Principal: report, Action: CancelRequest, Resource: req}, true, []string{"request-cancel-own"}},
 		{"approver cannot cancel", Request{Principal: owner, Action: CancelRequest, Resource: req}, false, nil},
+
+		// Access reviews.
+		{"admin runs campaigns", Request{Principal: admin, Action: ManageCampaigns, Resource: ReviewsResource()}, true, []string{"admin-all"}},
+		{"auditor reads campaigns", Request{Principal: auditor, Action: ReadCampaigns, Resource: ReviewsResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot run campaigns", Request{Principal: auditor, Action: ManageCampaigns, Resource: ReviewsResource()}, false, nil},
+		{"manager cannot run campaigns", Request{Principal: manager, Action: ManageCampaigns, Resource: ReviewsResource()}, false, nil},
+		{"employee cannot read campaigns", Request{Principal: report, Action: ReadCampaigns, Resource: ReviewsResource()}, false, nil},
+		{"reviewer decides", Request{Principal: manager, Action: DecideReview, Resource: item}, true, []string{"review-decide-reviewer"}},
+		{"others cannot decide", Request{Principal: peer, Action: DecideReview, Resource: item}, false, nil},
+		{"auditor cannot decide", Request{Principal: auditor, Action: DecideReview, Resource: item}, false, nil},
+		{"admin decides any item", Request{Principal: admin, Action: DecideReview, Resource: item}, true, []string{"admin-all"}},
+		{"nobody reviews own access", Request{Principal: admin, Action: DecideReview, Resource: adminItem}, false, []string{"no-self-review"}},
 
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
