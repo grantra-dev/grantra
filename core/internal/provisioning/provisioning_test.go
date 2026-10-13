@@ -30,6 +30,8 @@ type fakeApp struct {
 	failAdd  map[string]bool // groups AddMember fails on
 	calls    []string
 	nextUser int
+	// afterAdd, when set, runs after each successful AddMember.
+	afterAdd func()
 }
 
 var (
@@ -86,6 +88,9 @@ func (f fake) AddMember(_ context.Context, group, id string) error {
 		u.Entitlements = append(u.Entitlements, group)
 	}
 	f.app().calls = append(f.app().calls, "add "+group+" "+id)
+	if f.app().afterAdd != nil {
+		f.app().afterAdd()
+	}
 	return nil
 }
 
@@ -458,5 +463,100 @@ func TestSettingsAndDue(t *testing.T) {
 	}
 	if runs, err := ProvisionDue(ctx, e.pool, e.tenant, noSecrets); err != nil || len(runs) != 0 {
 		t.Errorf("nothing left to do = %+v, %v", runs, err)
+	}
+}
+
+// A run that stops halfway keeps what it already changed on record, and the
+// next run picks up the rest.
+func TestProvisionInterrupted(t *testing.T) {
+	e := newEnv(t, "sales", "admins")
+	ana := e.identity("Ana", "ana@example.com", "active")
+	e.user("u1", "ana@example.com", true)
+	e.aggregate()
+	e.settings(Settings{Mode: ModeOn})
+	e.assign(ana, e.entitlement("sales"))
+	e.assign(ana, e.entitlement("admins"))
+
+	// The caller goes away right after the first change.
+	ctx, cancel := context.WithCancel(context.Background())
+	e.fake.afterAdd = cancel
+	run, err := Provision(ctx, e.pool, e.tenant, e.app, "test", Options{}, noSecrets)
+	e.fake.afterAdd = nil
+	if err != nil || run.Status != RunInterrupted || run.FinishedAt == nil {
+		t.Fatalf("interrupted run = %+v, %v", run, err)
+	}
+	if got := len(e.calls()); got != 1 {
+		t.Errorf("changes made = %d, want 1", got)
+	}
+	var stored []Action
+	var status string
+	var memberships, audited int
+	e.tx(func(tx pgx.Tx) error {
+		ctx := context.Background()
+		if err := tx.QueryRow(ctx, `SELECT status, actions FROM connector_runs WHERE id = $1`, run.ID).Scan(&status, &stored); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM account_entitlements WHERE provisioned_at IS NOT NULL`).Scan(&memberships); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action = 'provisioning.add_member'`).Scan(&audited)
+	})
+	done := 0
+	for _, a := range stored {
+		if a.Status == ActionDone {
+			done++
+		}
+	}
+	if status != RunInterrupted || len(stored) != 2 || done != 1 || memberships != 1 || audited != 1 {
+		t.Errorf("on record: status %s, actions %+v, memberships %d, audited %d", status, stored, memberships, audited)
+	}
+
+	if run := e.provision(Options{}); run.Status != accounts.RunSucceeded || len(run.Actions) != 1 {
+		t.Errorf("next run = %s %q", run.Status, ops(run))
+	}
+}
+
+// Only one run writes to an application at a time; a run left "running" by a
+// crash is closed once it is past the time any run may take.
+func TestProvisionOneRunAtATime(t *testing.T) {
+	e := newEnv(t, "sales")
+	ctx := context.Background()
+	ana := e.identity("Ana", "ana@example.com", "active")
+	e.aggregate()
+	e.settings(Settings{Mode: ModeOn})
+	e.assign(ana, e.entitlement("sales"))
+
+	var stale string
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`INSERT INTO connector_runs (tenant_id, application_id, kind, actor, status, started_at, finished_at)
+			 VALUES ($1, $2, 'provisioning', 'test', 'running', now(), NULL) RETURNING id`, e.tenant, e.app).Scan(&stale)
+	})
+	if _, err := Provision(ctx, e.pool, e.tenant, e.app, "test", Options{}, noSecrets); !errors.Is(err, ErrRunning) {
+		t.Errorf("second run = %v, want ErrRunning", err)
+	}
+	if runs, err := ProvisionDue(ctx, e.pool, e.tenant, noSecrets); err != nil || len(runs) != 0 {
+		t.Errorf("due while running = %+v, %v", runs, err)
+	}
+	if run, err := accounts.Aggregate(ctx, e.pool, e.tenant, e.app, "test", noSecrets); err != nil || run.Status != accounts.RunFailed {
+		t.Errorf("aggregation while running = %+v, %v", run, err)
+	}
+	if len(e.calls()) != 0 {
+		t.Error("the application was changed while another run was in progress")
+	}
+
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE connector_runs SET started_at = now() - interval '1 hour' WHERE id = $1`, stale)
+		return err
+	})
+	if run := e.provision(Options{}); run.Status != accounts.RunSucceeded {
+		t.Errorf("run after a stale one = %+v", run)
+	}
+	var status string
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT status FROM connector_runs WHERE id = $1`, stale).Scan(&status)
+	})
+	if status != RunInterrupted {
+		t.Errorf("stale run = %s, want interrupted", status)
 	}
 }
