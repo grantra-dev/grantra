@@ -2,6 +2,7 @@ import {
   ClipboardCheck,
   FileSearch,
   House,
+  Inbox,
   KeyRound,
   ListChecks,
   type LucideIcon,
@@ -54,7 +55,13 @@ export const sections: Section[] = [
     description: "Ask for a role or entitlement from the catalog.",
     icon: ShoppingBag,
     visible: everyone,
-    issue: 21,
+  },
+  {
+    path: "/requests",
+    title: "My requests",
+    description: "Follow what you asked for, and withdraw it while it is pending.",
+    icon: Inbox,
+    visible: everyone,
   },
   {
     path: "/approvals",

@@ -6,7 +6,9 @@ import { visibleSections } from "@/lib/sections";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { Home } from "@/pages/Home";
 import { MyAccess } from "@/pages/MyAccess";
+import { MyRequests } from "@/pages/MyRequests";
 import { NotFound } from "@/pages/NotFound";
+import { RequestAccess } from "@/pages/RequestAccess";
 import { Centered, LoginNotConfigured, SignIn } from "@/pages/SignIn";
 
 export function App() {
@@ -30,6 +32,8 @@ export function App() {
   const pages: Record<string, React.ReactNode> = {
     "/": <Home me={me} />,
     "/my-access": <MyAccess me={me} />,
+    "/request": <RequestAccess me={me} />,
+    "/requests": <MyRequests me={me} />,
   };
   return (
     <Routes>

@@ -55,6 +55,16 @@ func TestSeparationOfDuties(t *testing.T) {
 	exec(`UPDATE access_requests SET status = 'approved', closed_at = now()`)
 	exec(`INSERT INTO access_assignments (tenant_id, identity_id, entitlement_id, origin, granted_by)
 	      SELECT tenant_id, beneficiary_id, entitlement_id, 'manual', 'test' FROM access_requests`)
+	preview := decode[struct {
+		SoDConflicts []string `json:"sod_conflicts"`
+	}](t,
+		e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{"entitlement_id": "`+approve.ID+`"}`))
+	if len(preview.SoDConflicts) != 1 || preview.SoDConflicts[0] != "Payments" {
+		t.Errorf("preview = %+v", preview)
+	}
+	if rec := e.do(auditor, http.MethodPost, "/api/v1/access-requests/preview", `{"beneficiary_id": "`+ana+`", "entitlement_id": "`+approve.ID+`"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("auditor previews for ana = %d", rec.Code)
+	}
 	rec = e.do(ana, http.MethodPost, "/api/v1/access-requests", `{"entitlement_id": "`+approve.ID+`", "justification": "approve them too"}`)
 	if rec.Code != http.StatusConflict {
 		t.Errorf("conflicting request = %d %s", rec.Code, rec.Body)

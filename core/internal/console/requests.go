@@ -8,6 +8,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/requests"
+	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
 // listRequestable lists what people can ask for.
@@ -44,6 +45,36 @@ func (a *API) createRequest(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	a.respond(w, r, http.StatusCreated, out, err)
+}
+
+// previewRequest tells, before asking, which prevent-mode separation of
+// duties policies the request would break: the same body as createRequest,
+// without the justification.
+func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
+	var in requests.Input
+	if !decodeBody(w, r, &in, `{"entitlement_id": "<entitlement id>"}`) {
+		return
+	}
+	if (in.RoleID == "") == (in.EntitlementID == "") {
+		writeError(w, http.StatusBadRequest, "ask for exactly one of role_id and entitlement_id")
+		return
+	}
+	var conflicts []string
+	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) (err error) {
+		if in.BeneficiaryID == "" {
+			in.BeneficiaryID = me.ID
+		}
+		target, err := authz.LoadSubject(r.Context(), tx, in.BeneficiaryID)
+		if err != nil {
+			return err
+		}
+		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.CreateRequest, Resource: authz.IdentityResource(target)}); err != nil {
+			return err
+		}
+		conflicts, err = sod.Conflicts(r.Context(), tx, target.ID, in.RoleID, in.EntitlementID)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, map[string]any{"sod_conflicts": nonNil(conflicts)}, err)
 }
 
 // listRequests lists requests: ?scope=mine (asked by or for you, the
