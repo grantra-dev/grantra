@@ -44,7 +44,7 @@ A broken export must never offboard the company.
 - **Dry run.** `dry_run=true` returns exactly what would change, without changing it.
 - **Feeds of changes only.** Set `"missing": "ignore"` when the file does not list everyone, so absent people are left alone.
 
-Every run is stored in `identity_source_runs`, each change lands in `audit_events` (`identity.joined`, `identity.moved`, `identity.left`, `identity.rehired`, `identity.updated`, `identity.activated`) and lifecycle events go to `lifecycle_events`. Events start with `processed_at` empty: that table is the outbox the next stages (birthright access, deprovisioning, and later NATS) consume.
+Every run is stored in `identity_source_runs`, each change lands in `audit_events` (`identity.joined`, `identity.moved`, `identity.left`, `identity.rehired`, `identity.updated`, `identity.activated`) and lifecycle events go to `lifecycle_events`. Events start with `processed_at` empty: that table is the outbox the access engine consumes to give and take [birthright access](access.md).
 
 ## API
 

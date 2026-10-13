@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
@@ -53,6 +54,21 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/identity-sources/{id}/runs", a.listRuns)
 	route("POST /api/v1/identity-sources/{id}/runs", a.syncSource)
 	route("GET /api/v1/lifecycle-events", a.listLifecycleEvents)
+	route("GET /api/v1/identities/{id}/access", a.identityAccess)
+	route("GET /api/v1/applications", a.listApplications)
+	route("POST /api/v1/applications", a.createApplication)
+	route("GET /api/v1/applications/{id}/entitlements", a.listEntitlements)
+	route("POST /api/v1/applications/{id}/entitlements", a.createEntitlement)
+	route("GET /api/v1/roles", a.listRoles)
+	route("POST /api/v1/roles", a.saveRole)
+	route("GET /api/v1/roles/{id}", a.getRole)
+	route("PUT /api/v1/roles/{id}", a.saveRole)
+	route("GET /api/v1/access-rules", a.listAccessRules)
+	route("POST /api/v1/access-rules", a.saveAccessRule)
+	route("POST /api/v1/access-rules/preview", a.previewAccessRule)
+	route("GET /api/v1/access-rules/{id}", a.getAccessRule)
+	route("PUT /api/v1/access-rules/{id}", a.saveAccessRule)
+	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming
@@ -124,7 +140,7 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDenied):
 		writeError(w, http.StatusForbidden, "you do not have permission to do this")
-	case errors.Is(err, authz.ErrNotFound), errors.Is(err, lifecycle.ErrNotFound):
+	case errors.Is(err, authz.ErrNotFound), errors.Is(err, lifecycle.ErrNotFound), errors.Is(err, apperr.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, authz.ErrLastAdmin):
 		writeError(w, http.StatusConflict, "this is the last active admin; grant the role to someone else first")
@@ -132,8 +148,10 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "platform roles can only be granted to active identities")
 	case errors.Is(err, lifecycle.ErrNameTaken):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.As(err, new(*lifecycle.InvalidError)):
+	case errors.As(err, new(*lifecycle.InvalidError)), errors.As(err, new(*apperr.Invalid)):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.As(err, new(*apperr.Conflict)):
+		writeError(w, http.StatusConflict, err.Error())
 	default:
 		a.log.ErrorContext(r.Context(), "console request failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
