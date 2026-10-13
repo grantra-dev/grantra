@@ -72,6 +72,11 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `GET /api/v1/platform-roles` | `platform_role.read` (roles with their current members) |
 | `PUT /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.grant`, optional body `{"expires_at": "..."}` |
 | `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |
+| `/api/v1/identity-sources`, `/api/v1/lifecycle-events` | HR sources and joiner/mover/leaver events, see [identity-lifecycle.md](identity-lifecycle.md) |
+
+## Identity lifecycle
+
+HR is the authority on who works at the company. An **identity source** (a CSV export today) is synced into identities, and every difference becomes a joiner, mover, leaver or rehire event in `lifecycle_events`, the outbox later stages consume. Syncs are all or nothing, can be dry-run, and refuse to offboard more than a set share of people at once. Details in [identity-lifecycle.md](identity-lifecycle.md).
 
 ## Tenant isolation
 

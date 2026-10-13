@@ -145,3 +145,25 @@ func TestAuditEventsAreAppendOnly(t *testing.T) {
 		t.Fatal("expected UPDATE on audit_events to fail")
 	}
 }
+
+// Every table that holds tenant data must be fenced off by row-level
+// security, including the ones later migrations add.
+func TestEveryTenantTableHasRowLevelSecurity(t *testing.T) {
+	pool := testPool(t)
+	rows, err := pool.Query(context.Background(),
+		`SELECT c.relname FROM pg_class c
+		 JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+		 JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+		 WHERE c.relkind = 'r' AND NOT (c.relrowsecurity AND c.relforcerowsecurity
+		   AND EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) > 0 {
+		t.Errorf("tables with tenant_id but no forced row-level security policy: %v", open)
+	}
+}
