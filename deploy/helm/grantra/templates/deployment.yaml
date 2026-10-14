@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "grantra.fullname" . }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "grantra.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "grantra.selector" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "grantra.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "grantra.podSecurity" . | nindent 8 }}
+      initContainers:
+        # Applies migrations as the role that owns the tables, then grants the
+        # server's role data permissions only. Replicas starting together
+        # queue on a lock, so this is safe with any replica count. The owner
+        # credentials reach this container only.
+        - name: migrate
+          image: {{ include "grantra.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [migrate]
+          env:
+            - name: GRANTRA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.databaseSecret" . }}
+                  key: database-url
+            - name: GRANTRA_MIGRATE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.databaseSecret" . }}
+                  key: migrate-database-url
+            - name: GRANTRA_PUBLIC_URL
+              value: {{ .Values.publicURL | quote }}
+          securityContext:
+            {{- include "grantra.containerSecurity" . | nindent 12 }}
+      containers:
+        - name: grantra
+          image: {{ include "grantra.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: GRANTRA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.databaseSecret" . }}
+                  key: database-url
+            - name: GRANTRA_MIGRATE_ON_START
+              value: "false"
+            - name: GRANTRA_PUBLIC_URL
+              value: {{ .Values.publicURL | quote }}
+            - name: GRANTRA_TENANT
+              value: {{ .Values.tenant.slug | quote }}
+            - name: GRANTRA_TENANT_NAME
+              value: {{ .Values.tenant.name | quote }}
+            - name: GRANTRA_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- with .Values.bootstrapEmail }}
+            - name: GRANTRA_BOOTSTRAP_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with include "grantra.oidcIssuer" . }}
+            - name: GRANTRA_OIDC_ISSUER
+              value: {{ . | quote }}
+            - name: GRANTRA_OIDC_CLIENT_ID
+              value: {{ $.Values.oidc.clientId | quote }}
+            {{- if or $.Values.oidc.existingSecret $.Values.oidc.clientSecret }}
+            - name: GRANTRA_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.oidcSecret" $ }}
+                  key: oidc-client-secret
+            {{- end }}
+            {{- end }}
+            {{- with .Values.smtp }}
+            {{- if .host }}
+            - name: GRANTRA_SMTP_HOST
+              value: {{ .host | quote }}
+            - name: GRANTRA_SMTP_PORT
+              value: {{ .port | quote }}
+            - name: GRANTRA_SMTP_TLS
+              value: {{ .tls | quote }}
+            - name: GRANTRA_SMTP_FROM
+              value: {{ required "smtp.from is required when smtp.host is set" .from | quote }}
+            {{- if .username }}
+            - name: GRANTRA_SMTP_USERNAME
+              value: {{ .username | quote }}
+            - name: GRANTRA_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.smtpSecret" $ }}
+                  key: smtp-password
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFromSecrets }}
+          envFrom:
+            {{- range . }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Large uploads (HR files) spill to disk.
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            {{- include "grantra.containerSecurity" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

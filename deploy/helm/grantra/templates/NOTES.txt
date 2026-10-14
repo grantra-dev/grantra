@@ -1,0 +1,15 @@
+Grantra is starting with {{ .Values.replicaCount }} replica(s). Each pod runs
+`grantra migrate` in an init container as the table-owning role, then the
+server connects as a role with data permissions only.
+
+Open {{ .Values.publicURL }} once the pods are ready:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- if .Values.postgresql.enabled }}
+
+The bundled PostgreSQL is for trying Grantra out. For production, point
+database.url and database.migrateUrl at a PostgreSQL with backups.
+{{- end }}
+{{- if not (include "grantra.oidcIssuer" .) }}
+
+Console login is off: set oidc.issuer (your IdP) or login.enabled=true.
+{{- end }}

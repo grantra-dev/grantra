@@ -1,0 +1,145 @@
+# Grantra Helm chart. See docs/production.md for a walkthrough.
+
+image:
+  repository: ghcr.io/grantra-dev/grantra
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Replicas share the background jobs (HR syncs, connector aggregation and
+# provisioning, reminders): each pass runs on one replica at a time, so any
+# number of replicas is safe.
+replicaCount: 2
+
+# Where people reach Grantra in the browser.
+publicURL: https://grantra.example.com
+tenant:
+  slug: default
+  name: Default
+# Creates a first identity with this email and makes it admin when the tenant
+# has none, so the first person can sign in. Optional.
+bootstrapEmail: ""
+logLevel: info
+
+database:
+  # Connection strings for the two database roles Grantra uses:
+  #   url        the role the server runs as. It only gets SELECT, INSERT,
+  #              UPDATE and DELETE, so it can never turn off row-level security.
+  #   migrateUrl the role that owns the tables and runs migrations, before
+  #              each rollout in an init container.
+  # Leave both empty when postgresql.enabled is true, or set existingSecret.
+  url: ""
+  migrateUrl: ""
+  # An existing Secret with the keys database-url and migrate-database-url.
+  existingSecret: ""
+
+# Console login through OpenID Connect: Grantra Login below, or your own IdP
+# (Entra ID, Okta...).
+oidc:
+  # Defaults to Grantra Login's realm when login.enabled is true.
+  issuer: ""
+  clientId: grantra-console
+  clientSecret: ""
+  # An existing Secret with the key oidc-client-secret.
+  existingSecret: ""
+
+smtp:
+  host: ""
+  port: 587
+  tls: starttls
+  from: ""
+  username: ""
+  password: ""
+  # An existing Secret with the key smtp-password.
+  existingSecret: ""
+
+# Extra environment variables for the core, such as connector credentials
+# (GRANTRA_SECRET_*). Prefer envFromSecrets for anything sensitive.
+extraEnv: []
+# Names of Secrets whose keys all become environment variables, for example
+# one holding GRANTRA_SECRET_AD_PASSWORD.
+envFromSecrets: []
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: grantra.example.com
+  tls: []
+  #  - secretName: grantra-tls
+  #    hosts: [grantra.example.com]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: true
+  name: ""
+
+# Grantra Login: the bundled Keycloak, for companies without an IdP. Skip it
+# when people already sign in through Entra ID, Okta or similar.
+login:
+  enabled: false
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "26.4"
+  # Public URL of the login pages, such as https://login.example.com.
+  hostname: https://login.example.com
+  admin:
+    username: admin
+    password: ""
+  database:
+    # JDBC URL, user and password of Keycloak's own database. Leave empty to
+    # use the bundled PostgreSQL.
+    url: ""
+    username: keycloak
+    password: ""
+  existingSecret: ""  # keys: admin-password, db-password
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    host: login.example.com
+    tls: []
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+# A single PostgreSQL inside the cluster, for trying Grantra out. For
+# production use a managed or separately run PostgreSQL with backups, and set
+# database.url and database.migrateUrl instead.
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "17-alpine"
+  auth:
+    # Required when enabled.
+    superuserPassword: ""
+    ownerPassword: ""
+    appPassword: ""
+    loginPassword: ""
+  storage:
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi

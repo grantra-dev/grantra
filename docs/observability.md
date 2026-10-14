@@ -20,7 +20,7 @@ With the Helm chart, put them under `extraEnv`. Logs keep going to stdout as JSO
 
 | Metric | Type | Attributes | Meaning |
 |---|---|---|---|
-| `grantra.job.runs` | counter | `job`, `outcome` (ok, error) | Background job passes |
+| `grantra.job.runs` | counter | `job`, `outcome` (ok, error, skipped) | Background job passes; skipped means another replica held the job's lock |
 | `grantra.job.duration` | histogram (s) | `job` | How long each pass took |
 | `grantra.connector.runs` | counter | `operation` (aggregation, provisioning), `status` | Connector runs |
 | `grantra.connector.changes` | counter | `operation`, `count` | The counts each run reports (accounts read, created, disabled...) |

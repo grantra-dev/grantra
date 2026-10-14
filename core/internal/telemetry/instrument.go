@@ -49,6 +49,12 @@ func (m *Metrics) TraceJob(name string, run func(context.Context) error) func(co
 	}
 }
 
+// JobSkipped counts a pass this replica skipped because another replica held
+// the job's lock.
+func (m *Metrics) JobSkipped(ctx context.Context, name string) {
+	m.JobRuns.Add(ctx, 1, metric.WithAttributes(attribute.String("job", name), attribute.String("outcome", "skipped")))
+}
+
 // RecordConnectorRun counts an aggregation or provisioning run and the
 // counts it reports.
 func (m *Metrics) RecordConnectorRun(ctx context.Context, r accounts.Run) {

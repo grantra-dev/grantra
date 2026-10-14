@@ -16,7 +16,8 @@ import (
 // Metrics are Grantra's own metrics, on top of the HTTP and database ones the
 // instrumentation libraries record. Every name starts with grantra.
 type Metrics struct {
-	// JobRuns counts background job passes by job and outcome (ok, error).
+	// JobRuns counts background job passes by job and outcome (ok, error,
+	// skipped when another replica held the job's lock).
 	JobRuns metric.Int64Counter
 	// JobDuration is how long each pass took, in seconds.
 	JobDuration metric.Float64Histogram
@@ -43,7 +44,7 @@ func NewMetrics() (*Metrics, error) {
 	m := otel.Meter(Name)
 	var errs [8]error
 	var out Metrics
-	out.JobRuns, errs[0] = m.Int64Counter("grantra.job.runs", metric.WithDescription("Background job passes by outcome (ok, error)."))
+	out.JobRuns, errs[0] = m.Int64Counter("grantra.job.runs", metric.WithDescription("Background job passes by outcome (ok, error, skipped)."))
 	out.JobDuration, errs[1] = m.Float64Histogram("grantra.job.duration", metric.WithUnit("s"), metric.WithDescription("Background job pass duration."))
 	out.ConnectorRuns, errs[2] = m.Int64Counter("grantra.connector.runs", metric.WithDescription("Connector aggregation and provisioning runs."))
 	out.ConnectorChanges, errs[3] = m.Int64Counter("grantra.connector.changes", metric.WithDescription("Counts reported by connector runs."))
