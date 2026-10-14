@@ -5,15 +5,8 @@ import { RequestSteps } from "@/components/RequestSteps";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Label, Textarea } from "@/components/ui/field";
-import {
-  ApiError,
-  decideRequest,
-  listApprovals,
-  PlatformRole,
-  type AccessRequest,
-  type Me,
-} from "@/lib/api";
+import { Label, Select, Textarea } from "@/components/ui/field";
+import { decideRequest, listApprovals, type AccessRequest, type Me } from "@/lib/api";
 import { kindLabels } from "@/lib/requests";
 import { formatDate } from "@/lib/utils";
 
@@ -78,23 +71,28 @@ function ApprovalCard({
   const [comment, setComment] = useState("");
   const queryClient = useQueryClient();
   const step = r.steps.find((s) => s.status === "pending");
+  const risk = step?.kind === "risk";
+  const [days, setDays] = useState(r.duration_days ?? 90);
   const decide = useMutation({
-    mutationFn: (decision: "approve" | "reject") => decideRequest(r.id, decision, comment.trim()),
+    mutationFn: (decision: "approve" | "reject") =>
+      decideRequest(
+        r.id,
+        decision,
+        comment.trim(),
+        risk && decision === "approve" ? days : undefined,
+      ),
     onSuccess: async (out, decision) => {
-      onDecided({ id: r.id, text: outcomeText(out, decision) });
+      onDecided({ id: r.id, text: outcomeText(out, decision, risk) });
       await queryClient.invalidateQueries({ queryKey: ["approvals"] });
     },
   });
-  const sodConflict =
-    decide.error instanceof ApiError &&
-    decide.error.status === 409 &&
-    decide.error.message.includes("separation of duties");
   const as =
-    step?.kind === "admin" || step?.approver_id !== me.identity_id
+    step?.kind === "admin" || risk || step?.approver_id !== me.identity_id
       ? "a Grantra admin"
       : step.kind === "manager"
         ? `${r.beneficiary_name}'s manager`
         : "the owner";
+  const conflicts = r.sod_conflicts?.join(", ") || "a policy in prevent mode";
 
   return (
     <li>
@@ -121,44 +119,59 @@ function ApprovalCard({
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
         <RequestSteps steps={r.steps} />
+        {risk && (
+          <Alert variant="warning" className="mt-3">
+            Together with what {r.beneficiary_name} already has, this access breaks separation of
+            duties: <strong>{conflicts}</strong>. Approving it accepts that risk for{" "}
+            {r.beneficiary_name}: the violation is recorded as an exception with your reason, and it
+            reopens when the exception ends.
+          </Alert>
+        )}
         <form
           className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4"
           onSubmit={(e) => e.preventDefault()}
         >
           <div>
-            <Label htmlFor={`comment-${r.id}`}>Comment</Label>
+            <Label htmlFor={`comment-${r.id}`}>
+              {risk ? "Why is the risk acceptable?" : "Comment"}
+            </Label>
             <Textarea
               id={`comment-${r.id}`}
               className="min-h-16"
               maxLength={2000}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Optional when approving, required when rejecting"
+              placeholder={
+                risk
+                  ? "Required: why it is needed and how the risk is kept in check"
+                  : "Optional when approving, required when rejecting"
+              }
             />
           </div>
-          {sodConflict ? (
-            <Alert variant="error">
-              <p>
-                You cannot approve this: {r.beneficiary_name} would hold both sides of a separation
-                of duties policy in prevent mode ({policyNames(decide.error!.message)}). Grantra
-                refused to grant it and the request is still pending.
-              </p>
-              <p className="mt-2">
-                {me.platform_roles.includes(PlatformRole.Admin)
-                  ? "Reject it with a comment explaining why, or review the policy if this combination is acceptable."
-                  : "Reject it with a comment explaining why, or talk to a Grantra admin: they own the separation of duties policies."}
-              </p>
-            </Alert>
-          ) : (
-            decide.error && <Alert variant="error">{decide.error.message}</Alert>
+          {risk && (
+            <div>
+              <Label htmlFor={`days-${r.id}`}>Accept the risk for</Label>
+              <Select
+                id={`days-${r.id}`}
+                value={days}
+                onChange={(e) => setDays(Number(e.target.value))}
+              >
+                {riskDays(r.duration_days).map((d) => (
+                  <option key={d} value={d}>
+                    {d === r.duration_days ? `${d} days, as long as the access` : `${d} days`}
+                  </option>
+                ))}
+              </Select>
+            </div>
           )}
+          {decide.error && <Alert variant="error">{decide.error.message}</Alert>}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               onClick={() => decide.mutate("approve")}
-              disabled={decide.isPending || sodConflict}
+              disabled={decide.isPending || (risk && !comment.trim())}
             >
-              Approve
+              {risk ? "Accept the risk and approve" : "Approve"}
             </Button>
             <Button
               type="button"
@@ -176,16 +189,22 @@ function ApprovalCard({
   );
 }
 
-function outcomeText(r: AccessRequest, decision: "approve" | "reject") {
+function outcomeText(r: AccessRequest, decision: "approve" | "reject", risk: boolean) {
   const what = `${r.beneficiary_name}'s request for ${r.target_name}`;
   if (decision === "reject") return `You rejected ${what}.`;
-  if (r.status === "approved") return `You approved ${what}. The access is granted.`;
+  if (r.status === "approved")
+    return risk
+      ? `You accepted the separation of duties risk and approved ${what}. The access is granted and the exception is recorded.`
+      : `You approved ${what}. The access is granted.`;
   const next = r.steps.find((s) => s.status === "pending");
+  if (next?.kind === "risk")
+    return `You approved ${what}. It breaks separation of duties, so it now waits for a Grantra admin to accept the risk.`;
   const who = next?.kind === "admin" ? kindLabels.admin : next?.approver_name;
   return `You approved ${what}. It now waits for ${who ?? "the next approver"}.`;
 }
 
-// The core answers "this access would break separation of duties: A, B".
-function policyNames(message: string) {
-  return message.split(": ").slice(1).join(": ") || "see the policies";
+/** How long an accepted risk can last: the access's own duration first. */
+function riskDays(duration?: number) {
+  const days = [7, 30, 90, 180, 365];
+  return duration && !days.includes(duration) ? [...days, duration].sort((a, b) => a - b) : days;
 }

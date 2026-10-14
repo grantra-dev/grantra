@@ -1,7 +1,7 @@
 {{define "subject"}}Reminder: {{.Data.beneficiary}}'s request for {{.Data.target}} expires soon{{end}}
 {{define "body"}}Hi {{.Name}},
 
-{{.Data.beneficiary}}'s request for {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} is still waiting for you{{if eq .Data.step "admin"}} or another Grantra admin{{end}}. It expires on {{date .Data.due_at}} if nobody decides it.
+{{.Data.beneficiary}}'s request for {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} is still waiting for you{{if eq .Data.step "admin" "risk"}} or another Grantra admin{{end}}{{if eq .Data.step "risk"}}, to accept or reject a separation of duties risk ({{.Data.sod_conflicts}}){{end}}. It expires on {{date .Data.due_at}} if nobody decides it.
 
 Why: {{.Data.justification}}
 

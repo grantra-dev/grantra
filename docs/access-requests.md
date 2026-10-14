@@ -22,9 +22,9 @@ curl -b cookies -X POST localhost:8080/api/v1/access-requests -d '{
 | `duration_days` | Optional, 1 to 365. The access ends on its own after that. Without it, the access lasts until someone removes it |
 | `beneficiary_id` | Who gets the access, when it is not the requester. Only their manager (or an admin) can ask for someone else |
 
-A request is refused when the person already has that access, already has an open request for it, is not active, or the access would break a `prevent` [separation of duties](separation-of-duties.md) policy (checked again at approval).
+A request is refused when the person already has that access, already has an open request for it, or is not active.
 
-To warn people before they write a justification, `POST /api/v1/access-requests/preview` takes the same body without `justification` and answers the `prevent` policies the access would break, as `{"sod_conflicts": ["Payments"]}`. The console uses it on the request form.
+Access that would break a `prevent` [separation of duties](separation-of-duties.md) policy can still be asked for, but it needs an admin to accept the risk (see [Separation of duties risk](#separation-of-duties-risk)). To warn people before they write a justification, `POST /api/v1/access-requests/preview` takes the same body without `justification` and answers the `prevent` policies the access would break, as `{"sod_conflicts": ["Payments"]}`. The console uses it on the request form.
 
 ## Approvals
 
@@ -42,6 +42,23 @@ How the chain is built:
 
 A rejection closes the request, and later steps are skipped. Once every step is approved, the access is granted.
 
+## Separation of duties risk
+
+When the access would break a `prevent` separation of duties policy, the request gets one more step after the others: **risk**, decided by the admins. While it waits, the request lists the policies in `sod_conflicts`.
+
+- **Accepting** the risk approves the step. It needs a reason (the `comment`: why the access is needed and how the risk is kept in check) and `exception_days`, 1 to 365:
+  ```sh
+  curl -b cookies -X POST localhost:8080/api/v1/access-requests/$ID/decision -d '{
+    "decision": "approve",
+    "comment": "two-person team; audit checks payments weekly",
+    "exception_days": 30
+  }'
+  ```
+  When the access is granted, each violation is recorded as an exception with that reason and end date, pointing to the request. When the exception ends, the violation reopens like any other (see [separation-of-duties.md](separation-of-duties.md#exceptions)).
+- **Rejecting** it closes the request, like any other step.
+- **Nobody accepts their own risk**, not even an admin. Another admin has to.
+- **Policies can change while a request is open.** If a conflict appears after the request was made, the last approval does not grant the access: it adds the risk step, and the request waits for the admins. If the conflict goes away before the risk step is reached, the step is skipped.
+
 ## Timers
 
 A background job runs every five minutes:
@@ -55,10 +72,11 @@ The approval flow is kept as state in Postgres. A workflow engine (Temporal) wil
 
 The audit log records each request as it moves:
 - `access_request.created`
-- `access_request.step_approved` and `access_request.step_rejected`
+- `access_request.step_approved` and `access_request.step_rejected`. On a risk step, the approval also records `exception_days` and the policies
+- `access_request.risk_review`, when a conflict found at the last approval sends the request to the admins
 - `access_request.approved`, `access_request.rejected`, `access_request.cancelled` and `access_request.expired`
 
-The access itself is logged as `access.assigned` when it is granted and `access.removed` when it ends. Both name the `request_id`.
+The access itself is logged as `access.assigned` when it is granted and `access.removed` when it ends. Both name the `request_id`. An accepted risk is also logged as `sod.exception_granted`, with the `request_id`.
 
 ## API
 
@@ -69,7 +87,7 @@ The access itself is logged as `access.assigned` when it is granted and `access.
 | `POST /api/v1/access-requests/preview` | Same as asking |
 | `GET /api/v1/access-requests?scope=mine\|approvals\|all&status=&limit=&after=` | `mine` (asked by you or for you, the default) and `approvals` (waiting on you; for admins, also the steps with nobody else to ask) for everyone; `all` for admins and auditors |
 | `GET /api/v1/access-requests/{id}` | The requester, the person getting the access, every approver, admins and auditors |
-| `POST /api/v1/access-requests/{id}/decision` | `{"decision": "approve" \| "reject", "comment": "..."}`: the approver of the current step, or an admin, never the person getting the access |
+| `POST /api/v1/access-requests/{id}/decision` | `{"decision": "approve" \| "reject", "comment": "...", "exception_days": 30}` (`exception_days` only to accept a risk): the approver of the current step, or an admin, never the person getting the access. Risk steps are for admins only |
 | `POST /api/v1/access-requests/{id}/cancel` | The requester or the person getting the access, while the request is pending |
 
 These permissions are Cedar policies in `core/internal/authz/policies/platform.cedar`.

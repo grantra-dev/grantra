@@ -125,11 +125,13 @@ func (a *API) getRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // decideRequest approves or rejects the step a request waits on:
-// {"decision": "approve", "comment": "..."}.
+// {"decision": "approve", "comment": "..."}. Accepting a separation of
+// duties risk also takes "exception_days", and the comment is its reason.
 func (a *API) decideRequest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Decision string `json:"decision"`
-		Comment  string `json:"comment"`
+		Decision      string `json:"decision"`
+		Comment       string `json:"comment"`
+		ExceptionDays int    `json:"exception_days"`
 	}
 	if !decodeBody(w, r, &body, `{"decision": "approve", "comment": "ok for the Q3 project"}`) {
 		return
@@ -146,7 +148,9 @@ func (a *API) decideRequest(w http.ResponseWriter, r *http.Request) {
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.DecideRequest, Resource: out.Resource()}); err != nil {
 			return err
 		}
-		out, err = requests.Decide(r.Context(), tx, a.tenantID, "identity:"+me.ID, out, body.Decision == "approve", body.Comment)
+		out, err = requests.Decide(r.Context(), tx, a.tenantID, "identity:"+me.ID, out, requests.Decision{
+			Approve: body.Decision == "approve", Comment: body.Comment, ExceptionDays: body.ExceptionDays,
+		})
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

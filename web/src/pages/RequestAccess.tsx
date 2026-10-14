@@ -164,7 +164,7 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
     },
   });
 
-  const blocked = check.isPending || conflicts.length > 0;
+  const blocked = check.isPending;
   return (
     <Card className="lg:sticky lg:top-5">
       <CardHeader className="flex-row items-start justify-between">
@@ -190,11 +190,12 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
             </Alert>
           )}
           {conflicts.length > 0 && (
-            <Alert variant="error">
-              You cannot get this access: together with what you already have it would break the
-              separation of duties {conflicts.length === 1 ? "policy" : "policies"}{" "}
-              <strong>{conflicts.join(", ")}</strong>. If you really need it, ask a Grantra admin
-              about an exception.
+            <Alert variant="warning">
+              Together with what you already have, this access breaks the separation of duties{" "}
+              {conflicts.length === 1 ? "policy" : "policies"}{" "}
+              <strong>{conflicts.join(", ")}</strong>. You can still send the request: after your
+              approvers, a Grantra admin has to accept the risk, with a reason and an end date, or
+              the request is rejected. Explain why you need both.
             </Alert>
           )}
           <div>
@@ -206,7 +207,6 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
               value={justification}
               onChange={(e) => setJustification(e.target.value)}
               placeholder="For example: I am joining the Q3 billing project"
-              disabled={conflicts.length > 0}
             />
             <p className="mt-1 text-xs text-slate-500">
               Your approvers and the auditors read this.
@@ -214,12 +214,7 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
           </div>
           <div>
             <Label htmlFor="duration">For how long?</Label>
-            <Select
-              id="duration"
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              disabled={conflicts.length > 0}
-            >
+            <Select id="duration" value={days} onChange={(e) => setDays(Number(e.target.value))}>
               {durations.map((d) => (
                 <option key={d.days} value={d.days}>
                   {d.label}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +14,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
 type env struct {
@@ -86,7 +88,7 @@ func (e *env) decide(actor, id string, approve bool) Request {
 		if err != nil {
 			return err
 		}
-		r, err = Decide(context.Background(), tx, e.tenant, "identity:"+actor, req, approve, "")
+		r, err = Decide(context.Background(), tx, e.tenant, "identity:"+actor, req, Decision{Approve: approve})
 		return err
 	})
 	return r
@@ -186,7 +188,7 @@ func TestRequestFlow(t *testing.T) {
 		return err
 	})
 	e.tx(func(tx pgx.Tx) error {
-		_, err := Decide(context.Background(), tx, e.tenant, "identity:"+owner, r, true, "")
+		_, err := Decide(context.Background(), tx, e.tenant, "identity:"+owner, r, Decision{Approve: true})
 		if !errors.As(err, &conflict) {
 			t.Errorf("deciding a closed request = %v", err)
 		}
@@ -327,3 +329,151 @@ func TestExpireDue(t *testing.T) {
 		return err
 	})
 }
+
+// policy makes a prevent-mode policy between two entitlements.
+func (e *env) policy(a, b string) {
+	e.t.Helper()
+	e.tx(func(tx pgx.Tx) error {
+		_, err := sod.Save(context.Background(), tx, e.tenant, "", sod.Input{
+			Name: "Payments", Mode: sod.Prevent, SideA: []sod.Ref{{EntitlementID: a}}, SideB: []sod.Ref{{EntitlementID: b}},
+		})
+		return err
+	})
+}
+
+func (e *env) hold(identity, entitlement string) {
+	e.t.Helper()
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`INSERT INTO access_assignments (tenant_id, identity_id, entitlement_id, origin, granted_by) VALUES ($1, $2, $3, 'manual', 'test')`,
+			e.tenant, identity, entitlement)
+		return err
+	})
+}
+
+func (e *env) decideAs(actor, id string, d Decision) (Request, error) {
+	e.t.Helper()
+	var (
+		r   Request
+		err error
+	)
+	err = db.InTenant(context.Background(), e.pool, e.tenant, func(tx pgx.Tx) error {
+		req, err := Get(context.Background(), tx, id, true)
+		if err != nil {
+			return err
+		}
+		r, err = Decide(context.Background(), tx, e.tenant, "identity:"+actor, req, d)
+		return err
+	})
+	return r, err
+}
+
+func TestRiskStep(t *testing.T) {
+	e := newEnv(t)
+	boss := e.identity("boss", "")
+	admin := e.identity("admin", "")
+	sara := e.identity("sara", boss)
+	create := e.entitlement("Payables", boss)
+	approve := e.entitlement("Approvals", boss)
+	e.policy(create, approve)
+	e.hold(sara, create)
+
+	// The request goes through: a last step asks an admin to accept the risk.
+	r, err := e.create(sara, Input{EntitlementID: approve, Justification: "covering Pedro's leave", DurationDays: ptr(14)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kinds(r); !equal(got, []string{"manager:pending", "risk:waiting"}) {
+		t.Fatalf("steps = %v", got)
+	}
+	if !equal(r.SoDConflicts, []string{"Payments"}) {
+		t.Errorf("conflicts = %v", r.SoDConflicts)
+	}
+	r = e.decide(boss, r.ID, true)
+	if got := kinds(r); !equal(got, []string{"manager:approved", "risk:pending"}) || r.Status != Pending {
+		t.Fatalf("after the manager: %s %v", r.Status, got)
+	}
+
+	var invalid *apperr.Invalid
+	for _, d := range []Decision{
+		{Approve: true, ExceptionDays: 30},                       // no reason
+		{Approve: true, Comment: "covering a leave"},             // no end date
+		{Approve: true, Comment: "covering", ExceptionDays: 400}, // too long
+	} {
+		if _, err := e.decideAs(admin, r.ID, d); !errors.As(err, &invalid) {
+			t.Errorf("%+v: err = %v", d, err)
+		}
+	}
+	var conflict *apperr.Conflict
+	if _, err := e.decideAs(sara, r.ID, Decision{Approve: true, Comment: "I promise", ExceptionDays: 30}); !errors.As(err, &conflict) {
+		t.Errorf("sara accepts her own risk: err = %v", err)
+	}
+	r, err = e.decideAs(admin, r.ID, Decision{Approve: true, Comment: "two weeks only; audit checks payments daily", ExceptionDays: 14})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Approved || e.assignments(sara) != 1 {
+		t.Fatalf("status %s, %d assignments", r.Status, e.assignments(sara))
+	}
+	e.tx(func(tx pgx.Tx) error {
+		vs, err := sod.Violations(context.Background(), tx, sod.Filter{Status: sod.Excepted, Limit: 10})
+		if err != nil {
+			return err
+		}
+		if len(vs) != 1 || vs[0].IdentityID != sara || vs[0].RequestID != r.ID || vs[0].ExceptionBy != "identity:"+admin ||
+			vs[0].ExceptionUntil == nil || vs[0].ExceptionUntil.Before(time.Now().Add(13*24*time.Hour)) {
+			t.Errorf("violations = %+v", vs)
+		}
+		return nil
+	})
+	// The exception keeps further requests of hers from asking again.
+	r2, err := e.create(sara, Input{EntitlementID: e.entitlement("Other", boss), Justification: "x"})
+	if err != nil || len(r2.SoDConflicts) != 0 {
+		t.Errorf("unrelated request: %v %v", err, r2.SoDConflicts)
+	}
+}
+
+func TestRiskAfterRequest(t *testing.T) {
+	e := newEnv(t)
+	boss := e.identity("boss", "")
+	admin := e.identity("admin", "")
+	sara := e.identity("sara", boss)
+	create := e.entitlement("Payables", boss)
+	approve := e.entitlement("Approvals", boss)
+	e.hold(sara, create)
+
+	// No policy yet: a plain request.
+	r, err := e.create(sara, Input{EntitlementID: approve, Justification: "approve invoices"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The policy arrives before the manager decides: approving sends the
+	// request to the admins instead of failing.
+	e.policy(create, approve)
+	r = e.decide(boss, r.ID, true)
+	if got := kinds(r); r.Status != Pending || !equal(got, []string{"manager:approved", "risk:pending"}) {
+		t.Fatalf("%s %v", r.Status, got)
+	}
+	if !equal(r.SoDConflicts, []string{"Payments"}) {
+		t.Errorf("conflicts = %v", r.SoDConflicts)
+	}
+	if r = e.decide(admin, r.ID, false); r.Status != Rejected || e.assignments(sara) != 0 {
+		t.Fatalf("rejected risk: %s, %d assignments", r.Status, e.assignments(sara))
+	}
+
+	// A risk step whose conflict went away is skipped.
+	r, err = e.create(sara, Input{EntitlementID: approve, Justification: "again"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `DELETE FROM access_assignments WHERE identity_id = $1 AND entitlement_id = $2`, sara, create)
+		return err
+	})
+	r = e.decide(boss, r.ID, true)
+	if got := kinds(r); r.Status != Approved || !equal(got, []string{"manager:approved", "risk:skipped"}) {
+		t.Fatalf("%s %v", r.Status, got)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

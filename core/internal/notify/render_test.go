@@ -95,3 +95,25 @@ func TestRenderReviewsAndSoD(t *testing.T) {
 		t.Errorf("subject %q", subject)
 	}
 }
+
+func TestRenderRisk(t *testing.T) {
+	data := map[string]any{}
+	for k, v := range approvalData {
+		data[k] = v
+	}
+	data["step"] = "risk"
+	data["sod_conflicts"] = "Payments"
+	subject, body, err := render(ApprovalNeeded, view{Name: "Admin", Data: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject != "Separation of duties risk: Ana asks for CRM users" ||
+		!strings.Contains(body, "this access breaks separation of duties: Payments. Approving it means accepting that risk") ||
+		!strings.Contains(body, "or another Grantra admin") {
+		t.Errorf("risk email:\n%s\n%s", subject, body)
+	}
+	_, body, err = render(RequestExpiring, view{Name: "Admin", Data: data})
+	if err != nil || !strings.Contains(body, "to accept or reject a separation of duties risk (Payments).") {
+		t.Errorf("risk reminder: %v\n%s", err, body)
+	}
+}

@@ -303,6 +303,17 @@ func Check(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID str
 // or entitlement would violate, leaving out violations already accepted as
 // exceptions.
 func Conflicts(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID string) ([]string, error) {
+	list, err := conflicting(ctx, tx, identityID, roleID, entitlementID)
+	names := make([]string, len(list))
+	for i, c := range list {
+		names[i] = c.name
+	}
+	return names, err
+}
+
+type conflict struct{ id, name string }
+
+func conflicting(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID string) ([]conflict, error) {
 	extra := `UNION SELECT $1::uuid, $2::uuid, $3::uuid
 	          UNION SELECT $1::uuid, NULL, re.entitlement_id FROM role_entitlements re WHERE re.role_id = $2::uuid`
 	rows, err := tx.Query(ctx, `
@@ -311,16 +322,53 @@ func Conflicts(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlementID
 		       SELECT $2::uuid AS role_id, $3::uuid AS entitlement_id
 		       UNION SELECT NULL, re.entitlement_id FROM role_entitlements re WHERE re.role_id = $2::uuid
 		     )
-		SELECT p.name FROM sod_policies p
+		SELECT p.id, p.name FROM sod_policies p
 		WHERE p.mode = 'prevent' AND p.id IN (SELECT id FROM (`+conflicts+`) c(id, identity_id))
 		  AND EXISTS (SELECT 1 FROM sod_policy_sides s JOIN added ad ON ad.role_id = s.role_id OR ad.entitlement_id = s.entitlement_id
 		              WHERE s.policy_id = p.id)
 		  AND NOT EXISTS (SELECT 1 FROM sod_violations v WHERE v.policy_id = p.id AND v.identity_id = $1 AND v.status = 'excepted')
-		ORDER BY 1`, identityID, nullable(roleID), nullable(entitlementID))
+		ORDER BY 2`, identityID, nullable(roleID), nullable(entitlementID))
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (conflict, error) {
+		var c conflict
+		err := row.Scan(&c.id, &c.name)
+		return c, err
+	})
+}
+
+// AcceptOnRequest records, for access about to be granted by requestID,
+// every prevent-mode policy it breaks as an exception: accepted by actor,
+// with reason, until the given time. Violations already open become
+// exceptions too. It returns the names of the policies.
+func AcceptOnRequest(ctx context.Context, tx pgx.Tx, tenantID, actor, requestID, identityID, roleID, entitlementID, reason string, until time.Time) ([]string, error) {
+	if "identity:"+identityID == actor {
+		return nil, apperr.Conflictf("nobody accepts their own violation")
+	}
+	list, err := conflicting(ctx, tx, identityID, roleID, entitlementID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(list))
+	for i, c := range list {
+		names[i] = c.name
+		var id string
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO sod_violations (tenant_id, policy_id, identity_id, status, exception_by, exception_reason, exception_until, request_id)
+			 VALUES ($1, $2, $3, 'excepted', $4, $5, $6, $7)
+			 ON CONFLICT (policy_id, identity_id) WHERE status <> 'resolved' DO UPDATE SET
+			   status = 'excepted', exception_by = EXCLUDED.exception_by, exception_reason = EXCLUDED.exception_reason,
+			   exception_until = EXCLUDED.exception_until, request_id = EXCLUDED.request_id
+			 RETURNING id`, tenantID, c.id, identityID, actor, reason, until, requestID).Scan(&id); err != nil {
+			return nil, err
+		}
+		if err := db.Audit(ctx, tx, tenantID, actor, "sod.exception_granted", "sod_violation", id,
+			map[string]any{"identity_id": identityID, "policy_id": c.id, "reason": reason, "until": until, "request_id": requestID}); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
 }
 
 // ScanResult counts what a scan changed.
@@ -342,7 +390,7 @@ func Scan(ctx context.Context, pool *pgxpool.Pool, tenantID string) (ScanResult,
 			return err
 		}
 		rows, err := tx.Query(ctx,
-			`UPDATE sod_violations SET status = 'open', exception_by = NULL, exception_reason = NULL, exception_until = NULL
+			`UPDATE sod_violations SET status = 'open', exception_by = NULL, exception_reason = NULL, exception_until = NULL, request_id = NULL
 			 WHERE status = 'excepted' AND exception_until <= now() RETURNING id`)
 		if err != nil {
 			return err
@@ -432,17 +480,19 @@ type Violation struct {
 	ExceptionBy     string     `json:"exception_by,omitempty"`
 	ExceptionReason string     `json:"exception_reason,omitempty"`
 	ExceptionUntil  *time.Time `json:"exception_until,omitempty"`
+	// RequestID is the access request the exception was accepted on.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 const selectViolations = `
 	SELECT v.id, v.policy_id, p.name, p.severity, v.identity_id, i.display_name, v.status, v.detected_at, v.resolved_at,
-	       coalesce(v.exception_by, ''), coalesce(v.exception_reason, ''), v.exception_until
+	       coalesce(v.exception_by, ''), coalesce(v.exception_reason, ''), v.exception_until, coalesce(v.request_id::text, '')
 	FROM sod_violations v JOIN sod_policies p ON p.id = v.policy_id JOIN identities i ON i.id = v.identity_id`
 
 func scanViolation(row pgx.CollectableRow) (Violation, error) {
 	var v Violation
 	err := row.Scan(&v.ID, &v.PolicyID, &v.PolicyName, &v.Severity, &v.IdentityID, &v.IdentityName, &v.Status,
-		&v.DetectedAt, &v.ResolvedAt, &v.ExceptionBy, &v.ExceptionReason, &v.ExceptionUntil)
+		&v.DetectedAt, &v.ResolvedAt, &v.ExceptionBy, &v.ExceptionReason, &v.ExceptionUntil, &v.RequestID)
 	return v, err
 }
 
@@ -526,7 +576,7 @@ func Except(ctx context.Context, tx pgx.Tx, tenantID, actor, id, reason string, 
 		return Violation{}, apperr.Conflictf("only open violations can be excepted; this one is %s", status)
 	}
 	if _, err := tx.Exec(ctx,
-		`UPDATE sod_violations SET status = 'excepted', exception_by = $2, exception_reason = $3, exception_until = $4 WHERE id = $1`,
+		`UPDATE sod_violations SET status = 'excepted', exception_by = $2, exception_reason = $3, exception_until = $4, request_id = NULL WHERE id = $1`,
 		id, actor, reason, until); err != nil {
 		return Violation{}, err
 	}

@@ -84,20 +84,51 @@ describe("Approvals", () => {
     expect(reject).toBeEnabled();
   });
 
-  it("explains a separation of duties refusal instead of failing silently", async () => {
+  it("lets an admin accept a separation of duties risk with a reason and an end date", async () => {
+    let sent: unknown;
+    const admin: Me = { ...marta, identity_id: "admin", platform_roles: ["grantra-admin"] };
+    const risky: AccessRequest = {
+      ...request,
+      sod_conflicts: ["Payments"],
+      steps: [
+        {
+          position: 1,
+          kind: "manager",
+          approver_id: "marta",
+          approver_name: "Marta Ruiz",
+          status: "approved",
+          decided_at: "2026-10-11T09:00:00Z",
+        },
+        { position: 2, kind: "risk", status: "pending", due_at: "2026-10-18T09:00:00Z" },
+      ],
+    };
     serve({
-      "GET /api/v1/me": ok(marta),
-      [queue]: ok({ requests: [request] }),
-      "POST /api/v1/access-requests/q1/decision": () => ({
-        status: 409,
-        body: { error: "this access would break separation of duties: Payments" },
-      }),
+      "GET /api/v1/me": ok(admin),
+      [queue]: ok({ requests: [risky] }),
+      "POST /api/v1/access-requests/q1/decision": (init) => {
+        sent = JSON.parse(init!.body as string);
+        return ok({ ...risky, status: "approved" })();
+      },
     });
     renderAt("/approvals");
-    await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("separation of duties policy in prevent mode (Payments)");
-    expect(alert).toHaveTextContent("still pending");
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(await screen.findByText(/this access breaks separation of duties/)).toHaveTextContent(
+      "Payments",
+    );
+    const accept = screen.getByRole("button", { name: "Accept the risk and approve" });
+    expect(accept).toBeDisabled();
+    expect(screen.getByLabelText("Accept the risk for")).toHaveValue("30");
+    await userEvent.type(
+      screen.getByLabelText("Why is the risk acceptable?"),
+      "Two-person team; audit checks payments weekly",
+    );
+    await userEvent.click(accept);
+    expect(
+      await screen.findByText(/You accepted the separation of duties risk/),
+    ).toBeInTheDocument();
+    expect(sent).toEqual({
+      decision: "approve",
+      comment: "Two-person team; audit checks payments weekly",
+      exception_days: 30,
+    });
   });
 });

@@ -22,7 +22,7 @@ curl -b cookies -X POST localhost:8080/api/v1/sod-policies -d '{
 | Field | Meaning |
 |---|---|
 | `side_a`, `side_b` | Business roles (`role_id`) and entitlements (`entitlement_id`). Nothing can be on both sides |
-| `mode` | `detect` (default) reports violations. `prevent` also refuses [access requests](access-requests.md) that would create one, both when the request is made and when it is approved |
+| `mode` | `detect` (default) reports violations. `prevent` also stops [access requests](access-requests.md) that would create one: they are granted only once an admin accepts the risk on the request itself |
 | `severity` | `low`, `medium`, `high` (default) or `critical` |
 | `enabled` | Default `true`. A disabled policy finds and prevents nothing; its open violations resolve at the next scan |
 
@@ -50,12 +50,14 @@ curl -b cookies -X POST localhost:8080/api/v1/sod-violations/$ID/exception \
 - While the exception lasts, `prevent` policies let that person's requests through.
 - Exceptions are audited as `sod.exception_granted`.
 
+An admin can also accept the risk **before** the access exists, on the access request that would create the violation: see [access-requests.md](access-requests.md#separation-of-duties-risk). That exception needs an end date (up to 365 days), and the violation carries the `request_id` it was accepted on.
+
 ## API
 
 | Endpoint | Who |
 |---|---|
 | `GET /api/v1/sod-policies`, `GET /api/v1/sod-policies/{id}` | Admins and auditors |
 | `POST /api/v1/sod-policies`, `PUT` and `DELETE /api/v1/sod-policies/{id}` | Admins |
-| `GET /api/v1/sod-violations?status=open\|excepted\|resolved&policy_id=&limit=&after=` | Admins and auditors |
+| `GET /api/v1/sod-violations?status=open\|excepted\|resolved&policy_id=&limit=&after=` | Admins and auditors. Exceptions accepted on a request carry its `request_id` |
 | `POST /api/v1/sod-violations/scan` | Admins |
 | `POST /api/v1/sod-violations/{id}/exception` | Admins: `{"reason": "...", "days": 30}` |
