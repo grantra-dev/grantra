@@ -18,6 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/accounts"
@@ -37,6 +39,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/telemetry"
 	"github.com/grantra-dev/grantra/core/internal/webui"
 )
 
@@ -57,11 +60,27 @@ func run() error {
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
 		return err
 	}
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-	slog.SetDefault(log)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	tel, err := telemetry.Setup(ctx, server.Version)
+	if err != nil {
+		return fmt.Errorf("set up OpenTelemetry: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tel.Shutdown(shutdownCtx) //nolint:errcheck
+	}()
+	var logs slog.Handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	if tel.LogHandler != nil {
+		logs = slog.NewMultiHandler(logs, &minLevel{tel.LogHandler, level})
+	}
+	log := slog.New(logs)
+	slog.SetDefault(log)
+	if telemetry.Enabled() {
+		log.Info("sending traces, metrics and logs through OpenTelemetry")
+	}
 
 	if len(os.Args) > 1 {
 		if os.Args[1] != "migrate" || len(os.Args) > 2 {
@@ -139,7 +158,15 @@ func run() error {
 		log.Warn("notification email disabled: GRANTRA_SMTP_HOST is not set")
 	}
 
-	startJobs(ctx, log, pool, tenantID, sender)
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		return err
+	}
+	if err := telemetry.ObserveBacklog(pool, tenantID); err != nil {
+		return err
+	}
+
+	startJobs(ctx, log, pool, tenantID, sender, metrics)
 
 	az, err := authz.New()
 	if err != nil {
@@ -174,7 +201,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.New(log, pool, login, api, ui),
+		Handler:           telemetry.HTTPHandler(server.New(log, pool, login, api, ui)),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Long enough for a 32 MiB HR file on a slow link; no WriteTimeout,
 		// because a provisioning run asked from the console can take minutes.
@@ -243,7 +270,7 @@ type job struct {
 // startJobs runs every background job once at start and then on its timer,
 // until ctx ends. With several replicas, each pass runs on whichever replica
 // takes the job's lock first; the others skip it.
-func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender) {
+func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, m *telemetry.Metrics) {
 	locks := db.NewJobLocks(pool)
 	context.AfterFunc(ctx, func() { locks.Close(context.Background()) })
 
@@ -260,6 +287,9 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// catches due dates and anything a sync left behind.
 		{"apply birthright access", 30 * time.Second, func(ctx context.Context) error {
 			events, ch, err := access.ProcessLifecycle(ctx, pool, tenantID)
+			m.LifecycleEvents.Add(ctx, int64(events))
+			m.AccessChanges.Add(ctx, int64(ch.Added), metric.WithAttributes(attribute.String("change", "added")))
+			m.AccessChanges.Add(ctx, int64(ch.Removed), metric.WithAttributes(attribute.String("change", "removed")))
 			if events > 0 {
 				log.InfoContext(ctx, "applied birthright access", "events", events, "added", ch.Added, "removed", ch.Removed)
 			}
@@ -269,6 +299,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		{"aggregate applications", 5 * time.Minute, func(ctx context.Context) error {
 			runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, connector.EnvSecrets)
 			for _, r := range runs {
+				m.RecordConnectorRun(ctx, r)
 				if r.Status == accounts.RunFailed {
 					log.WarnContext(ctx, "aggregation failed", "application", r.ApplicationID, "error", r.Error)
 				} else {
@@ -280,6 +311,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		{"provision applications", 5 * time.Minute, func(ctx context.Context) error {
 			runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, connector.EnvSecrets)
 			for _, r := range runs {
+				m.RecordConnectorRun(ctx, r.Run)
 				if r.Status == accounts.RunSucceeded {
 					log.InfoContext(ctx, "provisioned application", "application", r.ApplicationID, "counts", r.Counts)
 				} else {
@@ -292,6 +324,9 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// access whose time is up ends.
 		{"expire access requests", 5 * time.Minute, func(ctx context.Context) error {
 			h, err := requests.ExpireDue(ctx, pool, tenantID)
+			m.RequestsClosed.Add(ctx, int64(h.Expired), metric.WithAttributes(attribute.String("outcome", "expired")))
+			m.RequestsClosed.Add(ctx, int64(h.Cancelled), metric.WithAttributes(attribute.String("outcome", "cancelled")))
+			m.RequestsClosed.Add(ctx, int64(h.AccessEnded), metric.WithAttributes(attribute.String("outcome", "access_ended")))
 			if h.Expired+h.Cancelled+h.AccessEnded > 0 {
 				log.InfoContext(ctx, "closed access requests and ended expired access",
 					"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
@@ -309,6 +344,9 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// a failed send waits and retries without holding them up.
 		{"send notifications", 30 * time.Second, func(ctx context.Context) error {
 			res, err := sender.SendDue(ctx)
+			for result, n := range map[string]int{"sent": res.Sent, "retried": res.Retried, "failed": res.Failed, "skipped": res.Skipped} {
+				m.Notifications.Add(ctx, int64(n), metric.WithAttributes(attribute.String("result", result)))
+			}
 			if res.Sent+res.Retried+res.Failed > 0 {
 				log.InfoContext(ctx, "sent notifications", "sent", res.Sent, "retried", res.Retried,
 					"failed", res.Failed, "skipped", res.Skipped)
@@ -338,6 +376,9 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			return err
 		}},
 	}
+	for i := range jobs {
+		jobs[i].run = m.TraceJob(jobs[i].name, jobs[i].run)
+	}
 	for _, j := range jobs {
 		go func() {
 			tick := time.NewTicker(j.every)
@@ -347,6 +388,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 				if err != nil && ctx.Err() == nil {
 					log.ErrorContext(ctx, j.name, "err", err)
 				} else if !ran && err == nil {
+					m.JobSkipped(ctx, j.name)
 					log.DebugContext(ctx, "skipped job: another replica is running it", "job", j.name)
 				}
 				select {
@@ -357,4 +399,23 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			}
 		}()
 	}
+}
+
+// minLevel drops records below the configured log level before they reach
+// the OpenTelemetry handler, which has no level of its own.
+type minLevel struct {
+	slog.Handler
+	level slog.Level
+}
+
+func (h *minLevel) Enabled(ctx context.Context, l slog.Level) bool {
+	return l >= h.level && h.Handler.Enabled(ctx, l)
+}
+
+func (h *minLevel) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &minLevel{h.Handler.WithAttrs(attrs), h.level}
+}
+
+func (h *minLevel) WithGroup(name string) slog.Handler {
+	return &minLevel{h.Handler.WithGroup(name), h.level}
 }

@@ -45,6 +45,8 @@ The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks throu
 
 For Kubernetes, the Helm chart in `deploy/helm/grantra` runs Grantra with separate database roles and any number of replicas: see [docs/production.md](docs/production.md).
 
+Traces, metrics and logs can go to any OpenTelemetry backend ([docs/observability.md](docs/observability.md)), and releases are signed with cosign and ship an SBOM ([docs/releases.md](docs/releases.md)).
+
 ## Development
 
 Requires Go 1.26+ (CI builds with the toolchain pinned in `core/go.mod`) and Node 22+ for the console.
