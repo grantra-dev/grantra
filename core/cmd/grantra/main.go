@@ -246,6 +246,13 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			}
 			return err
 		}},
+		{"remind reviewers", 15 * time.Minute, func(ctx context.Context) error {
+			n, err := reviews.RemindDue(ctx, pool, tenantID)
+			if n > 0 {
+				log.InfoContext(ctx, "reminded reviewers of campaigns about to end", "campaigns", n)
+			}
+			return err
+		}},
 		{"close access reviews", 15 * time.Minute, func(ctx context.Context) error {
 			n, err := reviews.CloseDue(ctx, pool, tenantID)
 			if n > 0 {

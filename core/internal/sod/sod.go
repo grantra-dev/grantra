@@ -406,6 +406,13 @@ func Scan(ctx context.Context, pool *pgxpool.Pool, tenantID string) (ScanResult,
 			}
 		}
 		res.Resolved = len(gone)
+		var news []string
+		for _, f := range added {
+			news = append(news, f.id)
+		}
+		if err := notifyAdmins(ctx, tx, tenantID, news, expired); err != nil {
+			return err
+		}
 		return tx.QueryRow(ctx, `SELECT count(*) FROM sod_violations WHERE status = 'open'`).Scan(&res.Open)
 	})
 	return res, err

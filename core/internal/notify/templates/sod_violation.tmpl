@@ -1,0 +1,13 @@
+{{define "subject"}}Separation of duties: {{.Data.count}} new {{plural .Data.count "violation" "violations"}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+A separation of duties check found {{.Data.count}} new {{plural .Data.count "violation" "violations"}}:
+{{range .Data.violations}}
+- {{.identity}}: {{.policy}} ({{.severity}}){{if .reopened}}, exception ended{{end}}{{end}}
+{{if .Data.more}}
+...and {{.Data.more}} more.
+{{end}}
+Each is someone holding access that should not go together. Remove the access, or accept the risk for a time with a reason.
+
+{{.URL}}
+{{end}}

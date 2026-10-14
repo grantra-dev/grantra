@@ -17,6 +17,9 @@ var pages = map[Kind]string{
 	ApprovalNeeded:  "/approvals",
 	RequestExpiring: "/approvals",
 	RequestDecided:  "/requests",
+	ReviewAssigned:  "/reviews",
+	CampaignDueSoon: "/reviews",
+	SoDViolation:    "/admin?tab=sod",
 }
 
 var templates = func() map[Kind]*template.Template {
@@ -29,6 +32,16 @@ var templates = func() map[Kind]*template.Template {
 				return s
 			}
 			return t.UTC().Format("Mon 2 Jan 2006 15:04 UTC")
+		},
+		// plural picks the word for a count from the data.
+		"plural": func(v any, one, many string) string {
+			if n, ok := v.(float64); ok && n == 1 {
+				return one
+			}
+			if n, ok := v.(int); ok && n == 1 {
+				return one
+			}
+			return many
 		},
 	}
 	out := map[Kind]*template.Template{}
@@ -67,7 +80,7 @@ func render(kind Kind, v view) (subject, body string, err error) {
 	// A subject is one line, whatever the data holds.
 	subject = strings.Join(strings.Fields(s.String()), " ")
 	body = strings.TrimLeft(b.String(), "\n") +
-		"\n--\nGrantra sends this because of your role in an access request or review.\n" +
+		"\n--\nGrantra sends this because of your role in access requests, reviews or separation of duties.\n" +
 		"Choose which emails you get: " + v.SettingsURL + "\n"
 	return subject, body, nil
 }

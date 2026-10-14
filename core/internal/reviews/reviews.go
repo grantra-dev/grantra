@@ -26,6 +26,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/notify"
 )
 
 // Reviewer kinds.
@@ -168,6 +169,8 @@ func Launch(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (C
 		if err := closeCampaign(ctx, tx, tenantID, actor, id); err != nil {
 			return Campaign{}, err
 		}
+	} else if err := notifyReviewers(ctx, tx, tenantID, id, notify.ReviewAssigned); err != nil {
+		return Campaign{}, err
 	}
 	return Get(ctx, tx, id)
 }

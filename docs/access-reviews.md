@@ -44,4 +44,4 @@ Either way the decision is recorded as made by `system:reviews`, with the commen
 | `GET /api/v1/review-items?scope=mine\|all&campaign_id=&decision=&limit=&after=` | `mine` (the default) is what you review in active campaigns; for admins it also includes the items with nobody else to ask. `all` is for admins and auditors |
 | `POST /api/v1/review-items/{id}/decision` | The item's reviewer, or an admin, never the person whose access it is: `{"decision": "keep" \| "revoke", "comment": "..."}` |
 
-Reviewers are not notified yet. They see their queue with `scope=mine`.
+Reviewers see their queue with `scope=mine`. Grantra emails each reviewer when a campaign is launched, and reminds those with items left 48 hours before it ends. See [notifications](notifications.md).

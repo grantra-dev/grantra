@@ -35,6 +35,8 @@ A scan runs every 30 minutes, and admins can also start one with `POST /api/v1/s
 - Marks violations that no longer apply as `resolved` (`sod.violation_resolved`), for example once someone lost one side.
 - Reopens exceptions whose time is up (`sod.exception_expired`).
 
+When a scan records new violations or reopens exceptions, the admins get one email listing them. See [notifications](notifications.md).
+
 ## Exceptions
 
 Sometimes the risk is accepted, for example in a small team or while someone covers a leave. An admin turns an open violation into an exception with a reason (required) and an optional number of days (0 means no end date):
