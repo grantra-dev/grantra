@@ -4,8 +4,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -35,7 +37,25 @@ type Config struct {
 	// SessionMax signs them out this long after login, active or not.
 	SessionIdle time.Duration
 	SessionMax  time.Duration
+
+	SMTP SMTP
 }
+
+// SMTP configures the server Grantra sends notification emails through.
+// Email is off when Host is empty.
+type SMTP struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	// From is the sender address, like "Grantra <grantra@example.com>".
+	From string
+	// TLS is "starttls" (the default), "tls" or "none".
+	TLS string
+}
+
+// Enabled reports whether notification email is configured.
+func (s SMTP) Enabled() bool { return s.Host != "" }
 
 // OIDC configures console login through an OpenID Connect provider: Grantra
 // Login (the bundled Keycloak) or the company's own IdP.
@@ -71,6 +91,14 @@ func FromEnv() (Config, error) {
 		},
 		SessionIdle: 30 * time.Minute,
 		SessionMax:  8 * time.Hour,
+		SMTP: SMTP{
+			Host:     os.Getenv("GRANTRA_SMTP_HOST"),
+			Port:     587,
+			Username: os.Getenv("GRANTRA_SMTP_USERNAME"),
+			Password: os.Getenv("GRANTRA_SMTP_PASSWORD"),
+			From:     os.Getenv("GRANTRA_SMTP_FROM"),
+			TLS:      getenv("GRANTRA_SMTP_TLS", "starttls"),
+		},
 	}
 	durations := []struct {
 		key string
@@ -100,7 +128,38 @@ func FromEnv() (Config, error) {
 	if u, err := url.Parse(cfg.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return Config{}, fmt.Errorf("GRANTRA_PUBLIC_URL must be an absolute http(s) URL, got %q", cfg.PublicURL)
 	}
+	if err := cfg.SMTP.load(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func (s *SMTP) load() error {
+	if v := os.Getenv("GRANTRA_SMTP_PORT"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("GRANTRA_SMTP_PORT must be a port number, got %q", v)
+		}
+		s.Port = port
+	}
+	if !s.Enabled() {
+		return nil
+	}
+	switch s.TLS {
+	case "starttls", "tls", "none":
+	default:
+		return fmt.Errorf(`GRANTRA_SMTP_TLS must be "starttls", "tls" or "none", got %q`, s.TLS)
+	}
+	if s.From == "" {
+		return errors.New("GRANTRA_SMTP_FROM is required when GRANTRA_SMTP_HOST is set")
+	}
+	if _, err := mail.ParseAddress(s.From); err != nil {
+		return fmt.Errorf("GRANTRA_SMTP_FROM: %w", err)
+	}
+	if (s.Username == "") != (s.Password == "") {
+		return errors.New("set both GRANTRA_SMTP_USERNAME and GRANTRA_SMTP_PASSWORD, or neither")
+	}
+	return nil
 }
 
 func getenv(key, fallback string) string {

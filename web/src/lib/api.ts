@@ -367,3 +367,29 @@ export const grantPlatformRole = (role: string, identityId: string, expiresAt?: 
 
 export const revokePlatformRole = (role: string, identityId: string) =>
   api<void>(memberPath(role, identityId), { method: "DELETE" });
+
+/** One kind of email and whether the signed-in person gets it. */
+export interface NotificationSetting {
+  kind: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+}
+
+/** From GET /api/v1/me/notifications. */
+export interface NotificationSettings {
+  /** Whether this Grantra sends email at all. */
+  email_enabled: boolean;
+  /** Whether the signed-in person has an email address. */
+  has_email: boolean;
+  kinds: NotificationSetting[];
+}
+
+export const getNotificationSettings = () => api<NotificationSettings>("/api/v1/me/notifications");
+
+export const setNotification = (kind: string, enabled: boolean) =>
+  api<NotificationSettings>(`/api/v1/me/notifications/${encodeURIComponent(kind)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });

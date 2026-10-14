@@ -66,6 +66,7 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | Endpoint | Action |
 |---|---|
 | `GET /api/v1/me` | Who you are, your platform roles, and whether you manage people or own applications |
+| `GET /api/v1/me/notifications`, `PUT /api/v1/me/notifications/{kind}` | Your own email settings, see [notifications.md](notifications.md). No policy: everyone manages their own |
 | `GET /api/v1/identities?limit=&after=&q=&status=` | `identity.list`. `q` matches name or email, ignoring case |
 | `GET /api/v1/identities/{id}` | `identity.read` |
 | `GET /api/v1/audit-events?limit=&before=&identity=` | `audit.read`. `identity` keeps what that identity did or had done to it; events name the identities behind actor and target |
@@ -100,6 +101,10 @@ SET LOCAL app.tenant_id = '<tenant uuid>';
 ```
 
 Rows from other tenants are invisible and cannot be written. Superusers and roles with `BYPASSRLS` skip these policies, so **the server must connect as an ordinary role** (`grantra_app` in the dev stack).
+
+## Notifications
+
+Flows queue emails in an outbox table inside their own transaction; a background sender delivers them over SMTP and retries failures, so mail never blocks or undoes a flow. See [notifications.md](notifications.md).
 
 ## Audit log
 

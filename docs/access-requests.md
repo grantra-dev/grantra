@@ -74,4 +74,4 @@ The access itself is logged as `access.assigned` when it is granted and `access.
 
 These permissions are Cedar policies in `core/internal/authz/policies/platform.cedar`.
 
-Approvers are not notified yet: they see their queue with `scope=approvals`. Email and chat notifications come later.
+Approvers see their queue with `scope=approvals`, and Grantra emails them when a step starts waiting for them and once more a day before it expires. The requester and the person the access is for get an email when the request is approved, rejected or expires. See [notifications](notifications.md).

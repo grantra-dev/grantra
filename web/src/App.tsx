@@ -13,6 +13,7 @@ import { Home } from "@/pages/Home";
 import { MyAccess } from "@/pages/MyAccess";
 import { MyRequests } from "@/pages/MyRequests";
 import { NotFound } from "@/pages/NotFound";
+import { NotificationSettings } from "@/pages/NotificationSettings";
 import { People } from "@/pages/People";
 import { Person } from "@/pages/Person";
 import { RequestAccess } from "@/pages/RequestAccess";
@@ -62,6 +63,7 @@ export function App() {
           const sub = subpages[s.path];
           return sub ? [<Route key={sub[0]} path={sub[0]} element={sub[1]} />] : [];
         })}
+        <Route path="/settings/notifications" element={<NotificationSettings me={me} />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

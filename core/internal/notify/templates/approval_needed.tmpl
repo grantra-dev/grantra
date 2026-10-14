@@ -1,0 +1,12 @@
+{{define "subject"}}{{.Data.beneficiary}} needs your approval for {{.Data.target}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{if eq .Data.requester_id .Data.beneficiary_id}}{{.Data.beneficiary}} asked for{{else}}{{.Data.requester}} asked for {{.Data.beneficiary}} to get{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}, and the request is waiting for you{{if eq .Data.step "admin"}} or another Grantra admin{{end}}.
+
+Why: {{.Data.justification}}
+{{with .Data.duration_days}}For: {{.}} days
+{{end}}
+Approve or reject it by {{date .Data.due_at}}. After that the request expires.
+
+{{.URL}}
+{{end}}

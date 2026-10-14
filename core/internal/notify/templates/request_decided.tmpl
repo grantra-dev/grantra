@@ -1,0 +1,11 @@
+{{define "subject"}}{{if eq .Data.status "approved"}}Approved{{else if eq .Data.status "rejected"}}Rejected{{else}}Expired{{end}}: {{.Data.target}}{{if ne .RecipientID .Data.beneficiary_id}} for {{.Data.beneficiary}}{{end}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{$you := eq .RecipientID .Data.beneficiary_id}}{{if eq .Data.status "approved"}}{{if $you}}You now have{{else}}{{.Data.beneficiary}} now has{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}{{with .Data.expires_at}}, until {{date .}}{{end}}.
+{{else if eq .Data.status "rejected"}}The request for {{if $you}}you{{else}}{{.Data.beneficiary}}{{end}} to get {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} was rejected{{with .Data.decided_by}} by {{.}}{{end}}.
+{{with .Data.comment}}
+Their reason: {{.}}
+{{end}}{{else}}The request for {{if $you}}you{{else}}{{.Data.beneficiary}}{{end}} to get {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} expired because nobody decided it in time. You can ask again.
+{{end}}
+{{.URL}}
+{{end}}
