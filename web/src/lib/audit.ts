@@ -10,6 +10,7 @@ const systemActors: Record<string, string> = {
   aggregation: "account sync",
   birthright: "birthright rules",
   bootstrap: "first start",
+  demo: "demo data",
   lifecycle: "HR sync",
   provisioning: "provisioning",
   requests: "request timers",

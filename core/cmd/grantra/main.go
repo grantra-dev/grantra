@@ -22,6 +22,7 @@ import (
 	_ "github.com/grantra-dev/grantra/core/internal/connector/scim" // registers the scim connector
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/demo"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
@@ -87,6 +88,16 @@ func run() error {
 		}
 		if granted {
 			log.Warn("granted grantra-admin to the bootstrap identity because the tenant had no active admin", "email", cfg.BootstrapEmail)
+		}
+	}
+
+	if cfg.Demo {
+		seeded, err := demo.Seed(ctx, pool, tenantID)
+		if err != nil {
+			return err
+		}
+		if seeded {
+			log.Warn("loaded the demo company: GRANTRA_DEMO is for trying Grantra out, not for real data")
 		}
 	}
 

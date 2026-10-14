@@ -1,0 +1,10 @@
+employee_id,first_name,last_name,email,manager_id,department,title,location,status,start_date,end_date
+1001,Ana,García,ana.garcia@example.com,,Executive,CEO,Madrid,active,2019-03-01,
+1002,Luis,Pérez,luis.perez@example.com,1001,Engineering,CTO,Madrid,active,2019-06-15,
+1003,Marta,Ruiz,marta.ruiz@example.com,1002,Engineering,Backend Engineer,Barcelona,active,2022-01-10,
+1004,Diego,Navarro,diego.navarro@example.com,1002,Engineering,Frontend Engineer,Remote,active,2023-04-03,
+1005,Pedro,López,pedro.lopez@example.com,1001,Finance,Head of Finance,Madrid,active,2021-09-01,
+1006,Sara,Martín,sara.martin@example.com,1005,Finance,Accounts Payable,Madrid,active,2024-02-01,
+1007,Lucía,Torres,lucia.torres@example.com,1001,Sales,Head of Sales,Valencia,active,2020-05-11,
+1008,Carlos,Vega,carlos.vega@example.com,1007,Sales,Account Executive,Valencia,active,2025-01-13,
+1009,Elena,Ortiz,elena.ortiz@example.com,1002,Engineering,Backend Engineer,Madrid,active,2026-10-01,

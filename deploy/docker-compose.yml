@@ -55,6 +55,8 @@ services:
       GRANTRA_OIDC_CLIENT_SECRET: grantra-dev-secret
       # Lets the realm's admin user sign in before any HR source is connected.
       GRANTRA_BOOTSTRAP_EMAIL: admin@grantra.local
+      # Loads a sample company on first start; see docs/demo.md.
+      GRANTRA_DEMO: "true"
       # Notification emails land in Mailpit: open http://localhost:8025.
       GRANTRA_SMTP_HOST: mailpit
       GRANTRA_SMTP_PORT: "1025"

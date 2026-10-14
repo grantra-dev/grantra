@@ -41,6 +41,7 @@ People sign in through OpenID Connect, either with **Grantra Login** (the bundle
 | `GRANTRA_OIDC_CLIENT_ID` / `_SECRET` | `grantra-console` / none | Client registered at the IdP |
 | `GRANTRA_TENANT` / `GRANTRA_TENANT_NAME` | `default` / `Default` | The single tenant of a self-hosted install, created on start |
 | `GRANTRA_BOOTSTRAP_EMAIL` | none | Creates a first active identity with this email when the tenant has none, and makes it admin while the tenant has no active admin |
+| `GRANTRA_DEMO` | `false` | Loads the sample company of [demo.md](demo.md) on start when the tenant has no HR source. Never for real data |
 
 ## Console authorization
 

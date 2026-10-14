@@ -105,3 +105,16 @@ func TestFromEnvSMTPNeedsFrom(t *testing.T) {
 		t.Fatal("expected error without GRANTRA_SMTP_FROM")
 	}
 }
+
+func TestFromEnvDemo(t *testing.T) {
+	t.Setenv("GRANTRA_DATABASE_URL", "postgres://localhost/grantra")
+	t.Setenv("GRANTRA_DEMO", "true")
+	cfg, err := FromEnv()
+	if err != nil || !cfg.Demo {
+		t.Fatalf("Demo = %v, %v", cfg.Demo, err)
+	}
+	t.Setenv("GRANTRA_DEMO", "sure")
+	if _, err := FromEnv(); err == nil {
+		t.Error("expected error for GRANTRA_DEMO=sure")
+	}
+}
