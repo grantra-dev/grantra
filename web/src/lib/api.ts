@@ -27,6 +27,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, message);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -236,3 +237,133 @@ export const listApplications = () =>
   api<{ applications: Application[] }>("/api/v1/applications").then((r) =>
     r.applications.filter((a) => a.connector !== "grantra"),
   );
+
+export type IdentityStatus = "pending" | "active" | "suspended" | "terminated";
+
+/** A person or other identity, from GET /api/v1/identities. */
+export interface Identity {
+  id: string;
+  display_name: string;
+  email?: string;
+  kind: string;
+  status: IdentityStatus;
+  manager_id?: string;
+  /** The HR source that owns the identity, and its employee id there. */
+  source_id?: string;
+  external_id?: string;
+  start_date?: string;
+  end_date?: string;
+  attributes: Record<string, unknown>;
+  created_at: string;
+}
+
+export const identitiesPageSize = 50;
+
+export function listIdentities(f: { q?: string; status?: string; after?: string }) {
+  const params = new URLSearchParams({ limit: String(identitiesPageSize) });
+  if (f.q) params.set("q", f.q);
+  if (f.status) params.set("status", f.status);
+  if (f.after) params.set("after", f.after);
+  return api<{ identities: Identity[] }>(`/api/v1/identities?${params}`).then((r) => r.identities);
+}
+
+export const getIdentity = (id: string) =>
+  api<Identity>(`/api/v1/identities/${encodeURIComponent(id)}`);
+
+/** An account someone has in an application. */
+export interface Account {
+  id: string;
+  application_id: string;
+  application_name: string;
+  native_id: string;
+  username?: string;
+  status: "active" | "disabled" | "deleted";
+  identity_id?: string;
+  correlated_by?: string;
+  entitlements: string[];
+  last_seen_at?: string;
+}
+
+export const getIdentityAccounts = (id: string) =>
+  api<{ accounts: Account[] }>(`/api/v1/identities/${encodeURIComponent(id)}/accounts`).then(
+    (r) => r.accounts,
+  );
+
+/** A joiner, mover, leaver or rehire, from an HR source sync. */
+export interface LifecycleEvent {
+  id: number;
+  identity_id: string;
+  display_name: string;
+  kind: "joiner" | "mover" | "leaver" | "rehire";
+  run_id?: string;
+  details: {
+    external_id?: string;
+    status?: string;
+    reason?: string;
+    changes?: Record<string, { from: string; to: string }>;
+  };
+  effective_at: string;
+  created_at: string;
+}
+
+export const listLifecycleEvents = (identityId: string) =>
+  api<{ events: LifecycleEvent[] }>(
+    `/api/v1/lifecycle-events?limit=200&identity=${encodeURIComponent(identityId)}`,
+  ).then((r) => r.events);
+
+export interface AuditEvent {
+  id: number;
+  occurred_at: string;
+  /** Who did it, like "identity:<id>" or "system:scheduler". */
+  actor: string;
+  actor_name?: string;
+  action: string;
+  target_type?: string;
+  target_id?: string;
+  target_name?: string;
+  details: Record<string, unknown>;
+}
+
+export const auditPageSize = 100;
+
+export function listAuditEvents(f: { before?: number; identity?: string }) {
+  const params = new URLSearchParams({ limit: String(auditPageSize) });
+  if (f.before) params.set("before", String(f.before));
+  if (f.identity) params.set("identity", f.identity);
+  return api<{ events: AuditEvent[] }>(`/api/v1/audit-events?${params}`).then((r) => r.events);
+}
+
+export interface RoleMember {
+  role: string;
+  identity_id: string;
+  display_name: string;
+  email?: string;
+  status: IdentityStatus;
+  granted_at: string;
+  expires_at?: string;
+}
+
+/** A platform role (admin, helpdesk, auditor) and who holds it. */
+export interface PlatformRoleInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  risk: NonNullable<Requestable["risk"]>;
+  members: RoleMember[];
+}
+
+export const listPlatformRoles = () =>
+  api<{ roles: PlatformRoleInfo[] }>("/api/v1/platform-roles").then((r) => r.roles);
+
+const memberPath = (role: string, identityId: string) =>
+  `/api/v1/platform-roles/${encodeURIComponent(role)}/members/${encodeURIComponent(identityId)}`;
+
+export const grantPlatformRole = (role: string, identityId: string, expiresAt?: string) =>
+  api<void>(memberPath(role, identityId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(expiresAt ? { expires_at: expiresAt } : {}),
+  });
+
+export const revokePlatformRole = (role: string, identityId: string) =>
+  api<void>(memberPath(role, identityId), { method: "DELETE" });

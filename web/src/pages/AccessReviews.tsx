@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
+import { Tabs } from "@/components/Tabs";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ import {
   type NewCampaign,
   type ReviewItem,
 } from "@/lib/api";
-import { cn, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 export function AccessReviews({ me }: { me: Me }) {
   const isAdmin = me.platform_roles.includes(PlatformRole.Admin);
@@ -44,29 +45,16 @@ export function AccessReviews({ me }: { me: Me }) {
         description="Confirm that people still need the access they have, or take it away."
       />
       {seesCampaigns && (
-        <div role="tablist" className="mb-4 flex gap-1 border-b border-slate-200">
-          {(
+        <Tabs
+          tabs={
             [
               ["review", "To review"],
               ["campaigns", "Campaigns"],
             ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => setParams(key === "review" ? {} : { tab: key })}
-              className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-sm",
-                tab === key
-                  ? "border-brand-600 font-medium text-brand-700"
-                  : "border-transparent text-slate-500 hover:text-slate-900",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          }
+          current={tab}
+          onSelect={(key) => setParams(key === "review" ? {} : { tab: key })}
+        />
       )}
       {tab === "review" ? <ToReview /> : <Campaigns canManage={isAdmin} />}
     </>

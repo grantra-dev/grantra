@@ -12,9 +12,9 @@ the Cedar policies regardless of what the console shows.
 | My requests | Everyone | Done: each request with its approval steps, who decides now and until when, and a button to withdraw it while pending |
 | Approvals | Managers, application owners, admins | Done: the requests waiting on you, soonest deadline first, approve or reject (a comment is required to reject). A final approval refused by a `prevent` separation of duties policy is explained, and the request stays pending |
 | Access reviews | Managers, application owners, admins, auditors | Done: reviewers keep or revoke what they are asked to review, one by one or in bulk (bulk revoke asks for confirmation). Admins launch campaigns (by manager or by owner, all access or some applications) and close them; admins and auditors follow each campaign's progress |
-| People | Admins, helpdesk, auditors | [#24](https://github.com/grantra-dev/grantra/issues/24) |
+| People | Admins, helpdesk, auditors | Done: search everyone by name or email and filter by status. Each person shows their details from HR, manager, access and accounts; admins and auditors also see their Grantra roles, their joiner, mover and leaver events and their audit history. Admins give (optionally until a date) and remove Grantra roles, never to themselves |
 | Administration | Admins | [#24](https://github.com/grantra-dev/grantra/issues/24) |
-| Audit log | Admins, auditors | [#24](https://github.com/grantra-dev/grantra/issues/24) |
+| Audit log | Admins, auditors | Done: every event newest first, with who did it and on what in words, the raw details on demand, and a filter over the loaded events |
 
 "Manager" and "application owner" come from the data (someone reports to you,
 or you own an application), as returned by `GET /api/v1/me`; platform roles
