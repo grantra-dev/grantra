@@ -1,18 +1,95 @@
-# Grantra
+<p align="center">
+  <img src="site/favicon.svg" width="64" height="64" alt="Grantra logo">
+</p>
 
-**Open-source identity security: governance (IGA), access management (IAM) and privileged access (PAM) in one platform.**
+<h1 align="center">Grantra</h1>
 
-Grantra aims to be an open alternative to SailPoint and CyberArk. It starts with identity governance: an inventory of who has access to what, joiner/mover/leaver automation, access requests and access reviews. It integrates with the identity provider you already run (Keycloak, Entra ID, Okta) instead of replacing it.
+<p align="center">
+  <strong>Open-source identity governance: who has access to what, why, and until when.</strong>
+</p>
 
-> ⚠️ Early days. Nothing here is production-ready yet.
+<p align="center">
+  <a href="https://github.com/grantra-dev/grantra/actions/workflows/ci.yml"><img src="https://github.com/grantra-dev/grantra/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/grantra-dev/grantra/releases"><img src="https://img.shields.io/github/v/release/grantra-dev/grantra?include_prereleases&sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a>
+</p>
+
+Grantra is an open-source alternative to SailPoint and CyberArk. It starts with identity governance (IGA): it keeps track of who has access to which applications, gives and removes access as people join, move and leave, lets people ask for access and their managers approve it, runs access reviews, and stops toxic combinations of access before they happen.
+
+It works with the identity provider you already run (Entra ID, Okta, Keycloak). Companies without one can use **Grantra Login**, a Keycloak that ships preconfigured with Grantra.
+
+<p align="center">
+  <img src="site/screenshots/home.png" width="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
+</p>
+
+> **Status:** v0.1 is the first public release. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
+
+## Try it in five minutes
+
+Requires Docker.
+
+```sh
+git clone https://github.com/grantra-dev/grantra.git
+cd grantra
+make up
+```
+
+Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a small sample company: every person signs in with their first name and the password `demo` (`marta`, `luis`, `sara`...). Emails Grantra sends land in Mailpit at http://localhost:8025.
+
+[docs/demo.md](docs/demo.md) walks you through a new hire, an access request and its approval, a separation of duties risk, an access review and a leaver. `make reset` starts over.
+
+<details>
+<summary>All the services in the dev stack</summary>
+
+| Service | URL | Dev credentials |
+|---|---|---|
+| Grantra console | http://localhost:8080 | `admin` / `admin`, or a demo person with `demo` |
+| Grantra API | http://localhost:8080/healthz | |
+| Grantra Login (Keycloak) | http://localhost:8081 | `admin` / `admin` (realm `grantra`, user `admin` / `admin`) |
+| PostgreSQL | localhost:5432 | `grantra_app` / `grantra` |
+| Mailpit | http://localhost:8025 | |
+
+</details>
+
+## What it does today
+
+| | |
+|---|---|
+| **Joiner, mover, leaver** | Reads people from an HR source (CSV) and gives or removes access when someone joins, changes team or leaves. A safety brake refuses a sync that would remove too many people at once. [Docs](docs/identity-lifecycle.md) |
+| **Catalog and birthright access** | Applications, entitlements and business roles, plus rules such as "Engineering gets the Engineer role". [Docs](docs/access.md) |
+| **Connectors** | SCIM and LDAP / Active Directory: reads accounts, links them to people, flags orphans, and can provision changes back (off by default, with a dry run). [Docs](docs/connectors.md) |
+| **Access requests** | People ask for access from the catalog; their manager and the application owner approve it, optionally until a date. [Docs](docs/access-requests.md) |
+| **Access reviews** | Campaigns where managers or owners keep or revoke the access their people hold. [Docs](docs/access-reviews.md) |
+| **Separation of duties** | Policies such as "nobody both creates and approves payments", detected every 30 minutes or prevented at request time, with time-boxed exceptions. [Docs](docs/separation-of-duties.md) |
+| **Web console and emails** | One app for employees, managers, owners and admins, plus email notifications. [Docs](docs/console.md), [emails](docs/notifications.md) |
+| **Audit log** | Every change and decision, searchable. |
+| **Policies as code** | Authorization inside Grantra runs on [Cedar](https://www.cedarpolicy.com/). |
+
+<table>
+  <tr>
+    <td width="50%"><img src="site/screenshots/approvals.png" alt="A manager's approvals inbox with an access request to GitHub Org admins, its reason and its deadline"></td>
+    <td width="50%"><img src="site/screenshots/separation-of-duties.png" alt="Separation of duties policies and an open violation, with a button to accept the risk"></td>
+  </tr>
+  <tr>
+    <td align="center">Approvals</td>
+    <td align="center">Separation of duties</td>
+  </tr>
+</table>
+
+## Run it for real
+
+- **Kubernetes:** the Helm chart in [`deploy/helm/grantra`](deploy/helm/grantra) runs Grantra with separate database roles for migrations and the app, and any number of replicas. See [docs/production.md](docs/production.md).
+- **Observability:** traces, metrics and logs go to any OpenTelemetry backend, with a Grafana dashboard included. See [docs/observability.md](docs/observability.md).
+- **Supply chain:** every release ships a multi-arch image on `ghcr.io/grantra-dev/grantra` and binaries for Linux, macOS and Windows, all signed with cosign (keyless) and shipped with an SPDX SBOM. See [docs/releases.md](docs/releases.md).
 
 ## Roadmap
 
-1. **Foundations**: core data model, multi-tenancy, audit log, API, CI, console login and platform roles.
-2. **Identity Hub + IGA** *(in progress)*: HR sources and joiner/mover/leaver automation ([docs](docs/identity-lifecycle.md)), catalog and birthright access ([docs](docs/access.md)), SCIM and LDAP / Active Directory connectors with account correlation and provisioning ([docs](docs/connectors.md)), access requests with approvals ([docs](docs/access-requests.md)), access reviews ([docs](docs/access-reviews.md)) and separation of duties ([docs](docs/separation-of-duties.md)); more connectors (Entra ID…) next.
-3. **Integrated IAM**: Keycloak bundled and preconfigured, swappable for your own IdP.
-4. **PAM**: credential vault, just-in-time access, session recording.
-5. **Identity threat detection** and AI-assisted recommendations.
+1. **Foundations and identity governance** *(done in v0.1)*: everything listed above.
+2. **Integrated IAM** *(next)*: Grantra Login managed from the console, single sign-on and MFA policies, and gradual migration from another identity provider.
+3. **Privileged access (PAM)**: credential vault, just-in-time access, session recording.
+4. **Identity threat detection** and AI-assisted recommendations.
+
+The plan lives in the [GitHub milestones](https://github.com/grantra-dev/grantra/milestones).
 
 ## Repository layout
 
@@ -20,32 +97,9 @@ Grantra aims to be an open alternative to SailPoint and CyberArk. It starts with
 |---|---|
 | `core/` | Go backend (modular monolith): API, identity model, migrations |
 | `web/` | React console ([docs](docs/console.md)) |
-| `deploy/` | docker-compose dev stack, Keycloak realm, Helm chart ([docs](docs/production.md)) |
-| `docs/` | Architecture notes and design decisions |
-
-Planned: `connectors/` and `sdk/`.
-
-## Quick start
-
-Requires Docker.
-
-```sh
-make up
-```
-
-| Service | URL | Dev credentials |
-|---|---|---|
-| Grantra console | http://localhost:8080 | Sign in with `admin` / `admin`, or as a demo person with `demo` |
-| Grantra API | http://localhost:8080/healthz | |
-| Grantra Login (Keycloak) | http://localhost:8081 | `admin` / `admin` (realm `grantra`, user `admin` / `admin`) |
-| PostgreSQL | localhost:5432 | `grantra_app` / `grantra` |
-| Mailpit (emails Grantra sends) | http://localhost:8025 | |
-
-The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks through a joiner, an access request and its approval, a separation of duties risk accepted by an admin, an access review and a leaver in five minutes. `make reset` starts over.
-
-For Kubernetes, the Helm chart in `deploy/helm/grantra` runs Grantra with separate database roles and any number of replicas: see [docs/production.md](docs/production.md).
-
-Traces, metrics and logs can go to any OpenTelemetry backend ([docs/observability.md](docs/observability.md)), and releases are signed with cosign and ship an SBOM ([docs/releases.md](docs/releases.md)).
+| `deploy/` | docker-compose dev stack, Keycloak realm, Helm chart, Grafana dashboard |
+| `docs/` | Guides, architecture notes and design decisions ([architecture](docs/architecture.md)) |
+| `site/` | The grantra.dev landing page |
 
 ## Development
 
@@ -60,7 +114,7 @@ make web-test  # console tests
 make test-db GRANTRA_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to get involved and [SECURITY.md](SECURITY.md) to report a vulnerability.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to get involved, [SECURITY.md](SECURITY.md) to report a vulnerability, and [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## License
 

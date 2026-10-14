@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grantra: open-source identity governance</title>
+  <meta name="description" content="Grantra is open-source identity governance: who has access to what, why, and until when. Joiner, mover, leaver, access requests, access reviews and separation of duties. Apache 2.0, self-hosted.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta property="og:title" content="Grantra: open-source identity governance">
+  <meta property="og:description" content="Who has access to what, why, and until when. Self-hosted and Apache 2.0.">
+  <meta property="og:image" content="https://grantra.dev/screenshots/home.png">
+  <meta property="og:url" content="https://grantra.dev/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="nav wrap">
+    <a class="brand" href="/"><img src="favicon.svg" width="28" height="28" alt=""> Grantra</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#try">Try it</a>
+      <a href="https://github.com/grantra-dev/grantra/tree/main/docs">Docs</a>
+      <a class="btn btn-small" href="https://github.com/grantra-dev/grantra">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <p class="eyebrow">Open source · Apache 2.0 · Self-hosted</p>
+      <h1>Know who has access to what, why, and until when.</h1>
+      <p class="lead">Grantra is open-source identity governance, an open alternative to SailPoint and CyberArk. It gives and removes access as people join, move and leave, runs access requests and reviews, and stops toxic combinations of access before they happen.</p>
+      <div class="actions">
+        <a class="btn" href="#try">Try it in 5 minutes</a>
+        <a class="btn btn-ghost" href="https://github.com/grantra-dev/grantra">Star on GitHub</a>
+      </div>
+      <img class="shot hero-shot" src="screenshots/home.png" width="1280" height="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
+    </section>
+
+    <section id="features" class="wrap">
+      <h2>Identity governance, without the six-month rollout</h2>
+      <div class="grid">
+        <article>
+          <h3>Joiner, mover, leaver</h3>
+          <p>Reads people from your HR source and gives or removes access on their start and end dates. A dry run shows what changes, and a brake refuses a sync that would remove too many people at once.</p>
+        </article>
+        <article>
+          <h3>Access requests</h3>
+          <p>People ask for a role or entitlement from the catalog. Their manager, then the application owner, approves it, optionally until a date. Emails tell everyone when it is their turn.</p>
+        </article>
+        <article>
+          <h3>Access reviews</h3>
+          <p>Campaigns where managers or owners keep or revoke the access their people hold, with deadlines and reminders. Revoked access goes away.</p>
+        </article>
+        <article>
+          <h3>Separation of duties</h3>
+          <p>Policies such as "nobody both creates and approves payments", detected every 30 minutes or prevented at request time, with time-boxed exceptions an admin signs off.</p>
+        </article>
+        <article>
+          <h3>Connectors</h3>
+          <p>SCIM and LDAP / Active Directory. Grantra reads accounts, links them to people, flags orphans, and can provision changes back, off by default and with a dry run.</p>
+        </article>
+        <article>
+          <h3>Audit log</h3>
+          <p>Every change and decision, with who made it and why, searchable from the console. Authorization inside Grantra runs on Cedar policies.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap split">
+      <div>
+        <h2>Built for the people who approve, not just admins</h2>
+        <p>One web app for employees, managers, application owners, auditors and admins. Each person sees what they need to do, and nothing they shouldn't.</p>
+        <p>Keep the identity provider you already run, such as Entra ID, Okta or Keycloak. No identity provider yet? Grantra Login, a preconfigured Keycloak, ships with it.</p>
+      </div>
+      <img class="shot" src="screenshots/approvals.png" width="1280" height="860" alt="A manager's approvals inbox with an access request to GitHub Org admins, its reason and its deadline" loading="lazy">
+    </section>
+
+    <section class="wrap split split-reverse">
+      <div>
+        <h2>Ready for your own infrastructure</h2>
+        <ul class="checks">
+          <li>Helm chart for Kubernetes, any number of replicas</li>
+          <li>PostgreSQL with row-level security per tenant</li>
+          <li>OpenTelemetry traces, metrics and logs, plus a Grafana dashboard</li>
+          <li>Releases signed with cosign and shipped with an SBOM</li>
+        </ul>
+      </div>
+      <img class="shot" src="screenshots/separation-of-duties.png" width="1280" height="860" alt="Separation of duties policies and an open violation, with a button to accept the risk" loading="lazy">
+    </section>
+
+    <section id="try" class="wrap try">
+      <h2>Try it in five minutes</h2>
+      <p>All you need is Docker. The stack starts with a small sample company to play with.</p>
+      <pre><code>git clone https://github.com/grantra-dev/grantra.git
+cd grantra
+make up</code></pre>
+      <p>Open <code>http://localhost:8080</code> and sign in as <code>admin</code> / <code>admin</code>, or as a sample employee such as <code>marta</code> with the password <code>demo</code>. The <a href="https://github.com/grantra-dev/grantra/blob/main/docs/demo.md">demo guide</a> walks through a new hire, an approval, an access review and a leaver.</p>
+    </section>
+
+    <section class="wrap roadmap">
+      <h2>Where it's going</h2>
+      <ol>
+        <li><strong>Identity governance</strong> <span class="tag done">Available in v0.1</span></li>
+        <li><strong>Access management</strong> with Grantra Login: single sign-on, MFA and passkeys <span class="tag">Next</span></li>
+        <li><strong>Privileged access</strong>: credential vault, just-in-time access, session recording</li>
+        <li><strong>Identity threat detection</strong> and access recommendations</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>Grantra is open source under the Apache 2.0 license. <a href="https://github.com/grantra-dev/grantra">GitHub</a> · <a href="https://github.com/grantra-dev/grantra/releases">Releases</a> · <a href="https://github.com/grantra-dev/grantra/blob/main/SECURITY.md">Security</a></p>
+    <p class="muted">SailPoint and CyberArk are trademarks of their respective owners. Grantra is not affiliated with them.</p>
+  </footer>
+</body>
+</html>
