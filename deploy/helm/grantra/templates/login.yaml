@@ -1,0 +1,139 @@
+{{- if .Values.login.enabled }}
+{{- $name := printf "%s-login" (include "grantra.fullname" .) }}
+{{- if not .Values.login.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  admin-password: {{ required "login.admin.password is required" .Values.login.admin.password | quote }}
+  {{- if .Values.login.database.url }}
+  db-password: {{ required "login.database.password is required" .Values.login.database.password | quote }}
+  {{- else }}
+  db-password: {{ required "postgresql.auth.loginPassword is required with login.enabled" .Values.postgresql.auth.loginPassword | quote }}
+  {{- end }}
+---
+{{- end }}
+# Grantra Login: Keycloak, which Grantra manages from its console.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grantra-login
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grantra-login
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "grantra.podSecurity" . | nindent 8 }}
+      containers:
+        - name: keycloak
+          image: {{ printf "%s:%s" .Values.login.image.repository .Values.login.image.tag }}
+          args: [start]
+          env:
+            - name: KC_HOSTNAME
+              value: {{ .Values.login.hostname | quote }}
+            # TLS ends at the ingress.
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              {{- if .Values.login.database.url }}
+              value: {{ .Values.login.database.url | quote }}
+              {{- else if .Values.postgresql.enabled }}
+              value: {{ printf "jdbc:postgresql://%s:5432/keycloak" (include "grantra.postgresql.host" .) | quote }}
+              {{- else }}
+              value: {{ required "set login.database.url, or postgresql.enabled" "" }}
+              {{- end }}
+            - name: KC_DB_USERNAME
+              value: {{ .Values.login.database.username | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ include "grantra.loginSecret" . }}, key: db-password}
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: {{ .Values.login.admin.username | quote }}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ include "grantra.loginSecret" . }}, key: admin-password}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.login.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: grantra-login
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- if .Values.login.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+  {{- with .Values.login.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.login.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.login.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.login.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}
