@@ -1,0 +1,9 @@
+{{define "subject"}}Reminder: {{.Data.items}} {{plural .Data.items "item" "items"}} left to review in {{.Data.campaign}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+The access review "{{.Data.campaign}}" ends on {{date .Data.due_at}}, and you still have {{.Data.items}} {{plural .Data.items "item" "items"}} to review.
+
+What is not reviewed by then is {{if eq .Data.on_missing "revoke"}}revoked{{else}}kept{{end}}.
+
+{{.URL}}
+{{end}}

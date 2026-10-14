@@ -9,11 +9,12 @@ page where the person acts.
 | `approval_needed` | The approver of the step, or every admin when the step has nobody else to ask | An access request starts waiting for them |
 | `request_expiring` | The same people | Once, when the step they have not decided expires within 24 hours |
 | `request_decided` | The requester and the person the access is for | The request is approved, rejected (with who rejected it and their comment) or expired |
+| `review_assigned` | Each reviewer, with how many items they have; admins also count the items with nobody else to review them | A review campaign is launched |
+| `campaign_due_soon` | Reviewers who still have items pending, with how many | Once, when the campaign ends within 48 hours |
+| `sod_violation` | Admins | A separation of duties check (every 30 minutes, or run from the console) finds new violations or ends exceptions. One email per check lists up to 20, most severe first |
 
 Nobody is emailed about their own access as an approver. Withdrawn requests,
 and requests cancelled because the person left, send nothing.
-
-Email for access reviews and separation of duties violations comes next.
 
 ## How it is sent
 

@@ -1,0 +1,9 @@
+{{define "subject"}}Access review: {{.Data.items}} {{plural .Data.items "item" "items"}} to review in {{.Data.campaign}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+The access review "{{.Data.campaign}}" started. You are asked to review {{.Data.items}} {{plural .Data.items "item" "items"}}{{if .Data.admin_items}}, including access with nobody else to review it{{end}}: for each, keep the access or revoke it.
+
+Review by {{date .Data.due_at}}. What is not reviewed by then is {{if eq .Data.on_missing "revoke"}}revoked{{else}}kept{{end}}.
+
+{{.URL}}
+{{end}}

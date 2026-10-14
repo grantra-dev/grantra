@@ -24,6 +24,9 @@ const (
 	ApprovalNeeded  Kind = "approval_needed"
 	RequestDecided  Kind = "request_decided"
 	RequestExpiring Kind = "request_expiring"
+	ReviewAssigned  Kind = "review_assigned"
+	CampaignDueSoon Kind = "campaign_due_soon"
+	SoDViolation    Kind = "sod_violation"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -38,6 +41,9 @@ var Kinds = []KindInfo{
 	{ApprovalNeeded, "Approvals waiting for you", "Someone asked for access and you are the one to approve it."},
 	{RequestExpiring, "Approval reminders", "A request you have not decided expires within a day."},
 	{RequestDecided, "Decisions on requests", "A request you made, or one for you, was approved, rejected or expired."},
+	{ReviewAssigned, "Access reviews to do", "A review campaign started and asks you to keep or revoke some access."},
+	{CampaignDueSoon, "Review reminders", "A campaign ends within two days and you still have access to review."},
+	{SoDViolation, "Separation of duties violations", "For admins: a check found people holding access that should not go together."},
 }
 
 // Known reports whether k is a kind of notification.
