@@ -4,6 +4,8 @@ import { Layout } from "@/components/Layout";
 import { ApiError, getMe } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
 import { AccessReviews } from "@/pages/AccessReviews";
+import { Administration } from "@/pages/admin/Administration";
+import { Application } from "@/pages/admin/Application";
 import { Approvals } from "@/pages/Approvals";
 import { AuditLog } from "@/pages/AuditLog";
 import { ComingSoon } from "@/pages/ComingSoon";
@@ -43,10 +45,12 @@ export function App() {
     "/reviews": <AccessReviews me={me} />,
     "/people": <People />,
     "/audit": <AuditLog />,
+    "/admin": <Administration />,
   };
   // Pages under a section, shown to whoever sees the section.
   const subpages: Record<string, [string, React.ReactNode]> = {
     "/people": ["/people/:id", <Person me={me} />],
+    "/admin": ["/admin/applications/:id", <Application />],
   };
   return (
     <Routes>

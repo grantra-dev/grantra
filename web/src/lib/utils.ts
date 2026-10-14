@@ -10,3 +10,9 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 export function formatDate(iso: string) {
   return dateFormat.format(new Date(iso));
 }
+
+const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+export function formatTime(iso: string) {
+  return timeFormat.format(new Date(iso));
+}

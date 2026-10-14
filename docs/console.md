@@ -13,12 +13,16 @@ the Cedar policies regardless of what the console shows.
 | Approvals | Managers, application owners, admins | Done: the requests waiting on you, soonest deadline first, approve or reject (a comment is required to reject). A final approval refused by a `prevent` separation of duties policy is explained, and the request stays pending |
 | Access reviews | Managers, application owners, admins, auditors | Done: reviewers keep or revoke what they are asked to review, one by one or in bulk (bulk revoke asks for confirmation). Admins launch campaigns (by manager or by owner, all access or some applications) and close them; admins and auditors follow each campaign's progress |
 | People | Admins, helpdesk, auditors | Done: search everyone by name or email and filter by status. Each person shows their details from HR, manager, access and accounts; admins and auditors also see their Grantra roles, their joiner, mover and leaver events and their audit history. Admins give (optionally until a date) and remove Grantra roles, never to themselves |
-| Administration | Admins | [#24](https://github.com/grantra-dev/grantra/issues/24) |
+| Administration | Admins | Done. **HR sources**: add a CSV source, check an export (a dry run that lists every joiner, mover and leaver, errors and warnings), then apply it; a sync stopped by the leaver limit can be forced after a confirmation; run history. **Applications**: add applications and entitlements, see each one's connector settings (secret references only), read its accounts now, set provisioning (mode, change limit, removing memberships Grantra did not grant) and plan a dry run, browse accounts and orphans, and see past runs. **Roles and rules**: business roles and birthright rules, read only. **Separation of duties**: add and delete policies, check for violations now, and accept a violation's risk for a set time with a reason |
 | Audit log | Admins, auditors | Done: every event newest first, with who did it and on what in words, the raw details on demand, and a filter over the loaded events |
 
 "Manager" and "application owner" come from the data (someone reports to you,
 or you own an application), as returned by `GET /api/v1/me`; platform roles
 are the Grantra entitlements described in [access.md](access.md).
+
+Still only through the API: connector settings (they hold secret references),
+column mappings for HR sources, and editing roles, birthright rules and
+separation of duties policies.
 
 ## How it is served
 

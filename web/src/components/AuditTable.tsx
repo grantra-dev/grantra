@@ -9,8 +9,7 @@ import {
 } from "@/components/ui/table";
 import type { AuditEvent } from "@/lib/api";
 import { actionLabel, describeActor } from "@/lib/audit";
-
-const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { formatTime } from "@/lib/utils";
 
 export function AuditTable({ events }: { events: AuditEvent[] }) {
   return (
@@ -30,7 +29,7 @@ export function AuditTable({ events }: { events: AuditEvent[] }) {
           return (
             <TableRow key={e.id} className="align-top">
               <TableCell className="whitespace-nowrap text-slate-600">
-                {timeFormat.format(new Date(e.occurred_at))}
+                {formatTime(e.occurred_at)}
               </TableCell>
               <TableCell>
                 {actor.identityId ? (

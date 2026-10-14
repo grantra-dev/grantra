@@ -90,7 +90,6 @@ export const sections: Section[] = [
     description: "HR sources, catalog, connectors, campaigns and policies.",
     icon: Settings,
     visible: (me) => hasRole(me, PlatformRole.Admin),
-    issue: 24,
   },
   {
     path: "/audit",
