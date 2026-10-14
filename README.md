@@ -20,7 +20,7 @@ Grantra aims to be an open alternative to SailPoint and CyberArk. It starts with
 |---|---|
 | `core/` | Go backend (modular monolith): API, identity model, migrations |
 | `web/` | React console ([docs](docs/console.md)) |
-| `deploy/` | docker-compose dev stack, Keycloak realm, later the Helm chart |
+| `deploy/` | docker-compose dev stack, Keycloak realm, Helm chart ([docs](docs/production.md)) |
 | `docs/` | Architecture notes and design decisions |
 
 Planned: `connectors/` and `sdk/`.
@@ -42,6 +42,8 @@ make up
 | Mailpit (emails Grantra sends) | http://localhost:8025 | |
 
 The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks through a joiner, an access request and its approval, a separation of duties risk accepted by an admin, an access review and a leaver in five minutes. `make reset` starts over.
+
+For Kubernetes, the Helm chart in `deploy/helm/grantra` runs Grantra with separate database roles and any number of replicas: see [docs/production.md](docs/production.md).
 
 ## Development
 

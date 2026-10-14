@@ -1,16 +1,22 @@
 // Command grantra runs the Grantra core server.
+//
+//	grantra          runs the server
+//	grantra migrate  applies database migrations and exits
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
@@ -57,16 +63,33 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if len(os.Args) > 1 {
+		if os.Args[1] != "migrate" || len(os.Args) > 2 {
+			return fmt.Errorf("unknown command %q: run grantra, or grantra migrate", strings.Join(os.Args[1:], " "))
+		}
+		return migrate(ctx, log, cfg)
+	}
+
+	if cfg.MigrateOnStart {
+		if err := migrate(ctx, log, cfg); err != nil {
+			return err
+		}
+	} else {
+		log.Info("not migrating on start: GRANTRA_MIGRATE_ON_START is false")
+	}
+
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	if err := db.Migrate(ctx, pool); err != nil {
+	if problems, err := db.AppRoleProblems(ctx, pool); err != nil {
 		return err
+	} else if len(problems) > 0 {
+		log.Warn("the database role Grantra connects as is stronger than it needs; use a separate migration role in production (docs/production.md)",
+			"problems", problems)
 	}
-	log.Info("database migrated")
 
 	tenantID, err := db.EnsureTenant(ctx, pool, cfg.TenantSlug, cfg.TenantName)
 	if err != nil {
@@ -179,6 +202,36 @@ func run() error {
 	return nil
 }
 
+// migrate applies the database migrations. With GRANTRA_MIGRATE_DATABASE_URL
+// it connects as that role, which owns the tables, and grants the role in
+// GRANTRA_DATABASE_URL data permissions only.
+func migrate(ctx context.Context, log *slog.Logger, cfg config.Config) error {
+	url := cfg.MigrateDatabaseURL
+	if url == "" {
+		url = cfg.DatabaseURL
+	}
+	pool, err := db.Open(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := db.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	if cfg.MigrateDatabaseURL != "" {
+		app, err := pgx.ParseConfig(cfg.DatabaseURL)
+		if err != nil {
+			return fmt.Errorf("GRANTRA_DATABASE_URL: %w", err)
+		}
+		if err := db.GrantApp(ctx, pool, app.User); err != nil {
+			return err
+		}
+		log.Info("granted data permissions to the app role", "role", app.User)
+	}
+	log.Info("database migrated")
+	return nil
+}
+
 // job is background work the server repeats on a timer. run does one pass
 // and logs what it changed; an error it returns is logged for it.
 type job struct {
@@ -188,8 +241,12 @@ type job struct {
 }
 
 // startJobs runs every background job once at start and then on its timer,
-// until ctx ends.
+// until ctx ends. With several replicas, each pass runs on whichever replica
+// takes the job's lock first; the others skip it.
 func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender) {
+	locks := db.NewJobLocks(pool)
+	context.AfterFunc(ctx, func() { locks.Close(context.Background()) })
+
 	jobs := []job{
 		// Start and end dates take effect between HR syncs too.
 		{"apply start and end dates", 15 * time.Minute, func(ctx context.Context) error {
@@ -286,8 +343,11 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			tick := time.NewTicker(j.every)
 			defer tick.Stop()
 			for {
-				if err := j.run(ctx); err != nil && ctx.Err() == nil {
+				ran, err := locks.TryRun(ctx, j.name+" "+tenantID, j.run)
+				if err != nil && ctx.Err() == nil {
 					log.ErrorContext(ctx, j.name, "err", err)
+				} else if !ran && err == nil {
+					log.DebugContext(ctx, "skipped job: another replica is running it", "job", j.name)
 				}
 				select {
 				case <-ctx.Done():

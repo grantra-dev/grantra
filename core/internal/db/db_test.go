@@ -167,3 +167,55 @@ func TestEveryTenantTableHasRowLevelSecurity(t *testing.T) {
 		t.Errorf("tables with tenant_id but no forced row-level security policy: %v", open)
 	}
 }
+
+func TestGrantAppGivesDataPermissionsOnly(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	var super bool
+	if err := pool.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&super); err != nil {
+		t.Fatal(err)
+	}
+	if !super {
+		t.Skip("needs a superuser to create the test role")
+	}
+	if _, err := pool.Exec(ctx, `DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'grantra_grant_test') THEN
+			CREATE ROLE grantra_grant_test LOGIN PASSWORD 'grantra_grant_test' NOSUPERUSER NOBYPASSRLS;
+		END IF;
+	END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if err := GrantApp(ctx, pool, "grantra_grant_test"); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := pool.Config().ConnConfig.Copy()
+	cfg.User, cfg.Password = "grantra_grant_test", "grantra_grant_test"
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `SELECT count(*) FROM tenants`); err != nil {
+		t.Fatalf("app role cannot read: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE identities DISABLE ROW LEVEL SECURITY`); err == nil {
+		t.Fatal("app role turned off row-level security")
+	}
+
+	app, err := pgxpool.NewWithConfig(ctx, func() *pgxpool.Config {
+		c := pool.Config().Copy()
+		c.ConnConfig = cfg
+		return c
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	if problems, err := AppRoleProblems(ctx, app); err != nil || len(problems) > 0 {
+		t.Fatalf("problems=%v err=%v", problems, err)
+	}
+	if problems, err := AppRoleProblems(ctx, pool); err != nil || len(problems) == 0 {
+		t.Fatalf("superuser should have problems: problems=%v err=%v", problems, err)
+	}
+}

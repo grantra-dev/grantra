@@ -19,6 +19,13 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	LogLevel        string
 
+	// MigrateDatabaseURL, when set, is the role migrations run as: it owns
+	// the tables, and DatabaseURL's role only gets data permissions on them.
+	MigrateDatabaseURL string
+	// MigrateOnStart applies migrations when the server starts. Production
+	// installs turn it off and run grantra migrate as a separate step.
+	MigrateOnStart bool
+
 	// PublicURL is where people reach Grantra in the browser, such as
 	// https://grantra.example.com. Login redirects and cookies are built from it.
 	PublicURL string
@@ -79,14 +86,16 @@ func (o OIDC) Enabled() bool { return o.Issuer != "" }
 // FromEnv reads the configuration from environment variables, applying defaults.
 func FromEnv() (Config, error) {
 	cfg := Config{
-		HTTPAddr:        getenv("GRANTRA_HTTP_ADDR", ":8080"),
-		DatabaseURL:     os.Getenv("GRANTRA_DATABASE_URL"),
-		ShutdownTimeout: 15 * time.Second,
-		LogLevel:        getenv("GRANTRA_LOG_LEVEL", "info"),
-		PublicURL:       strings.TrimSuffix(getenv("GRANTRA_PUBLIC_URL", "http://localhost:8080"), "/"),
-		TenantSlug:      getenv("GRANTRA_TENANT", "default"),
-		TenantName:      getenv("GRANTRA_TENANT_NAME", "Default"),
-		BootstrapEmail:  os.Getenv("GRANTRA_BOOTSTRAP_EMAIL"),
+		HTTPAddr:           getenv("GRANTRA_HTTP_ADDR", ":8080"),
+		DatabaseURL:        os.Getenv("GRANTRA_DATABASE_URL"),
+		MigrateDatabaseURL: os.Getenv("GRANTRA_MIGRATE_DATABASE_URL"),
+		MigrateOnStart:     true,
+		ShutdownTimeout:    15 * time.Second,
+		LogLevel:           getenv("GRANTRA_LOG_LEVEL", "info"),
+		PublicURL:          strings.TrimSuffix(getenv("GRANTRA_PUBLIC_URL", "http://localhost:8080"), "/"),
+		TenantSlug:         getenv("GRANTRA_TENANT", "default"),
+		TenantName:         getenv("GRANTRA_TENANT_NAME", "Default"),
+		BootstrapEmail:     os.Getenv("GRANTRA_BOOTSTRAP_EMAIL"),
 		OIDC: OIDC{
 			Issuer:       os.Getenv("GRANTRA_OIDC_ISSUER"),
 			DiscoveryURL: os.Getenv("GRANTRA_OIDC_DISCOVERY_URL"),
@@ -131,6 +140,13 @@ func FromEnv() (Config, error) {
 	}
 	if u, err := url.Parse(cfg.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return Config{}, fmt.Errorf("GRANTRA_PUBLIC_URL must be an absolute http(s) URL, got %q", cfg.PublicURL)
+	}
+	if v := os.Getenv("GRANTRA_MIGRATE_ON_START"); v != "" {
+		on, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GRANTRA_MIGRATE_ON_START must be true or false, got %q", v)
+		}
+		cfg.MigrateOnStart = on
 	}
 	if v := os.Getenv("GRANTRA_DEMO"); v != "" {
 		demo, err := strconv.ParseBool(v)

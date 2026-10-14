@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -87,4 +88,49 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	return nil
+}
+
+// GrantApp gives role the data permissions the server needs on every table
+// and sequence in the schema, and nothing more: it does not own them, so it
+// cannot alter a table or turn off its row-level security. Run it as the
+// role that owns the tables, after Migrate.
+func GrantApp(ctx context.Context, pool *pgxpool.Pool, role string) error {
+	r := pgx.Identifier{role}.Sanitize()
+	// Concurrent GRANTs on the same tables fail, so replicas migrating at
+	// once (and the test helpers) queue on one lock. The statements run as
+	// one implicit transaction, which holds it until they are done.
+	_, err := pool.Exec(ctx, `SELECT pg_advisory_xact_lock(7244618);
+		GRANT USAGE ON SCHEMA public TO `+r+`;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO `+r+`;
+		GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO `+r)
+	if err != nil {
+		return fmt.Errorf("grant data permissions to %s: %w", role, err)
+	}
+	return nil
+}
+
+// AppRoleProblems lists why the connected role is stronger than the server
+// needs: it is a superuser, bypasses row-level security, or owns tables (an
+// owner can turn row-level security off). Production installs connect as a
+// role with none of these; see docs/production.md.
+func AppRoleProblems(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	var super, bypass bool
+	var owned int
+	err := pool.QueryRow(ctx, `SELECT r.rolsuper, r.rolbypassrls,
+			(SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner = current_user)
+		FROM pg_roles r WHERE r.rolname = current_user`).Scan(&super, &bypass, &owned)
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	if super {
+		problems = append(problems, "is a superuser")
+	}
+	if bypass {
+		problems = append(problems, "bypasses row-level security")
+	}
+	if owned > 0 {
+		problems = append(problems, fmt.Sprintf("owns %d tables", owned))
+	}
+	return problems, nil
 }

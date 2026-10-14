@@ -118,3 +118,21 @@ func TestFromEnvDemo(t *testing.T) {
 		t.Error("expected error for GRANTRA_DEMO=sure")
 	}
 }
+
+func TestFromEnvMigration(t *testing.T) {
+	t.Setenv("GRANTRA_DATABASE_URL", "postgres://grantra_app@localhost/grantra")
+	cfg, err := FromEnv()
+	if err != nil || !cfg.MigrateOnStart || cfg.MigrateDatabaseURL != "" {
+		t.Fatalf("defaults: %+v, %v", cfg, err)
+	}
+	t.Setenv("GRANTRA_MIGRATE_DATABASE_URL", "postgres://grantra_owner@localhost/grantra")
+	t.Setenv("GRANTRA_MIGRATE_ON_START", "false")
+	cfg, err = FromEnv()
+	if err != nil || cfg.MigrateOnStart || cfg.MigrateDatabaseURL != "postgres://grantra_owner@localhost/grantra" {
+		t.Fatalf("set: %+v, %v", cfg, err)
+	}
+	t.Setenv("GRANTRA_MIGRATE_ON_START", "later")
+	if _, err := FromEnv(); err == nil {
+		t.Error("expected error for GRANTRA_MIGRATE_ON_START=later")
+	}
+}
