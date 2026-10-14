@@ -181,7 +181,7 @@ func TestWrite(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	w, ok := newClient(t, srv.URL, "").(connector.Writer)
+	w, ok := newClient(t, srv.URL, "").(connector.AccountCreator)
 	if !ok {
 		t.Fatal("the scim connector does not write")
 	}

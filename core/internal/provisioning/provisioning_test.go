@@ -103,6 +103,21 @@ func (f fake) RemoveMember(_ context.Context, group, id string) error {
 	return nil
 }
 
+// noCreate is the fake without CreateAccount, like a directory where
+// accounts are made elsewhere.
+type noCreate struct{ f fake }
+
+func (n noCreate) Read(ctx context.Context) (connector.Snapshot, error) { return n.f.Read(ctx) }
+func (n noCreate) SetActive(ctx context.Context, id string, active bool) error {
+	return n.f.SetActive(ctx, id, active)
+}
+func (n noCreate) AddMember(ctx context.Context, g, id string) error {
+	return n.f.AddMember(ctx, g, id)
+}
+func (n noCreate) RemoveMember(ctx context.Context, g, id string) error {
+	return n.f.RemoveMember(ctx, g, id)
+}
+
 type readOnly struct{}
 
 func (readOnly) Read(context.Context) (connector.Snapshot, error) { return connector.Snapshot{}, nil }
@@ -114,6 +129,13 @@ func init() {
 			return nil, errors.New("fakewriter needs a name")
 		}
 		return fake{cfg.Name}, nil
+	})
+	connector.Register("fakenocreate", func(raw json.RawMessage, _ connector.SecretResolver) (connector.Reader, error) {
+		var cfg struct{ Name string }
+		if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Name == "" {
+			return nil, errors.New("fakenocreate needs a name")
+		}
+		return noCreate{fake{cfg.Name}}, nil
 	})
 	connector.Register("fakereader", func(json.RawMessage, connector.SecretResolver) (connector.Reader, error) {
 		return readOnly{}, nil
@@ -558,5 +580,38 @@ func TestProvisionOneRunAtATime(t *testing.T) {
 	})
 	if status != RunInterrupted {
 		t.Errorf("stale run = %s, want interrupted", status)
+	}
+}
+
+func TestProvisionWithoutCreate(t *testing.T) {
+	e := newEnv(t, "sales")
+	e.tx(func(tx pgx.Tx) error {
+		return accounts.SetConnector(context.Background(), tx, e.app, "fakenocreate", json.RawMessage(`{"name": "`+e.tenant+`"}`), noSecrets)
+	})
+	ana := e.identity("Ana", "ana@example.com", "active")
+	luis := e.identity("Luis", "luis@example.com", "active")
+	e.user("u2", "luis@example.com", true)
+	e.aggregate()
+	sales := e.entitlement("sales")
+	e.assign(ana, sales)
+	e.assign(luis, sales)
+	e.settings(Settings{Mode: ModeOn})
+
+	// Ana has no account and the connector cannot make one: she is counted,
+	// and nothing is planned for her.
+	run := e.provision(Options{})
+	if got, want := ops(run), []string{"add_member u2 sales done"}; !slices.Equal(got, want) {
+		t.Errorf("run = %q, want %q", got, want)
+	}
+	if run.Status != accounts.RunSucceeded || run.Counts["skipped_no_account"] != 1 {
+		t.Errorf("run = %s %v", run.Status, run.Counts)
+	}
+
+	// Once someone makes her account, the next aggregation links it and
+	// provisioning adds what she is missing.
+	e.user("u1", "ana@example.com", true)
+	e.aggregate()
+	if got, want := ops(e.provision(Options{})), []string{"add_member u1 sales done"}; !slices.Equal(got, want) {
+		t.Errorf("run = %q, want %q", got, want)
 	}
 }

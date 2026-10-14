@@ -192,6 +192,7 @@ export const listAccessRules = () =>
 export const connectorLabels: Record<string, string> = {
   manual: "None, managed by hand",
   scim: "SCIM",
+  ldap: "LDAP / Active Directory",
   grantra: "Built in",
 };
 
