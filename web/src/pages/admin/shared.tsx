@@ -48,6 +48,7 @@ const countLabels: Record<string, [string, string]> = {
   unknown_memberships: ["unknown membership", "unknown memberships"],
   unassigned_kept: ["membership kept", "memberships kept"],
   skipped_no_email: ["skipped without email", "skipped without email"],
+  skipped_no_account: ["skipped without account", "skipped without account"],
   failed: ["failed", "failed"],
 };
 

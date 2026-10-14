@@ -4,7 +4,7 @@ A connector is how Grantra talks to an application. An *aggregation* **reads** t
 
 ## SCIM 2.0
 
-The first connector speaks [SCIM 2.0](https://scim.cloud/), which Okta, Entra ID, Slack, GitHub Enterprise, Zoom and most SaaS tools offer.
+This connector speaks [SCIM 2.0](https://scim.cloud/), which Okta, Entra ID, Slack, GitHub Enterprise, Zoom and most SaaS tools offer.
 
 ```sh
 export GRANTRA_SECRET_CRM_SCIM_TOKEN=...   # in the server's environment
@@ -24,6 +24,49 @@ curl -b cookies -X POST localhost:8080/api/v1/applications/$APP/aggregations
 Groups become entitlements. Membership comes from each group's `members` and each user's `groups`. Users bring `userName`, primary email, `externalId` (or the enterprise `employeeNumber`), `active`, `title` and `department`.
 
 The config is checked when it is saved (URL, token reference present in the environment), so mistakes show up before the first aggregation. Only admins configure connectors; they point the server at URLs of their choosing, so treat that permission accordingly.
+
+## LDAP and Active Directory
+
+The `ldap` connector reads an LDAP directory: Active Directory, or OpenLDAP. Point an application (say, *Corporate directory*) at it to govern who is in which directory group.
+
+```sh
+export GRANTRA_SECRET_AD_PASSWORD=...   # in the server's environment
+curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
+  "kind": "ldap",
+  "config": {
+    "url": "ldaps://dc1.corp.example.com",
+    "bind_dn": "CN=grantra,OU=Service Accounts,DC=corp,DC=example,DC=com",
+    "password": "env:GRANTRA_SECRET_AD_PASSWORD",
+    "base_dn": "DC=corp,DC=example,DC=com"
+  }
+}'
+```
+
+| Config | Meaning |
+|---|---|
+| `url` | `ldaps://host[:port]`, or `ldap://host[:port]` with `start_tls: true`. Plain `ldap://` without TLS needs `allow_insecure: true` and is for labs only: the password would cross the network in the clear |
+| `ca_cert` | Optional. A reference (`env:GRANTRA_SECRET_...`) to the PEM certificate of the CA that signed the server's certificate, for directories with an internal CA |
+| `bind_dn`, `password` | The service account Grantra signs in with. `password` is a reference, like the SCIM token |
+| `base_dn` | Where users and groups are searched. `user_base_dn` and `group_base_dn` narrow it, e.g. to `OU=People,...` and `OU=Groups,...` |
+| `directory` | `active_directory` (default) or `openldap`. It sets the defaults below |
+| `user_filter`, `group_filter` | Replace the default filters, e.g. `(&(objectCategory=person)(objectClass=user)(memberOf=CN=Staff,...))` |
+| `attributes` | Replace default attribute names: `id`, `username`, `email`, `display_name`, `external_id`, `group_name`, `member` |
+| `page_size` | Entries per page, default 500 |
+
+| | Active Directory | OpenLDAP |
+|---|---|---|
+| Users | `(&(objectCategory=person)(objectClass=user))` | `(objectClass=inetOrgPerson)` |
+| Groups | `(objectClass=group)` | `(\|(objectClass=groupOfNames)(objectClass=groupOfUniqueNames))` |
+| Id | `objectGUID` | `entryUUID` |
+| Username, email, name | `sAMAccountName`, `mail`, `displayName` | `uid`, `mail`, `cn` |
+| Employee id (for correlation) | `employeeID` | `employeeNumber` |
+| Disabled when | `userAccountControl` has the disable flag | `pwdAccountLockedTime` is `000001010000Z` (locked until an admin unlocks it) |
+
+Groups become entitlements, named by their `cn`. Accounts hold the groups that list them as `member`; groups nested in other groups are not expanded, so a person holds what they were put in directly, which is also what Grantra grants. Members that are not users read by the user filter (computers, nested groups, people outside the filter) are left out. Accounts also carry their `dn`, `title`, `department` and `userPrincipalName` (`upn`).
+
+Ids are the directory's own stable ids, so renaming someone or moving them to another OU keeps their account and its history. Large Active Directory groups, which the server hands out in ranges of 1,500 members, are read in full. Searches are paged; a failure anywhere fails the whole read.
+
+The service account needs read access to users and groups. To provision, it also needs to write the `member` attribute of the groups Grantra manages and, in Active Directory, `userAccountControl` of users (in OpenLDAP, `pwdAccountLockedTime`, with the `ppolicy` overlay loaded so locked accounts cannot sign in).
 
 ## Aggregation
 
@@ -48,7 +91,7 @@ Provisioning compares what people should hold in an application (their assignmen
 
 | Action | When |
 |---|---|
-| `create_account` | An active person should have access and has no account. The username is their email; people without an email are skipped and counted as `skipped_no_email`. If the application already has an account with that username that correlation did not link, creation fails until someone links it by hand |
+| `create_account` | An active person should have access and has no account. The username is their email; people without an email are skipped and counted as `skipped_no_email`. If the application already has an account with that username that correlation did not link, creation fails until someone links it by hand. Connectors that cannot create accounts (LDAP) count these people as `skipped_no_account` instead: once someone makes the account, the next aggregation links it and provisioning adds what is missing |
 | `enable_account` | An active person should have access and their account is disabled |
 | `add_member` | An active person should hold an entitlement and none of their accounts does. It goes on their main account (the active one, else the oldest) |
 | `remove_member` | Someone holds an entitlement nobody assigned them, **and** Grantra granted it itself, or the application has `remove_unassigned` on. Leavers, suspended people and people who have not started should hold nothing |
@@ -89,11 +132,15 @@ With provisioning on, Grantra provisions every application on its own every five
 
 The SCIM connector writes with `POST /Users` (`userName`, `displayName`, primary work email, `externalId`), `PATCH /Users/{id}` (`active`) and `PATCH /Groups/{id}` (`add` / `remove` `members`). The token needs write access to users and groups.
 
+### LDAP
+
+The LDAP connector adds and removes the user's DN in the group's `member` attribute, and disables or enables accounts: the disable flag of `userAccountControl` in Active Directory, `pwdAccountLockedTime` in OpenLDAP. It does not create accounts, which directories usually get from their own onboarding. An OpenLDAP `groupOfNames` must keep one member, so removing its last one fails with a message saying so; give such groups a placeholder member.
+
 ## API
 
 | Endpoint | Action |
 |---|---|
-| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "scim", "config": {...}}`; `"kind": "manual"` removes it |
+| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "scim" or "ldap", "config": {...}}`; `"kind": "manual"` removes it |
 | `POST /api/v1/applications/{id}/aggregations` | `catalog.manage`: `200` with the run, `502` if the application could not be read |
 | `PUT /api/v1/applications/{id}/provisioning` | `catalog.manage`: `{"mode": "on", "remove_unassigned": false, "max_change_percent": 10}` |
 | `POST /api/v1/applications/{id}/provisioning-runs?dry_run=&force=` | `catalog.manage`: `200` with the run and its actions, `409` when refused or not possible yet, `502` when actions failed |
@@ -104,4 +151,4 @@ The SCIM connector writes with `POST /Users` (`userName`, `displayName`, primary
 
 ## Writing a connector
 
-Implement `connector.Reader` (`Read(ctx) (Snapshot, error)`) in a package under `core/internal/connector/`, register a `Factory` in `init`, and import the package in `cmd/grantra`. The factory must reject unknown config fields and resolve secrets through the `SecretResolver` it is given. `Read` must fail rather than return a partial snapshot. To provision, also implement `connector.Writer` (`CreateAccount`, `SetActive`, `AddMember`, `RemoveMember`); all but `CreateAccount` must be safe to repeat. See `connector/scim` for an example with a fake server in its tests.
+Implement `connector.Reader` (`Read(ctx) (Snapshot, error)`) in a package under `core/internal/connector/`, register a `Factory` in `init`, and import the package in `cmd/grantra`. The factory must reject unknown config fields and resolve secrets through the `SecretResolver` it is given. `Read` must fail rather than return a partial snapshot. To provision, also implement `connector.Writer` (`SetActive`, `AddMember`, `RemoveMember`, all safe to repeat), and `connector.AccountCreator` (`CreateAccount`) if the application can create accounts. See `connector/scim` and `connector/ldap` for examples with a fake server in their tests.

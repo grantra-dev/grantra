@@ -253,7 +253,8 @@ func provision(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID,
 			return apperr.Conflictf("no successful aggregation of this application in the last %s; aggregate it first so Grantra plans from what is really there", MaxAggregationAge)
 		}
 
-		if p, err = loadPlan(ctx, tx, applicationID, settings); err != nil {
+		_, canCreate := w.(connector.AccountCreator)
+		if p, err = loadPlan(ctx, tx, applicationID, settings, canCreate); err != nil {
 			return err
 		}
 		run.Actions = p.actions
@@ -426,8 +427,8 @@ func (p *plan) tooMuch(maxPercent int) bool {
 }
 
 // loadPlan reads the desired and actual state of an application and plans
-// the difference.
-func loadPlan(ctx context.Context, tx pgx.Tx, appID string, s Settings) (*plan, error) {
+// the difference. canCreate says whether the connector can create accounts.
+func loadPlan(ctx context.Context, tx pgx.Tx, appID string, s Settings, canCreate bool) (*plan, error) {
 	p := &plan{actions: []Action{}, counts: map[string]int{}, identities: map[string]*identity{}, natives: map[string]string{}}
 
 	rows, err := tx.Query(ctx, `SELECT id, native_id FROM entitlements WHERE application_id = $1 AND missing_since IS NULL`, appID)
@@ -579,6 +580,11 @@ func loadPlan(ctx context.Context, tx pgx.Tx, appID string, s Settings) (*plan, 
 			}
 			sort.Strings(missing)
 			switch {
+			case main == nil && !canCreate:
+				// The connector cannot create accounts: someone has to make
+				// it in the application, and the next aggregation links it.
+				p.counts["skipped_no_account"]++
+				missing = nil
 			case main == nil && i.email == "":
 				// The username is the email; without one there is nothing
 				// sensible to create.
@@ -644,7 +650,12 @@ func execute(stop, ctx context.Context, pool *pgxpool.Pool, tenantID, appID, act
 		switch a.Op {
 		case OpCreateAccount:
 			i := p.identities[a.IdentityID]
-			a.NativeAccount, err = w.CreateAccount(ctx, connector.NewAccount{
+			c, ok := w.(connector.AccountCreator)
+			if !ok {
+				err = errors.New("this connector cannot create accounts")
+				break
+			}
+			a.NativeAccount, err = c.CreateAccount(ctx, connector.NewAccount{
 				Username: i.email, Email: i.email, DisplayName: i.name, ExternalID: i.externalID,
 			})
 		case OpEnableAccount, OpDisableAccount:

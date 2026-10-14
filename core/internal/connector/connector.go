@@ -67,17 +67,23 @@ type NewAccount struct {
 }
 
 // Writer changes an application. Connectors that can provision implement it
-// on top of Reader. SetActive, AddMember and RemoveMember must be safe to
-// repeat: adding a member twice or disabling a disabled account is not an
-// error.
+// on top of Reader. Its methods must be safe to repeat: adding a member twice
+// or disabling a disabled account is not an error.
 type Writer interface {
-	// CreateAccount creates an active account and returns its native id.
-	CreateAccount(ctx context.Context, a NewAccount) (string, error)
 	// SetActive enables or disables an account.
 	SetActive(ctx context.Context, accountID string, active bool) error
 	// AddMember and RemoveMember change who holds an entitlement.
 	AddMember(ctx context.Context, entitlementID, accountID string) error
 	RemoveMember(ctx context.Context, entitlementID, accountID string) error
+}
+
+// AccountCreator is a Writer that can also create accounts. Connectors that
+// cannot (a directory where accounts are made by another process, say) leave
+// it out, and provisioning only works with the accounts already there.
+type AccountCreator interface {
+	Writer
+	// CreateAccount creates an active account and returns its native id.
+	CreateAccount(ctx context.Context, a NewAccount) (string, error)
 }
 
 // SecretResolver turns a secret reference from a connector config into its

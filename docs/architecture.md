@@ -91,7 +91,7 @@ An **assignment** says an identity should have a business role or an entitlement
 
 ## Connectors
 
-Connectors read applications (SCIM 2.0 first): an aggregation stores their entitlements and accounts, and correlation links accounts to identities by employee id or email; the rest are orphans. Secrets stay out of the database as `env:` references. Details in [connectors.md](connectors.md).
+Connectors read applications (SCIM 2.0, and LDAP for Active Directory and OpenLDAP): an aggregation stores their entitlements and accounts, and correlation links accounts to identities by employee id or email; the rest are orphans. Secrets stay out of the database as `env:` references. Details in [connectors.md](connectors.md).
 
 ## Tenant isolation
 
