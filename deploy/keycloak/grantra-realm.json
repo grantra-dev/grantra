@@ -38,6 +38,87 @@
       "enabled": true,
       "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
       "realmRoles": ["grantra-admin"]
+    },
+    {
+      "username": "ana",
+      "email": "ana.garcia@example.com",
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "García",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "luis",
+      "email": "luis.perez@example.com",
+      "emailVerified": true,
+      "firstName": "Luis",
+      "lastName": "Pérez",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "marta",
+      "email": "marta.ruiz@example.com",
+      "emailVerified": true,
+      "firstName": "Marta",
+      "lastName": "Ruiz",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "diego",
+      "email": "diego.navarro@example.com",
+      "emailVerified": true,
+      "firstName": "Diego",
+      "lastName": "Navarro",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "pedro",
+      "email": "pedro.lopez@example.com",
+      "emailVerified": true,
+      "firstName": "Pedro",
+      "lastName": "López",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "sara",
+      "email": "sara.martin@example.com",
+      "emailVerified": true,
+      "firstName": "Sara",
+      "lastName": "Martín",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "lucia",
+      "email": "lucia.torres@example.com",
+      "emailVerified": true,
+      "firstName": "Lucía",
+      "lastName": "Torres",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "carlos",
+      "email": "carlos.vega@example.com",
+      "emailVerified": true,
+      "firstName": "Carlos",
+      "lastName": "Vega",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    },
+    {
+      "username": "elena",
+      "email": "elena.ortiz@example.com",
+      "emailVerified": true,
+      "firstName": "Elena",
+      "lastName": "Ortiz",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
     }
   ]
 }

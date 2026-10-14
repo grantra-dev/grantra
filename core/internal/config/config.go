@@ -39,6 +39,10 @@ type Config struct {
 	SessionMax  time.Duration
 
 	SMTP SMTP
+
+	// Demo loads a sample company on start when the tenant has no HR source
+	// yet. For trying Grantra out, never for real data.
+	Demo bool
 }
 
 // SMTP configures the server Grantra sends notification emails through.
@@ -127,6 +131,13 @@ func FromEnv() (Config, error) {
 	}
 	if u, err := url.Parse(cfg.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return Config{}, fmt.Errorf("GRANTRA_PUBLIC_URL must be an absolute http(s) URL, got %q", cfg.PublicURL)
+	}
+	if v := os.Getenv("GRANTRA_DEMO"); v != "" {
+		demo, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GRANTRA_DEMO must be true or false, got %q", v)
+		}
+		cfg.Demo = demo
 	}
 	if err := cfg.SMTP.load(); err != nil {
 		return Config{}, err

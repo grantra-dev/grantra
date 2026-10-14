@@ -1,4 +1,4 @@
-.PHONY: build web test test-db lint web-lint web-test up down
+.PHONY: build web test test-db lint web-lint web-test up down reset
 
 # Builds the web console and copies it where the Go binary embeds it.
 web:
@@ -31,3 +31,7 @@ up:
 
 down:
 	docker compose -f deploy/docker-compose.yml down
+
+# Stops the stack and deletes its data, for a fresh demo.
+reset:
+	docker compose -f deploy/docker-compose.yml down --volumes
