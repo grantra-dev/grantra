@@ -1,0 +1,73 @@
+package notify
+
+import (
+	"bytes"
+	"embed"
+	"fmt"
+	"strings"
+	"text/template"
+	"time"
+)
+
+//go:embed templates/*.tmpl
+var templateFiles embed.FS
+
+// pages are where each kind of notification sends people in the console.
+var pages = map[Kind]string{
+	ApprovalNeeded:  "/approvals",
+	RequestExpiring: "/approvals",
+	RequestDecided:  "/requests",
+}
+
+var templates = func() map[Kind]*template.Template {
+	funcs := template.FuncMap{
+		// date formats an RFC 3339 time from the data, in UTC.
+		"date": func(v any) string {
+			s, _ := v.(string)
+			t, err := time.Parse(time.RFC3339Nano, s)
+			if err != nil {
+				return s
+			}
+			return t.UTC().Format("Mon 2 Jan 2006 15:04 UTC")
+		},
+	}
+	out := map[Kind]*template.Template{}
+	for _, k := range Kinds {
+		out[k.Kind] = template.Must(template.New(string(k.Kind)).Funcs(funcs).
+			Option("missingkey=zero").ParseFS(templateFiles, "templates/"+string(k.Kind)+".tmpl"))
+	}
+	return out
+}()
+
+// view is what a template sees.
+type view struct {
+	// Name is the recipient's display name, and RecipientID their identity.
+	Name        string
+	RecipientID string
+	// URL is the console page to act on the notification.
+	URL  string
+	Data map[string]any
+	// SettingsURL is where the recipient turns notifications off.
+	SettingsURL string
+}
+
+// render returns the subject and plain text body of a notification.
+func render(kind Kind, v view) (subject, body string, err error) {
+	t, ok := templates[kind]
+	if !ok {
+		return "", "", fmt.Errorf("no template for %q", kind)
+	}
+	var s, b bytes.Buffer
+	if err := t.ExecuteTemplate(&s, "subject", v); err != nil {
+		return "", "", err
+	}
+	if err := t.ExecuteTemplate(&b, "body", v); err != nil {
+		return "", "", err
+	}
+	// A subject is one line, whatever the data holds.
+	subject = strings.Join(strings.Fields(s.String()), " ")
+	body = strings.TrimLeft(b.String(), "\n") +
+		"\n--\nGrantra sends this because of your role in an access request or review.\n" +
+		"Choose which emails you get: " + v.SettingsURL + "\n"
+	return subject, body, nil
+}

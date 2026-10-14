@@ -23,6 +23,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
@@ -89,7 +90,21 @@ func run() error {
 		}
 	}
 
-	startJobs(ctx, log, pool, tenantID)
+	sender := &notify.Sender{Pool: pool, TenantID: tenantID, From: cfg.SMTP.From, PublicURL: cfg.PublicURL, Log: log}
+	if cfg.SMTP.Enabled() {
+		sender.Mailer = notify.SMTP{
+			Host:     cfg.SMTP.Host,
+			Port:     cfg.SMTP.Port,
+			Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password,
+			TLS:      cfg.SMTP.TLS,
+		}
+		log.Info("notification email enabled", "smtp_host", cfg.SMTP.Host, "from", cfg.SMTP.From)
+	} else {
+		log.Warn("notification email disabled: GRANTRA_SMTP_HOST is not set")
+	}
+
+	startJobs(ctx, log, pool, tenantID, sender)
 
 	az, err := authz.New()
 	if err != nil {
@@ -111,6 +126,7 @@ func run() error {
 			SessionMax:   cfg.SessionMax,
 		}, pool, tenantID, log)
 		api = console.New(pool, tenantID, az, log)
+		api.EmailEnabled = cfg.SMTP.Enabled()
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
 	} else {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
@@ -161,7 +177,7 @@ type job struct {
 
 // startJobs runs every background job once at start and then on its timer,
 // until ctx ends.
-func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string) {
+func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender) {
 	jobs := []job{
 		// Start and end dates take effect between HR syncs too.
 		{"apply start and end dates", 15 * time.Minute, func(ctx context.Context) error {
@@ -210,6 +226,23 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			if h.Expired+h.Cancelled+h.AccessEnded > 0 {
 				log.InfoContext(ctx, "closed access requests and ended expired access",
 					"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
+			}
+			return err
+		}},
+		{"remind approvers", 15 * time.Minute, func(ctx context.Context) error {
+			n, err := requests.RemindDue(ctx, pool, tenantID)
+			if n > 0 {
+				log.InfoContext(ctx, "reminded approvers of requests about to expire", "steps", n)
+			}
+			return err
+		}},
+		// Notifications are queued by the flows above and by the console;
+		// a failed send waits and retries without holding them up.
+		{"send notifications", 30 * time.Second, func(ctx context.Context) error {
+			res, err := sender.SendDue(ctx)
+			if res.Sent+res.Retried+res.Failed > 0 {
+				log.InfoContext(ctx, "sent notifications", "sent", res.Sent, "retried", res.Retried,
+					"failed", res.Failed, "skipped", res.Skipped)
 			}
 			return err
 		}},

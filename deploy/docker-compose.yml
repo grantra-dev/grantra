@@ -55,11 +55,22 @@ services:
       GRANTRA_OIDC_CLIENT_SECRET: grantra-dev-secret
       # Lets the realm's admin user sign in before any HR source is connected.
       GRANTRA_BOOTSTRAP_EMAIL: admin@grantra.local
+      # Notification emails land in Mailpit: open http://localhost:8025.
+      GRANTRA_SMTP_HOST: mailpit
+      GRANTRA_SMTP_PORT: "1025"
+      GRANTRA_SMTP_TLS: none
+      GRANTRA_SMTP_FROM: Grantra <grantra@grantra.local>
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Catches every email Grantra sends, so nothing reaches a real inbox.
+  mailpit:
+    image: axllent/mailpit:v1.31
+    ports:
+      - "8025:8025"
 
 volumes:
   pgdata:

@@ -1,6 +1,7 @@
-import { LogOut } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import { Bell, LogOut } from "lucide-react";
+import { Link, NavLink, Outlet } from "react-router";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Logo } from "@/components/Logo";
 import type { Me } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
@@ -38,6 +39,14 @@ export function Layout({ me }: { me: Me }) {
             <div className="font-medium">{me.display_name}</div>
             {me.email && <div className="text-slate-500">{me.email}</div>}
           </div>
+          <Link
+            to="/settings/notifications"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+            aria-label="Email notifications"
+            title="Email notifications"
+          >
+            <Bell />
+          </Link>
           {/* A plain form post: the server ends the session and redirects to
               the login provider to end that session too. */}
           <form method="post" action="/auth/logout">

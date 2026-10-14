@@ -31,6 +31,10 @@ type API struct {
 	authz    *authz.Authorizer
 	log      *slog.Logger
 	secrets  connector.SecretResolver
+
+	// EmailEnabled says whether notification email is set up, so the
+	// console can tell people when their settings have no effect.
+	EmailEnabled bool
 }
 
 // New returns the console API for the given tenant.
@@ -45,6 +49,8 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 		mux.Handle(pattern, require(sameOrigin(h)))
 	}
 	route("GET /api/v1/me", a.me)
+	route("GET /api/v1/me/notifications", a.getNotifications)
+	route("PUT /api/v1/me/notifications/{kind}", a.setNotification)
 	route("GET /api/v1/identities", a.listIdentities)
 	route("GET /api/v1/identities/{id}", a.getIdentity)
 	route("GET /api/v1/audit-events", a.listAuditEvents)

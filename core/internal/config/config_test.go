@@ -61,3 +61,47 @@ func TestFromEnvRejectsBadPublicURL(t *testing.T) {
 		t.Fatal("expected error for a public URL without scheme")
 	}
 }
+
+func TestFromEnvSMTP(t *testing.T) {
+	t.Setenv("GRANTRA_DATABASE_URL", "postgres://localhost/grantra")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SMTP.Enabled() {
+		t.Error("SMTP enabled without a host")
+	}
+
+	t.Setenv("GRANTRA_SMTP_HOST", "smtp.example.com")
+	t.Setenv("GRANTRA_SMTP_FROM", "Grantra <grantra@example.com>")
+	cfg, err = FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SMTP.Enabled() || cfg.SMTP.Port != 587 || cfg.SMTP.TLS != "starttls" {
+		t.Errorf("SMTP = %+v, want enabled on 587 with starttls", cfg.SMTP)
+	}
+
+	bad := map[string]string{
+		"GRANTRA_SMTP_PORT":     "mail",
+		"GRANTRA_SMTP_TLS":      "maybe",
+		"GRANTRA_SMTP_FROM":     "not an address",
+		"GRANTRA_SMTP_USERNAME": "grantra",
+	}
+	for key, value := range bad {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, value)
+			if _, err := FromEnv(); err == nil {
+				t.Errorf("expected error for %s=%q", key, value)
+			}
+		})
+	}
+}
+
+func TestFromEnvSMTPNeedsFrom(t *testing.T) {
+	t.Setenv("GRANTRA_DATABASE_URL", "postgres://localhost/grantra")
+	t.Setenv("GRANTRA_SMTP_HOST", "smtp.example.com")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected error without GRANTRA_SMTP_FROM")
+	}
+}

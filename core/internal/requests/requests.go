@@ -28,6 +28,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
@@ -277,8 +278,11 @@ func advance(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		   SELECT min(position) FROM access_request_steps WHERE request_id = $1 AND status = 'waiting')
 		   AND NOT EXISTS (SELECT 1 FROM access_request_steps WHERE request_id = $1 AND status = 'pending')`,
 		id, StepTimeout.Seconds())
-	if err != nil || tag.RowsAffected() > 0 {
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return notifyApprovers(ctx, tx, tenantID, id, notify.ApprovalNeeded)
 	}
 	var open bool
 	if err := tx.QueryRow(ctx,
@@ -334,7 +338,10 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if err := db.Audit(ctx, tx, tenantID, actor, "access.assigned", "identity", beneficiary, details); err != nil {
 		return err
 	}
-	return db.Audit(ctx, tx, tenantID, actor, "access_request.approved", "access_request", id, nil)
+	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.approved", "access_request", id, nil); err != nil {
+		return err
+	}
+	return notifyDecided(ctx, tx, tenantID, id)
 }
 
 // Decide approves or rejects the step a request waits on. The caller has
@@ -395,7 +402,10 @@ func closeRequest(ctx context.Context, tx pgx.Tx, tenantID, actor, id, status, r
 	if reason != "" {
 		details["reason"] = reason
 	}
-	return db.Audit(ctx, tx, tenantID, actor, "access_request."+status, "access_request", id, details)
+	if err := db.Audit(ctx, tx, tenantID, actor, "access_request."+status, "access_request", id, details); err != nil {
+		return err
+	}
+	return notifyDecided(ctx, tx, tenantID, id)
 }
 
 const selectRequests = `
