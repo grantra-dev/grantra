@@ -43,6 +43,8 @@ make up
 
 The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks through a joiner, an access request and its approval, a separation of duties risk accepted by an admin, an access review and a leaver in five minutes. `make reset` starts over.
 
+Traces, metrics and logs can go to any OpenTelemetry backend ([docs/observability.md](docs/observability.md)), and releases are signed with cosign and ship an SBOM ([docs/releases.md](docs/releases.md)).
+
 ## Development
 
 Requires Go 1.26+ (CI builds with the toolchain pinned in `core/go.mod`) and Node 22+ for the console.
