@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Expiry, IdentityStatusBadge, Origin } from "@/components/AccessBadges";
 import { AuditTable } from "@/components/AuditTable";
+import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
 import { Alert } from "@/components/ui/alert";
@@ -281,34 +282,6 @@ function RoleRow({
   );
 }
 
-function TabCard({
-  loading,
-  error,
-  empty,
-  children,
-}: {
-  loading: boolean;
-  error: Error | null;
-  empty?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      {loading ? (
-        <p className="p-6 text-sm text-slate-500">Loading…</p>
-      ) : error ? (
-        <p role="alert" className="p-6 text-sm text-red-700">
-          Could not load this: {error.message}
-        </p>
-      ) : empty ? (
-        <p className="p-6 text-sm text-slate-500">{empty}</p>
-      ) : (
-        children
-      )}
-    </Card>
-  );
-}
-
 function AccessTab({ id }: { id: string }) {
   const [now] = useState(() => Date.now());
   const { data, error, isPending } = useQuery({
@@ -316,7 +289,7 @@ function AccessTab({ id }: { id: string }) {
     queryFn: () => getIdentityAccess(id),
   });
   return (
-    <TabCard
+    <Loaded
       loading={isPending}
       error={error}
       empty={data?.length === 0 ? "No access through Grantra." : undefined}
@@ -350,7 +323,7 @@ function AccessTab({ id }: { id: string }) {
           ))}
         </TableBody>
       </Table>
-    </TabCard>
+    </Loaded>
   );
 }
 
@@ -362,7 +335,7 @@ function AccountsTab({ id }: { id: string }) {
     queryFn: () => getIdentityAccounts(id),
   });
   return (
-    <TabCard
+    <Loaded
       loading={isPending}
       error={error}
       empty={
@@ -402,7 +375,7 @@ function AccountsTab({ id }: { id: string }) {
           ))}
         </TableBody>
       </Table>
-    </TabCard>
+    </Loaded>
   );
 }
 
@@ -435,7 +408,7 @@ function LifecycleTab({ id }: { id: string }) {
     queryFn: () => listLifecycleEvents(id),
   });
   return (
-    <TabCard
+    <Loaded
       loading={isPending}
       error={error}
       empty={data?.length === 0 ? "No joiner, mover or leaver events from HR." : undefined}
@@ -474,7 +447,7 @@ function LifecycleTab({ id }: { id: string }) {
           ))}
         </TableBody>
       </Table>
-    </TabCard>
+    </Loaded>
   );
 }
 
@@ -484,12 +457,12 @@ function HistoryTab({ id }: { id: string }) {
     queryFn: () => listAuditEvents({ identity: id }),
   });
   return (
-    <TabCard
+    <Loaded
       loading={isPending}
       error={error}
       empty={data?.length === 0 ? "Nothing in the audit log by or about this person." : undefined}
     >
       <AuditTable events={data ?? []} />
-    </TabCard>
+    </Loaded>
   );
 }
