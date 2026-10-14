@@ -83,7 +83,7 @@ describe("Request access", () => {
     expect(sent).toEqual({ role_id: "r1", justification: "Joining sales", duration_days: 90 });
   });
 
-  it("explains a separation of duties conflict and blocks the request", async () => {
+  it("warns about a separation of duties conflict and says an admin must accept it", async () => {
     serve({
       ...base(),
       "POST /api/v1/access-requests/preview": ok({ sod_conflicts: ["Payments"] }),
@@ -91,8 +91,11 @@ describe("Request access", () => {
     renderAt("/request");
     expect(await screen.findByText("High risk")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Request Approve payments" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Payments");
-    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    const warning = await screen.findByText(/this access breaks the separation of duties/);
+    expect(warning).toHaveTextContent("Payments");
+    expect(warning).toHaveTextContent("a Grantra admin has to accept the risk");
+    await userEvent.type(screen.getByLabelText("Why do you need it?"), "Covering a leave");
+    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
 
   it("marks what I already asked for", async () => {

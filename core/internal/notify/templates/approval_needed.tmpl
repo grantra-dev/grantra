@@ -1,8 +1,10 @@
-{{define "subject"}}{{.Data.beneficiary}} needs your approval for {{.Data.target}}{{end}}
+{{define "subject"}}{{if eq .Data.step "risk"}}Separation of duties risk: {{.Data.beneficiary}} asks for {{.Data.target}}{{else}}{{.Data.beneficiary}} needs your approval for {{.Data.target}}{{end}}{{end}}
 {{define "body"}}Hi {{.Name}},
 
-{{if eq .Data.requester_id .Data.beneficiary_id}}{{.Data.beneficiary}} asked for{{else}}{{.Data.requester}} asked for {{.Data.beneficiary}} to get{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}, and the request is waiting for you{{if eq .Data.step "admin"}} or another Grantra admin{{end}}.
-
+{{if eq .Data.requester_id .Data.beneficiary_id}}{{.Data.beneficiary}} asked for{{else}}{{.Data.requester}} asked for {{.Data.beneficiary}} to get{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}, and the request is waiting for you{{if eq .Data.step "admin" "risk"}} or another Grantra admin{{end}}.
+{{if eq .Data.step "risk"}}
+Together with what {{.Data.beneficiary}} already has, this access breaks separation of duties: {{.Data.sod_conflicts}}. Approving it means accepting that risk, with a reason and an end date. Rejecting it closes the request.
+{{end}}
 Why: {{.Data.justification}}
 {{with .Data.duration_days}}For: {{.}} days
 {{end}}

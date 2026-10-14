@@ -317,6 +317,8 @@ export interface SoDViolation {
   exception_by?: string;
   exception_reason?: string;
   exception_until?: string;
+  /** The access request the risk was accepted on. */
+  request_id?: string;
 }
 
 export const listSoDPolicies = () =>

@@ -10,12 +10,18 @@
 // approve themselves, such as a manager asking for a report, counts as
 // approved: asking is the approval. Steps not decided within StepTimeout
 // expire the request.
+//
+// Access that would break a prevent-mode separation of duties policy adds a
+// last "risk" step: an admin other than the person getting the access
+// accepts the risk, with a reason and an end date, or rejects the request.
+// When the access is granted the violations are recorded as exceptions.
 package requests
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,6 +61,9 @@ const (
 	KindManager = "manager"
 	KindOwner   = "owner"
 	KindAdmin   = "admin"
+	// KindRisk is decided by admins: approving it accepts a separation of
+	// duties risk.
+	KindRisk = "risk"
 )
 
 // StepTimeout is how long an approver has to decide before the request
@@ -73,6 +82,8 @@ type Step struct {
 	DecidedBy    string     `json:"decided_by,omitempty"`
 	DecidedAt    *time.Time `json:"decided_at,omitempty"`
 	Comment      string     `json:"comment,omitempty"`
+	// ExceptionDays is how long an accepted risk lasts (risk steps).
+	ExceptionDays *int `json:"exception_days,omitempty"`
 
 	approverActive bool
 }
@@ -96,6 +107,9 @@ type Request struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	ClosedAt      *time.Time `json:"closed_at,omitempty"`
 	Steps         []Step     `json:"steps"`
+	// SoDConflicts names, while a risk step is undecided, the policies the
+	// access would break.
+	SoDConflicts []string `json:"sod_conflicts,omitempty"`
 }
 
 // Current returns the step the request waits on, if any.
@@ -213,7 +227,8 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	if held {
 		return Request{}, apperr.Conflictf("this person already has that access")
 	}
-	if err := sod.Check(ctx, tx, in.BeneficiaryID, in.RoleID, in.EntitlementID); err != nil {
+	conflicts, err := sod.Conflicts(ctx, tx, in.BeneficiaryID, in.RoleID, in.EntitlementID)
+	if err != nil {
 		return Request{}, err
 	}
 
@@ -246,6 +261,9 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 		}
 		steps = append(steps, s)
 	}
+	if len(conflicts) > 0 {
+		steps = append(steps, plan{KindRisk, ""})
+	}
 	for n, s := range steps {
 		st, decidedBy, comment := StepWaiting, "", ""
 		if s.approver != "" && s.approver == requesterID {
@@ -260,7 +278,8 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	}
 	actor := "identity:" + requesterID
 	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.created", "access_request", id,
-		map[string]any{"beneficiary_id": in.BeneficiaryID, "role_id": in.RoleID, "entitlement_id": in.EntitlementID, "duration_days": in.DurationDays}); err != nil {
+		map[string]any{"beneficiary_id": in.BeneficiaryID, "role_id": in.RoleID, "entitlement_id": in.EntitlementID,
+			"duration_days": in.DurationDays, "sod_conflicts": conflicts}); err != nil {
 		return Request{}, err
 	}
 	if err := advance(ctx, tx, tenantID, actor, id); err != nil {
@@ -270,8 +289,34 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 }
 
 // advance moves a pending request to its next undecided step, or grants it
-// when there is none.
+// when there is none. A risk step whose conflict went away meanwhile is
+// skipped.
 func advance(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
+	var (
+		next        string
+		beneficiary string
+		role, ent   *string
+	)
+	err := tx.QueryRow(ctx,
+		`SELECT s.kind, r.beneficiary_id, r.role_id, r.entitlement_id
+		 FROM access_request_steps s JOIN access_requests r ON r.id = s.request_id
+		 WHERE s.request_id = $1 AND s.status = 'waiting' ORDER BY s.position LIMIT 1`, id).Scan(&next, &beneficiary, &role, &ent)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if next == KindRisk {
+		conflicts, err := sod.Conflicts(ctx, tx, beneficiary, deref(role), deref(ent))
+		if err != nil {
+			return err
+		}
+		if len(conflicts) == 0 {
+			if _, err := tx.Exec(ctx,
+				`UPDATE access_request_steps SET status = 'skipped', comment = 'no separation of duties conflict any more'
+				 WHERE request_id = $1 AND kind = 'risk' AND status = 'waiting'`, id); err != nil {
+				return err
+			}
+		}
+	}
 	tag, err := tx.Exec(ctx,
 		`UPDATE access_request_steps SET status = 'pending', due_at = now() + make_interval(secs => $2)
 		 WHERE request_id = $1 AND position = (
@@ -300,12 +345,40 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		days        *int
 	)
 	if err := tx.QueryRow(ctx,
-		`UPDATE access_requests SET status = 'approved', closed_at = now() WHERE id = $1
-		 RETURNING beneficiary_id, role_id, entitlement_id, duration_days`, id).Scan(&beneficiary, &role, &ent, &days); err != nil {
+		`SELECT beneficiary_id, role_id, entitlement_id, duration_days FROM access_requests WHERE id = $1`, id).
+		Scan(&beneficiary, &role, &ent, &days); err != nil {
 		return err
 	}
-	// Separation of duties may have changed since the request was made.
+	// Separation of duties may have changed since the request was made: a
+	// risk an admin accepted becomes exceptions, and a conflict nobody
+	// accepted yet sends the request to the admins.
+	conflicts, err := sod.Conflicts(ctx, tx, beneficiary, deref(role), deref(ent))
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 {
+		var (
+			by, reason string
+			edays      *int
+		)
+		err := tx.QueryRow(ctx,
+			`SELECT decided_by, coalesce(comment, ''), exception_days FROM access_request_steps
+			 WHERE request_id = $1 AND kind = 'risk' AND status = 'approved' ORDER BY position DESC LIMIT 1`, id).Scan(&by, &reason, &edays)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows) || (err == nil && edays == nil):
+			return askRisk(ctx, tx, tenantID, actor, id, conflicts)
+		case err != nil:
+			return err
+		}
+		until := time.Now().Add(time.Duration(*edays) * 24 * time.Hour)
+		if _, err := sod.AcceptOnRequest(ctx, tx, tenantID, by, id, beneficiary, deref(role), deref(ent), reason, until); err != nil {
+			return err
+		}
+	}
 	if err := sod.Check(ctx, tx, beneficiary, deref(role), deref(ent)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE access_requests SET status = 'approved', closed_at = now() WHERE id = $1`, id); err != nil {
 		return err
 	}
 	// An earlier, expired grant from a request makes way for this one.
@@ -344,10 +417,35 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	return notifyDecided(ctx, tx, tenantID, id)
 }
 
+// askRisk adds a risk step to a request whose access turned out to break
+// separation of duties after it was made, and asks the admins.
+func askRisk(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, conflicts []string) error {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO access_request_steps (tenant_id, request_id, position, kind, status, due_at)
+		 SELECT $1, $2, max(position) + 1, 'risk', 'pending', now() + make_interval(secs => $3)
+		 FROM access_request_steps WHERE request_id = $2`, tenantID, id, StepTimeout.Seconds()); err != nil {
+		return err
+	}
+	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.risk_review", "access_request", id,
+		map[string]any{"sod_conflicts": conflicts}); err != nil {
+		return err
+	}
+	return notifyApprovers(ctx, tx, tenantID, id, notify.ApprovalNeeded)
+}
+
+// Decision is how someone decides the step a request waits on.
+type Decision struct {
+	Approve bool
+	Comment string
+	// ExceptionDays, for risk steps, is how long the accepted risk lasts.
+	ExceptionDays int
+}
+
 // Decide approves or rejects the step a request waits on. The caller has
-// checked that actor may decide it.
-func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, approve bool, comment string) (Request, error) {
-	comment = strings.TrimSpace(comment)
+// checked that actor may decide it. Approving a risk step accepts the risk:
+// it needs a reason (the comment) and 1 to 365 exception days.
+func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, d Decision) (Request, error) {
+	comment := strings.TrimSpace(d.Comment)
 	if len(comment) > 2000 {
 		return r, apperr.Invalidf("comment is longer than 2000 characters")
 	}
@@ -355,19 +453,38 @@ func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, a
 	if r.Status != Pending || step == nil {
 		return r, apperr.Conflictf("this request is %s; there is nothing to decide", r.Status)
 	}
+	var days *int
+	switch {
+	case step.Kind != KindRisk && d.ExceptionDays != 0:
+		return r, apperr.Invalidf("exception_days is only for accepting a separation of duties risk")
+	case step.Kind == KindRisk && d.Approve && comment == "":
+		return r, apperr.Invalidf("say why the risk is accepted and how it is mitigated: the comment is the exception's reason")
+	case step.Kind == KindRisk && d.Approve && (d.ExceptionDays < 1 || d.ExceptionDays > 365):
+		return r, apperr.Invalidf("exception_days must be between 1 and 365: an accepted risk needs an end date")
+	case step.Kind == KindRisk && d.Approve:
+		days = &d.ExceptionDays
+	}
+	if step.Kind == KindRisk && actor == "identity:"+r.BeneficiaryID {
+		return r, apperr.Conflictf("nobody accepts their own separation of duties risk")
+	}
 	st := StepRejected
-	if approve {
+	if d.Approve {
 		st = StepApproved
 	}
 	if _, err := tx.Exec(ctx,
-		`UPDATE access_request_steps SET status = $3, decided_by = $4, decided_at = now(), comment = nullif($5, '')
-		 WHERE request_id = $1 AND position = $2`, r.ID, step.Position, st, actor, comment); err != nil {
+		`UPDATE access_request_steps SET status = $3, decided_by = $4, decided_at = now(), comment = nullif($5, ''), exception_days = $6
+		 WHERE request_id = $1 AND position = $2`, r.ID, step.Position, st, actor, comment, days); err != nil {
 		return r, err
 	}
-	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.step_"+st, "access_request", r.ID,
-		map[string]any{"position": step.Position, "kind": step.Kind, "comment": comment}); err != nil {
+	details := map[string]any{"position": step.Position, "kind": step.Kind, "comment": comment}
+	if days != nil {
+		details["exception_days"] = *days
+		details["sod_conflicts"] = r.SoDConflicts
+	}
+	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.step_"+st, "access_request", r.ID, details); err != nil {
 		return r, err
 	}
+	approve := d.Approve
 	if approve {
 		if err := advance(ctx, tx, tenantID, actor, r.ID); err != nil {
 			return r, err
@@ -469,7 +586,8 @@ func loadSteps(ctx context.Context, tx pgx.Tx, list []Request) error {
 	}
 	rows, err := tx.Query(ctx,
 		`SELECT s.request_id, s.position, s.kind, coalesce(s.approver_id::text, ''), coalesce(i.display_name, ''),
-		        coalesce(i.status = 'active', false), s.status, s.due_at, coalesce(s.decided_by, ''), s.decided_at, coalesce(s.comment, '')
+		        coalesce(i.status = 'active', false), s.status, s.due_at, coalesce(s.decided_by, ''), s.decided_at, coalesce(s.comment, ''),
+		        s.exception_days
 		 FROM access_request_steps s LEFT JOIN identities i ON i.id = s.approver_id
 		 WHERE s.request_id = ANY($1) ORDER BY s.request_id, s.position`, ids)
 	if err != nil {
@@ -482,12 +600,36 @@ func loadSteps(ctx context.Context, tx pgx.Tx, list []Request) error {
 			s   Step
 		)
 		if err := rows.Scan(&req, &s.Position, &s.Kind, &s.ApproverID, &s.ApproverName, &s.approverActive,
-			&s.Status, &s.DueAt, &s.DecidedBy, &s.DecidedAt, &s.Comment); err != nil {
+			&s.Status, &s.DueAt, &s.DecidedBy, &s.DecidedAt, &s.Comment, &s.ExceptionDays); err != nil {
 			return err
 		}
 		byID[req].Steps = append(byID[req].Steps, s)
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	// Name the conflicts of requests waiting on, or heading to, a risk step.
+	for i := range list {
+		r := &list[i]
+		if r.Status != Pending || !slices.ContainsFunc(r.Steps, func(s Step) bool {
+			return s.Kind == KindRisk && (s.Status == StepPending || s.Status == StepWaiting)
+		}) {
+			continue
+		}
+		var role, ent string
+		if r.Type == "role" {
+			role = r.TargetID
+		} else {
+			ent = r.TargetID
+		}
+		names, err := sod.Conflicts(ctx, tx, r.BeneficiaryID, role, ent)
+		if err != nil {
+			return err
+		}
+		r.SoDConflicts = names
+	}
+	return nil
 }
 
 // Scopes for List.

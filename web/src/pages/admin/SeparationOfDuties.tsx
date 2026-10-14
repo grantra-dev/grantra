@@ -372,6 +372,9 @@ function Violations() {
                       {v.exception_until && (
                         <div className="text-slate-500">Until {formatDate(v.exception_until)}</div>
                       )}
+                      {v.request_id && (
+                        <div className="text-slate-500">Accepted on an access request</div>
+                      )}
                     </div>
                   )}
                   {v.status === "resolved" && v.resolved_at && (

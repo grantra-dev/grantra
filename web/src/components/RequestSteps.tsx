@@ -20,14 +20,18 @@ const stepLabels = {
 };
 
 function StepLine({ s }: { s: ApprovalStep }) {
-  const who = s.kind === "admin" ? kindLabels.admin : `${kindLabels[s.kind]}: ${s.approver_name}`;
+  const who =
+    s.kind === "admin" || s.kind === "risk"
+      ? kindLabels[s.kind]
+      : `${kindLabels[s.kind]}: ${s.approver_name}`;
   return (
     <li className="flex items-start gap-2 text-sm">
       <span className="mt-0.5">{stepIcons[s.status]}</span>
       <span>
         <span className="font-medium">{who}</span>{" "}
         <span className="text-slate-500">
-          {stepLabels[s.status]}
+          {s.kind === "risk" && s.status === "approved" ? "accepted" : stepLabels[s.status]}
+          {s.exception_days && ` for ${s.exception_days} days`}
           {s.decided_at && ` on ${formatDate(s.decided_at)}`}
           {s.status === "pending" && s.due_at && `, by ${formatDate(s.due_at)} or it expires`}
         </span>

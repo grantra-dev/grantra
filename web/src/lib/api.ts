@@ -83,7 +83,7 @@ export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled" | 
 
 export interface ApprovalStep {
   position: number;
-  kind: "manager" | "owner" | "admin";
+  kind: "manager" | "owner" | "admin" | "risk";
   approver_id?: string;
   approver_name?: string;
   status: "waiting" | "pending" | "approved" | "rejected" | "skipped";
@@ -91,6 +91,8 @@ export interface ApprovalStep {
   decided_by?: string;
   decided_at?: string;
   comment?: string;
+  /** How long an accepted separation of duties risk lasts (risk steps). */
+  exception_days?: number;
 }
 
 export interface AccessRequest {
@@ -110,6 +112,8 @@ export interface AccessRequest {
   created_at: string;
   closed_at?: string;
   steps: ApprovalStep[];
+  /** The policies the access breaks, while an admin has to accept the risk. */
+  sod_conflicts?: string[];
 }
 
 export interface NewRequest {
@@ -154,10 +158,16 @@ export const listApprovals = () =>
     (r) => r.requests,
   );
 
-export const decideRequest = (id: string, decision: "approve" | "reject", comment: string) =>
+export const decideRequest = (
+  id: string,
+  decision: "approve" | "reject",
+  comment: string,
+  exceptionDays?: number,
+) =>
   post<AccessRequest>(`/api/v1/access-requests/${encodeURIComponent(id)}/decision`, {
     decision,
     comment,
+    exception_days: exceptionDays,
   });
 
 export type ReviewDecision = "pending" | "keep" | "revoke";

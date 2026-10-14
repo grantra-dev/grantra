@@ -41,7 +41,7 @@ make up
 | PostgreSQL | localhost:5432 | `grantra_app` / `grantra` |
 | Mailpit (emails Grantra sends) | http://localhost:8025 | |
 
-The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks through a joiner, an access request and its approval, a separation of duties block, an access review and a leaver in five minutes. `make reset` starts over.
+The stack loads a small sample company. [docs/demo.md](docs/demo.md) walks through a joiner, an access request and its approval, a separation of duties risk accepted by an admin, an access review and a leaver in five minutes. `make reset` starts over.
 
 ## Development
 

@@ -36,6 +36,7 @@ func mailData(r Request) map[string]any {
 		"decided_by":     "",
 		"comment":        "",
 		"expires_at":     "",
+		"sod_conflicts":  strings.Join(r.SoDConflicts, ", "),
 	}
 	if s := r.Current(); s != nil {
 		d["step"] = s.Kind

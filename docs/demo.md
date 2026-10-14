@@ -75,12 +75,19 @@ Sign in as `luis` and open **Approvals**. Read Marta's reason and click
 ## 4. Separation of duties
 
 Sign in as `sara`. She enters payments as a Finance clerk. In **Request
-access**, search for *Approve payments* and click **Request**. Grantra refuses
-before anything is sent: together with what she has, it would break the
-*Create and approve payments* policy.
+access**, search for *Approve payments* and click **Request**. Grantra warns
+before anything is sent: together with what she has, it breaks the *Create and
+approve payments* policy, so an admin will have to accept the risk. Say why
+she needs it (say, covering Pedro's leave) and click **Send request**.
 
-Back as `admin`, open **Administration** → **Separation of duties**. Pedro
-shows up as an open violation: he enters payments as a Finance clerk and was
+Sign in as `pedro`, her manager and the owner of the ERP, and **Approve** it in
+**Approvals**. The request now waits for an admin. As `admin`, **Approvals**
+explains the conflict: write why the risk is acceptable, pick for how long, and
+click **Accept the risk and approve**. Sara gets the access, and the violation
+is recorded as an exception that reopens when its time is up.
+
+Back as `admin`, open **Administration** → **Separation of duties**. Sara is
+listed as an exception, with your reason. Pedro shows up as an open violation: he enters payments as a Finance clerk and was
 also granted *Approve payments* by hand. You can **Accept the risk** for a
 time, with a reason, or remove one side of it. The admins also got an email
 about it.
@@ -108,5 +115,5 @@ She can no longer sign in to Grantra.
 ## Everything is on record
 
 Open **Audit log**. Every step above is there: who did it, to whom, and when.
-That includes the sync, the request, the approval, the refused request, the
+That includes the sync, the request, the approval, the accepted risk, the
 review decision and the leaver.
