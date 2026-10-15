@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
@@ -149,5 +150,107 @@ func TestLiveAdmin(t *testing.T) {
 	}
 	if _, err := c.RoleHolders(ctx, MFARole); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestLiveFederation adds an identity provider to a real Keycloak, like
+// TestLive, and routes a domain to it. The provider is the Keycloak's own
+// master realm; nobody signs in with it here, so it needs no client there.
+func TestLiveFederation(t *testing.T) {
+	base := os.Getenv("GRANTRA_TEST_KEYCLOAK_URL")
+	if base == "" {
+		t.Skip("GRANTRA_TEST_KEYCLOAK_URL is not set")
+	}
+	r, err := New(json.RawMessage(`{"url": "`+base+`", "client_secret": "env:X", "allow_http": true}`),
+		func(string) (string, error) { return "grantra-dev-connector-secret", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := r.(*Client)
+	ctx := context.Background()
+
+	if _, err := c.CreateIdentityProvider(ctx, NewIdentityProvider{Alias: "live-oidc", DisplayName: "Old login", Kind: KindOIDC,
+		Issuer: base + "/realms/nope", ClientID: "x", ClientSecret: "y"}); err == nil {
+		t.Error("created a provider whose issuer does not exist")
+	}
+	p, err := c.CreateIdentityProvider(ctx, NewIdentityProvider{Alias: "live-oidc", DisplayName: "Old login", Kind: KindOIDC,
+		Issuer: base + "/realms/master", ClientID: "grantra-broker", ClientSecret: "broker-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.DeleteIdentityProvider(ctx, "live-oidc") //nolint:errcheck
+	if !p.LinkByEmail || !strings.HasSuffix(p.RedirectURI, "/realms/grantra/broker/live-oidc/endpoint") {
+		t.Errorf("created %+v", p)
+	}
+	s, err := c.CreateIdentityProvider(ctx, NewIdentityProvider{Alias: "live-saml", DisplayName: "Old SAML", Kind: KindSAML,
+		MetadataURL: base + "/realms/master/protocol/saml/descriptor", LinkByEmail: new(bool)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.DeleteIdentityProvider(ctx, "live-saml") //nolint:errcheck
+	if s.LinkByEmail || s.SAMLMetadata == "" {
+		t.Errorf("created %+v", s)
+	}
+
+	if err := c.SetDomains(ctx, "live-oidc", []string{"Acme.io", "@acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetDomains(ctx, "live-saml", []string{"acme.io"}); err == nil {
+		t.Error("routed a domain to two providers")
+	}
+	if err := c.SetDomains(ctx, "live-oidc", []string{"acme.io"}); err != nil {
+		t.Fatal(err)
+	}
+	ps, err := c.IdentityProviders(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range ps {
+		t.Logf("provider %+v", p)
+		if p.Alias == "live-oidc" && !slices.Equal(p.Domains, []string{"acme.io"}) {
+			t.Errorf("domains = %v", p.Domains)
+		}
+	}
+	var raw idp
+	if _, err := c.do(ctx, "GET", "/identity-provider/instances/live-oidc", nil, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Config["clientSecret"] == "" || raw.Config["kc.org.domain"] != "ANY" {
+		t.Errorf("provider config after routing = %v", raw.Config)
+	}
+}
+
+// TestLiveImport imports testdata/legacy-realm.json into a real Keycloak,
+// like TestLive, that has not imported it yet.
+func TestLiveImport(t *testing.T) {
+	base := os.Getenv("GRANTRA_TEST_KEYCLOAK_URL")
+	if base == "" {
+		t.Skip("GRANTRA_TEST_KEYCLOAK_URL is not set")
+	}
+	r, err := New(json.RawMessage(`{"url": "`+base+`", "client_secret": "env:X", "allow_http": true}`),
+		func(string) (string, error) { return "grantra-dev-connector-secret", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := r.(*Client)
+	ctx := context.Background()
+	data, err := os.ReadFile("testdata/legacy-realm.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := c.Import(ctx, data, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("dry run %+v", plan)
+	if plan.Applied || len(plan.Users.Add) == 0 {
+		t.Fatalf("dry run = %+v", plan)
+	}
+	if plan, err = c.Import(ctx, data, false); err != nil || !plan.Applied {
+		t.Fatalf("import = %+v, %v", plan, err)
+	}
+	again, err := c.Import(ctx, data, true)
+	if err != nil || len(again.Users.Add)+len(again.Groups.Add)+len(again.Apps.Add)+len(again.Roles.Add) != 0 {
+		t.Errorf("after import, dry run = %+v, %v", again, err)
 	}
 }
