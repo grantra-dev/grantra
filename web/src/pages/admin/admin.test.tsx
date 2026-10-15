@@ -173,6 +173,82 @@ describe("Applications", () => {
   });
 });
 
+describe("Application authorization", () => {
+  const app: CatalogApplication = {
+    id: "gh",
+    name: "Billing",
+    connector: "manual",
+    config: {},
+    provisioning: { mode: "off" },
+    entitlement_count: 1,
+    created_at: "2026-10-01T09:00:00Z",
+  };
+
+  it("saves policies, tries a question and creates a key", async () => {
+    const sent: Record<string, unknown> = {};
+    serve({
+      "GET /api/v1/me": ok(admin),
+      "GET /api/v1/applications": ok({ applications: [app] }),
+      "GET /api/v1/applications/gh/authz": ok({ policies: "", keys: [] }),
+      "PUT /api/v1/applications/gh/authz/policies": (init) => {
+        sent.policies = JSON.parse(init!.body as string);
+        return { status: 200, body: sent.policies };
+      },
+      "POST /api/v1/applications/gh/authz/test": (init) => {
+        sent.test = JSON.parse(init!.body as string);
+        return {
+          status: 200,
+          body: {
+            allowed: true,
+            policies: ["finance approves invoices"],
+            person: {
+              id: "p1",
+              email: "ana@example.com",
+              display_name: "Ana",
+              status: "active",
+              attributes: { department: "Finance" },
+              roles: [],
+              entitlements: ["approver"],
+            },
+          },
+        };
+      },
+      "POST /api/v1/applications/gh/authz/keys": () => ({
+        status: 201,
+        body: {
+          key: { id: "k1", name: "backend", prefix: "grantra_ak_abc123" },
+          secret: "grantra_ak_s3cret",
+        },
+      }),
+    });
+    renderAt("/admin/applications/gh?tab=authorization");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start from an example" }));
+    await userEvent.type(screen.getByLabelText("Person"), "ana@example.com");
+    await userEvent.type(screen.getByLabelText("Action"), "approve");
+    await userEvent.type(screen.getByLabelText("Resource type"), "Invoice");
+    await userEvent.type(screen.getByLabelText("Resource ID"), "42");
+    await userEvent.type(screen.getByLabelText("Resource attributes (JSON)"), '{{"amount": 1200}');
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(await screen.findByText(/Allowed by finance approves invoices/)).toBeInTheDocument();
+    expect(sent.test).toMatchObject({
+      principal: { email: "ana@example.com" },
+      action: "approve",
+      resource: { type: "Invoice", id: "42", attributes: { amount: 1200 } },
+    });
+    expect((sent.test as { policies: string }).policies).toContain("finance approves invoices");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    await waitFor(() =>
+      expect((sent.policies as { policies: string }).policies).toContain('Action::"approve"'),
+    );
+
+    await userEvent.type(screen.getByLabelText("Key name"), "backend");
+    await userEvent.click(screen.getByRole("button", { name: "Create key" }));
+    expect(await screen.findByText("grantra_ak_s3cret")).toBeInTheDocument();
+  });
+});
+
 describe("Separation of duties", () => {
   it("accepts the risk of a violation with a reason and an end", async () => {
     const violation: SoDViolation = {

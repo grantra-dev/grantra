@@ -115,6 +115,14 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("PUT /api/v1/login/identity-providers/{alias}/domains", a.setIdentityProviderDomains)
 	route("DELETE /api/v1/login/identity-providers/{alias}", a.deleteIdentityProvider)
 	route("POST /api/v1/login/import", a.importToLogin)
+	route("GET /api/v1/applications/{id}/authz", a.getAppAuthz)
+	route("PUT /api/v1/applications/{id}/authz/policies", a.setAppAuthzPolicies)
+	route("POST /api/v1/applications/{id}/authz/keys", a.createAppAPIKey)
+	route("DELETE /api/v1/applications/{id}/authz/keys/{key}", a.revokeAppAPIKey)
+	route("POST /api/v1/applications/{id}/authz/test", a.testAppAuthz)
+
+	// Apps' backends ask with an API key, not a session.
+	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming

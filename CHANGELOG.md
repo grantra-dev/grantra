@@ -16,6 +16,11 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - **Identity providers**: people sign in to Grantra Login with Entra ID, Okta, or any OpenID Connect or SAML provider, and land in their existing account by verified email ([docs](docs/grantra-login.md#identity-providers)).
 - **Gradual migration**: send each email domain to its old provider or to Grantra Login, one domain at a time, and import users (with their passwords), groups, roles and apps from another Keycloak after a dry run ([docs](docs/grantra-login.md#moving-over-one-domain-at-a-time)).
 
+### Authorization for your apps
+
+- **Cedar policies per application** and **`POST /api/v1/authz/check`**: your apps ask Grantra whether someone may do something, with an API key, and Grantra answers with the person's department, manager, roles and entitlements filled in. Leavers are always denied ([docs](docs/app-authorization.md)).
+- **Policy playground** in the console: try questions against draft policies before saving them.
+
 ## [0.1.0] - 2026-10-14
 
 The first public release: identity governance (IGA) you can run on your laptop in five minutes or on Kubernetes.
