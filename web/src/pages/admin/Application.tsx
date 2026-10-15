@@ -43,9 +43,10 @@ import {
 } from "@/lib/admin";
 import { formatDate, formatTime } from "@/lib/utils";
 import { NotFound } from "../NotFound";
+import { Authorization } from "./Authorization";
 import { Counts, RunStatus } from "./shared";
 
-type Tab = "entitlements" | "accounts" | "runs";
+type Tab = "entitlements" | "accounts" | "runs" | "authorization";
 
 export function Application() {
   const { id = "" } = useParams();
@@ -56,7 +57,8 @@ export function Application() {
   });
   const app = data?.find((a) => a.id === id);
   const asked = params.get("tab");
-  const tab: Tab = asked === "accounts" || asked === "runs" ? asked : "entitlements";
+  const tab: Tab =
+    asked === "accounts" || asked === "runs" || asked === "authorization" ? asked : "entitlements";
 
   if (isPending) return <p className="text-sm text-slate-500">Loading…</p>;
   if (error) {
@@ -88,6 +90,7 @@ export function Application() {
             ["entitlements", "Entitlements"],
             ["accounts", "Accounts"],
             ["runs", "Runs"],
+            ["authorization", "Authorization"],
           ] as const
         }
         current={tab}
@@ -96,6 +99,7 @@ export function Application() {
       {tab === "entitlements" && <Entitlements appId={app.id} />}
       {tab === "accounts" && <Accounts appId={app.id} />}
       {tab === "runs" && <Runs appId={app.id} />}
+      {tab === "authorization" && <Authorization key={app.id} appId={app.id} />}
     </>
   );
 }
