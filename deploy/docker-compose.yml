@@ -37,6 +37,8 @@ services:
       - "8081:8080"
     volumes:
       - ./keycloak/grantra-realm.json:/opt/keycloak/data/import/grantra-realm.json:ro
+      # The Grantra Login theme; start-dev reloads it on every page view.
+      - ./keycloak/themes/grantra:/opt/keycloak/themes/grantra:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +59,10 @@ services:
       GRANTRA_BOOTSTRAP_EMAIL: admin@grantra.local
       # Loads a sample company on first start; see docs/demo.md.
       GRANTRA_DEMO: "true"
+      # The demo governs Grantra Login too, through the realm's
+      # grantra-connector service account.
+      GRANTRA_DEMO_LOGIN_URL: http://keycloak:8080
+      GRANTRA_SECRET_GRANTRA_LOGIN: grantra-dev-connector-secret
       # Notification emails land in Mailpit: open http://localhost:8025.
       GRANTRA_SMTP_HOST: mailpit
       GRANTRA_SMTP_PORT: "1025"

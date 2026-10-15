@@ -68,6 +68,35 @@ Ids are the directory's own stable ids, so renaming someone or moving them to an
 
 The service account needs read access to users and groups. To provision, it also needs to write the `member` attribute of the groups Grantra manages and, in Active Directory, `userAccountControl` of users (in OpenLDAP, `pwdAccountLockedTime`, with the `ppolicy` overlay loaded so locked accounts cannot sign in).
 
+## Grantra Login
+
+The `grantra-login` connector governs [Grantra Login](grantra-login.md), the Keycloak that ships with Grantra, through the Keycloak Admin REST API. Realm users become accounts; groups and realm roles become entitlements.
+
+```sh
+export GRANTRA_SECRET_GRANTRA_LOGIN=...   # the grantra-connector client secret
+curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
+  "kind": "grantra-login",
+  "config": {"url": "https://login.example.com", "client_secret": "env:GRANTRA_SECRET_GRANTRA_LOGIN"}
+}'
+```
+
+| Config | Meaning |
+|---|---|
+| `url` | Where Grantra reaches Keycloak. Must be https; `allow_http: true` is for docker-compose and labs |
+| `realm` | Default `grantra` |
+| `client_id`, `client_secret` | The confidential client Grantra signs in as (client credentials). Default client `grantra-connector`; the secret is a reference, like the SCIM token |
+| `external_id_attribute` | The user attribute holding the HR employee id, for correlation. Default `employee_id` |
+| `setup_email` | Default `true`: new users get Keycloak's "set up your account" email. Turn it off when people only sign in through a federated IdP |
+| `roles` | Default `true`: realm roles are entitlements too, besides groups |
+| `page_size` | Items per request, default 100 |
+
+The client needs **Service accounts** on and, on its service account, the `realm-management` roles `manage-users` and `view-realm`, nothing else. [`deploy/keycloak/grantra-realm.json`](../deploy/keycloak/grantra-realm.json) has it ready, with a development secret to replace.
+
+- Groups are named by their path (`Staff/Finance`), and subgroups are read too. Keycloak 26.4 has no group description, so a `description` attribute on the group stands in for it.
+- Accounts hold the groups and realm roles they were given directly; roles inherited through a group or a composite role come with that group or role. Keycloak's built-in `default-roles-<realm>`, `offline_access` and `uma_authorization` are left out.
+- Accounts carry `department` and `title` when those attributes exist. For Keycloak to keep `employee_id`, `department` and `title`, the realm's user profile must declare them, as the bundled realm does (admin-only).
+- Service-account users are not people and Keycloak does not list them.
+
 ## Aggregation
 
 - Runs on demand (`POST /aggregations`) and on its own once an hour for every application with a connector.
@@ -135,6 +164,10 @@ The SCIM connector writes with `POST /Users` (`userName`, `displayName`, primary
 ### LDAP
 
 The LDAP connector adds and removes the user's DN in the group's `member` attribute, and disables or enables accounts: the disable flag of `userAccountControl` in Active Directory, `pwdAccountLockedTime` in OpenLDAP. It does not create accounts, which directories usually get from their own onboarding. An OpenLDAP `groupOfNames` must keep one member, so removing its last one fails with a message saying so; give such groups a placeholder member.
+
+### Grantra Login
+
+The Grantra Login connector creates users (username and verified email from HR, first and last name, `employee_id`) without a password: they get an email to set one, valid for three days, so Grantra never chooses or sees a password. The realm needs working email settings; if the email fails, the action fails and the next run sends it again (creating a user that already exists finds it instead). Disabling a user also signs them out of every session. Memberships go through `PUT`/`DELETE /users/{id}/groups/{group}` and the user's realm role mappings.
 
 ## API
 

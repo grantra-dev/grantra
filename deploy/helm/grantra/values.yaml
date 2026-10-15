@@ -94,9 +94,11 @@ serviceAccount:
 # when people already sign in through Entra ID, Okta or similar.
 login:
   enabled: false
+  # Keycloak with the Grantra Login theme. The tag defaults to the chart's
+  # appVersion.
   image:
-    repository: quay.io/keycloak/keycloak
-    tag: "26.4"
+    repository: ghcr.io/grantra-dev/grantra-login
+    tag: ""
   # Public URL of the login pages, such as https://login.example.com.
   hostname: https://login.example.com
   admin:

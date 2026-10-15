@@ -50,6 +50,9 @@ type Config struct {
 	// Demo loads a sample company on start when the tenant has no HR source
 	// yet. For trying Grantra out, never for real data.
 	Demo bool
+	// DemoLoginURL, when set, connects the demo's Grantra Login application
+	// to the Keycloak at this URL.
+	DemoLoginURL string
 }
 
 // SMTP configures the server Grantra sends notification emails through.
@@ -155,6 +158,7 @@ func FromEnv() (Config, error) {
 		}
 		cfg.Demo = demo
 	}
+	cfg.DemoLoginURL = os.Getenv("GRANTRA_DEMO_LOGIN_URL")
 	if err := cfg.SMTP.load(); err != nil {
 		return Config{}, err
 	}

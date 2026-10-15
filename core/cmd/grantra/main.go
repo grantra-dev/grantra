@@ -27,8 +27,9 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/connector"
-	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap" // registers the ldap connector
-	_ "github.com/grantra-dev/grantra/core/internal/connector/scim" // registers the scim connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/grantralogin" // registers the grantra-login connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap"         // registers the ldap connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"         // registers the scim connector
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/demo"
@@ -135,7 +136,7 @@ func run() error {
 	}
 
 	if cfg.Demo {
-		seeded, err := demo.Seed(ctx, pool, tenantID)
+		seeded, err := demo.Seed(ctx, pool, tenantID, demo.Options{LoginURL: cfg.DemoLoginURL})
 		if err != nil {
 			return err
 		}

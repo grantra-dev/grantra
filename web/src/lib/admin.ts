@@ -193,6 +193,7 @@ export const connectorLabels: Record<string, string> = {
   manual: "None, managed by hand",
   scim: "SCIM",
   ldap: "LDAP / Active Directory",
+  "grantra-login": "Grantra Login",
   grantra: "Built in",
 };
 
