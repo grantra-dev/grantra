@@ -211,7 +211,7 @@ describe("Separation of duties", () => {
 });
 
 describe("Grantra Login", () => {
-  it("sets the sign-in policy and registers an app", async () => {
+  it("sets the sign-in policy, registers an app, federates a provider and imports a realm", async () => {
     const sent: Record<string, unknown> = {};
     serve({
       "GET /api/v1/me": ok(admin),
@@ -220,6 +220,17 @@ describe("Grantra Login", () => {
         application: { id: "kc", name: "Grantra Login" },
         realm: { realm: "grantra", display_name: "Grantra Login", login_theme: "grantra", url: "" },
         policy: { mfa: "optional", passkeys: false },
+        identity_providers: [
+          {
+            alias: "old",
+            display_name: "Old login",
+            kind: "oidc",
+            enabled: true,
+            link_by_email: true,
+            domains: [],
+            redirect_uri: "http://kc/realms/grantra/broker/old/endpoint",
+          },
+        ],
         apps: [
           {
             id: "c1",
@@ -230,6 +241,38 @@ describe("Grantra Login", () => {
             redirect_uris: ["http://localhost:8080/auth/callback"],
           },
         ],
+      }),
+      "POST /api/v1/login/identity-providers": (init) => {
+        sent.idp = JSON.parse(init!.body as string);
+        return { status: 201, body: {} };
+      },
+      "PUT /api/v1/login/identity-providers/old/domains": (init) => {
+        sent.domains = JSON.parse(init!.body as string);
+        return { status: 200, body: sent.domains };
+      },
+      "POST /api/v1/login/import?dry_run=true": () => ({
+        status: 200,
+        body: {
+          realm: "legacy",
+          users: { add: ["marta"], skip: ["ana"] },
+          groups: { add: ["Finance"], skip: [] },
+          roles: { add: [], skip: [] },
+          apps: { add: ["intranet"], skip: [] },
+          notes: ["1 service account left out: they belong to the clients that own them."],
+          applied: false,
+        },
+      }),
+      "POST /api/v1/login/import?dry_run=false": () => ({
+        status: 200,
+        body: {
+          realm: "legacy",
+          users: { add: ["marta"], skip: ["ana"] },
+          groups: { add: [], skip: [] },
+          roles: { add: [], skip: [] },
+          apps: { add: [], skip: [] },
+          notes: [],
+          applied: true,
+        },
       }),
       "PUT /api/v1/login/policy": (init) => {
         sent.policy = JSON.parse(init!.body as string);
@@ -265,5 +308,40 @@ describe("Grantra Login", () => {
       public: false,
       redirect_uris: ["https://wiki.example.com/cb"],
     });
+
+    // Federation.
+    await userEvent.type(screen.getByLabelText("Email domains for Old login"), "acme.com, acme.io");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent.domains).toEqual({ domains: ["acme.com", "acme.io"] }));
+
+    await userEvent.type(screen.getByLabelText("Button label"), "Microsoft");
+    await userEvent.type(screen.getByLabelText("Alias"), "entra");
+    await userEvent.type(screen.getByLabelText("Tenant ID or domain"), "acme.onmicrosoft.com");
+    await userEvent.type(screen.getByLabelText("Client ID at the provider"), "abc");
+    await userEvent.type(screen.getByLabelText("Client secret at the provider"), "xyz");
+    await userEvent.click(screen.getByRole("button", { name: "Add provider" }));
+    await waitFor(() =>
+      expect(sent.idp).toMatchObject({
+        kind: "entra",
+        alias: "entra",
+        display_name: "Microsoft",
+        tenant: "acme.onmicrosoft.com",
+        client_id: "abc",
+        client_secret: "xyz",
+        link_by_email: true,
+      }),
+    );
+
+    // Import.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.upload(
+      screen.getByLabelText("Keycloak realm export"),
+      new File(['{"realm": "legacy"}'], "legacy.json", { type: "application/json" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Check file" }));
+    expect(await screen.findByText(/1 service account left out/)).toBeInTheDocument();
+    expect(screen.getByText(/1 already there/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+    expect(await screen.findByText("Imported realm legacy.")).toBeInTheDocument();
   });
 });

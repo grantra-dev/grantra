@@ -13,6 +13,8 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - **Grantra Login page** in the console: register the apps that sign in through it and rotate their secrets, and pick the sign-in policy ([docs](docs/grantra-login.md#the-console-page)).
 - **MFA and passkeys**: ask for a second factor from nobody, everyone, or only people with sensitive access, and let people sign in with passkeys.
 - **Risk-based MFA**: Grantra keeps the people who hold high or critical risk access in the `grantra-mfa-required` role that the sign-in flow asks for a second factor.
+- **Identity providers**: people sign in to Grantra Login with Entra ID, Okta, or any OpenID Connect or SAML provider, and land in their existing account by verified email ([docs](docs/grantra-login.md#identity-providers)).
+- **Gradual migration**: send each email domain to its old provider or to Grantra Login, one domain at a time, and import users (with their passwords), groups, roles and apps from another Keycloak after a dry run ([docs](docs/grantra-login.md#moving-over-one-domain-at-a-time)).
 
 ## [0.1.0] - 2026-10-14
 

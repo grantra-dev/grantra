@@ -24,6 +24,7 @@ import {
   type MFAPolicy,
   type SSOApp,
 } from "@/lib/login";
+import { IdentityProviders, ImportFromKeycloak } from "./GrantraLoginFederation";
 
 const mfaChoices: { value: MFAPolicy; label: string; help: string }[] = [
   {
@@ -74,6 +75,8 @@ export function GrantraLogin() {
           {data.error && <Alert variant="error">{data.error}</Alert>}
           {data.policy && <SignInPolicy current={data.policy} />}
           {data.apps && <Apps apps={data.apps} />}
+          {data.identity_providers && <IdentityProviders providers={data.identity_providers} />}
+          {data.policy && <ImportFromKeycloak />}
         </div>
       )}
     </Loaded>

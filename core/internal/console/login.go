@@ -2,6 +2,7 @@ package console
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,7 @@ func (a *API) loginFail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &bad):
 		writeError(w, http.StatusBadRequest, bad.Error())
 	case grantralogin.IsForbidden(err):
-		writeError(w, http.StatusBadGateway, "Grantra Login refused the request: the grantra-connector service account needs the realm-management roles manage-clients and manage-realm for this")
+		writeError(w, http.StatusBadGateway, "Grantra Login refused the request: the grantra-connector service account needs the realm-management roles manage-clients, manage-realm and manage-identity-providers for this")
 	case grantralogin.IsNotFound(err):
 		writeError(w, http.StatusNotFound, "not found in Grantra Login")
 	case grantralogin.IsRemote(err):
@@ -54,6 +55,8 @@ type loginStatus struct {
 	Realm       *grantralogin.Status  `json:"realm,omitempty"`
 	Policy      *grantralogin.Policy  `json:"policy,omitempty"`
 	Apps        []grantralogin.SSOApp `json:"apps,omitempty"`
+	// IdentityProviders are the providers people can sign in with instead.
+	IdentityProviders []grantralogin.IdentityProvider `json:"identity_providers,omitempty"`
 	// Error says why Grantra Login could not be read, when it could not.
 	Error string `json:"error,omitempty"`
 }
@@ -79,13 +82,15 @@ func (a *API) getLogin(w http.ResponseWriter, r *http.Request) {
 		var p grantralogin.Policy
 		if p, err = c.Policy(ctx); err == nil {
 			out.Policy = &p
-			out.Apps, err = c.Apps(ctx)
+			if out.Apps, err = c.Apps(ctx); err == nil {
+				out.IdentityProviders, err = c.IdentityProviders(ctx)
+			}
 		}
 	}
 	switch {
 	case err == nil:
 	case grantralogin.IsForbidden(err):
-		out.Error = "Grantra Login refused the grantra-connector service account. It needs the realm-management roles view-realm, manage-clients and manage-realm for this page."
+		out.Error = "Grantra Login refused the grantra-connector service account. It needs the realm-management roles view-realm, manage-clients, manage-realm and manage-identity-providers for this page."
 	case grantralogin.IsRemote(err):
 		out.Error = err.Error()
 	default:
@@ -167,6 +172,111 @@ func (a *API) setLoginPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// createIdentityProvider adds a provider people can sign in with. The client
+// secret goes to Grantra Login and is neither stored nor audited here.
+func (a *API) createIdentityProvider(w http.ResponseWriter, r *http.Request) {
+	var in grantralogin.NewIdentityProvider
+	if !decodeBody(w, r, &in, `{"alias": "entra", "display_name": "Microsoft", "kind": "entra", "tenant": "acme.onmicrosoft.com", "client_id": "...", "client_secret": "..."}`) {
+		return
+	}
+	app, c, me, err := a.openLogin(r, authz.ManageLogin)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	p, err := c.CreateIdentityProvider(r.Context(), in)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	err = a.loginAudit(r, me, "login.identity_provider_added", p.Alias, map[string]any{
+		"application_id": app.ID, "kind": p.Kind, "link_by_email": p.LinkByEmail,
+	})
+	a.respond(w, r, http.StatusCreated, p, err)
+}
+
+// setIdentityProviderDomains routes email domains to a provider.
+func (a *API) setIdentityProviderDomains(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Domains []string `json:"domains"`
+	}
+	if !decodeBody(w, r, &in, `{"domains": ["acme.com"]}`) {
+		return
+	}
+	app, c, me, err := a.openLogin(r, authz.ManageLogin)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	alias := r.PathValue("alias")
+	if err := c.SetDomains(r.Context(), alias, in.Domains); err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	err = a.loginAudit(r, me, "login.domains_routed", alias, map[string]any{"application_id": app.ID, "domains": nonNil(in.Domains)})
+	a.respond(w, r, http.StatusOK, map[string]any{"domains": nonNil(in.Domains)}, err)
+}
+
+func (a *API) deleteIdentityProvider(w http.ResponseWriter, r *http.Request) {
+	app, c, me, err := a.openLogin(r, authz.ManageLogin)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	alias := r.PathValue("alias")
+	if err := c.DeleteIdentityProvider(r.Context(), alias); err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	err = a.loginAudit(r, me, "login.identity_provider_removed", alias, map[string]any{"application_id": app.ID})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxExportBytes bounds realm exports.
+const maxExportBytes = 32 << 20
+
+// importToLogin imports a Keycloak realm export (the body). ?dry_run=true
+// only says what the import would do.
+func (a *API) importToLogin(w http.ResponseWriter, r *http.Request) {
+	dryRun, err := parseBool(r.URL.Query().Get("dry_run"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dry_run must be true or false")
+		return
+	}
+	// openLogin checks the permission before the upload is read.
+	app, c, me, err := a.openLogin(r, authz.ManageLogin)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExportBytes))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge, "the file is larger than 32 MiB")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "could not read the file")
+		return
+	}
+	plan, err := c.Import(r.Context(), data, dryRun)
+	if err != nil {
+		a.loginFail(w, r, err)
+		return
+	}
+	if plan.Applied {
+		err = a.loginAudit(r, me, "login.imported", plan.Realm, map[string]any{
+			"application_id": app.ID, "users": len(plan.Users.Add), "groups": len(plan.Groups.Add),
+			"roles": len(plan.Roles.Add), "apps": plan.Apps.Add,
+		})
+	}
+	a.respond(w, r, http.StatusOK, plan, err)
 }
 
 func (a *API) loginAudit(r *http.Request, me authz.Subject, action, target string, details map[string]any) error {

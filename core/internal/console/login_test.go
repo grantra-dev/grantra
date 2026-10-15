@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
+	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -27,6 +29,11 @@ type fakeLogin struct {
 	mfaRole   []string
 	clients   []map[string]any
 	forbidden bool
+	idps      []map[string]any
+	orgs      []map[string]any
+	linkFlow  bool
+	orgsOn    bool
+	imported  map[string]any
 }
 
 func (f *fakeLogin) serve(t *testing.T) *httptest.Server {
@@ -48,6 +55,66 @@ func (f *fakeLogin) serve(t *testing.T) *httptest.Server {
 		}
 		out := func(v any) { json.NewEncoder(w).Encode(v) } //nolint:errcheck
 		switch {
+		case path == "/identity-provider/import-config":
+			out(map[string]string{"issuer": "https://login.acme.com", "authorizationUrl": "https://login.acme.com/auth"})
+		case path == "/identity-provider/instances" && r.Method == http.MethodGet:
+			out(f.idps)
+		case path == "/identity-provider/instances" && r.Method == http.MethodPost:
+			f.idps = append(f.idps, body)
+			w.WriteHeader(http.StatusCreated)
+		case strings.HasPrefix(path, "/identity-provider/instances/"):
+			alias := strings.Split(path, "/")[3]
+			i := slices.IndexFunc(f.idps, func(p map[string]any) bool { return p["alias"] == alias })
+			switch {
+			case i < 0:
+				http.NotFound(w, r)
+			case r.Method == http.MethodGet:
+				out(f.idps[i])
+			case r.Method == http.MethodPut:
+				f.idps[i] = body
+			case r.Method == http.MethodDelete:
+				f.idps = slices.Delete(f.idps, i, i+1)
+				w.WriteHeader(http.StatusNoContent)
+			}
+		case path == "/organizations" && r.Method == http.MethodGet:
+			if r.URL.Query().Get("first") != "0" {
+				out([]any{})
+				return
+			}
+			out(f.orgs)
+		case path == "/organizations" && r.Method == http.MethodPost:
+			body["id"] = "o1"
+			f.orgs = append(f.orgs, body)
+			w.Header().Set("Location", "http://kc/admin/realms/grantra/organizations/o1")
+			w.WriteHeader(http.StatusCreated)
+		case path == "/organizations/o1/identity-providers":
+			f.idps[0]["organizationId"] = "o1"
+			w.WriteHeader(http.StatusNoContent)
+		case path == "/organizations/o1" && r.Method == http.MethodDelete:
+			f.orgs = nil
+			w.WriteHeader(http.StatusNoContent)
+		case strings.Contains(path, "first broker login") && strings.HasSuffix(path, "/executions") && r.Method == http.MethodGet:
+			switch {
+			case !f.linkFlow:
+				http.NotFound(w, r)
+			case strings.Contains(path, "linking"):
+				out([]map[string]any{{"id": "l1", "providerId": "idp-auto-link", "level": 0, "priority": 30}})
+			default:
+				out([]map[string]any{
+					{"id": "f1", "displayName": "grantra first broker login User creation or linking", "authenticationFlow": true, "level": 0},
+					{"id": "f2", "displayName": "grantra first broker login Handle Existing Account", "authenticationFlow": true, "level": 1},
+				})
+			}
+		case path == "/authentication/flows/first broker login/copy":
+			f.linkFlow = true
+			w.WriteHeader(http.StatusCreated)
+		case path == "/partialImport":
+			f.imported = body
+			out(map[string]int{"added": 4})
+		case (path == "/users" || path == "/groups") && r.Method == http.MethodGet:
+			out([]any{})
+		case path == "/roles" && r.Method == http.MethodGet:
+			out([]map[string]string{{"name": "offline_access"}})
 		case path == "" && r.Method == http.MethodGet:
 			out(map[string]any{"realm": "grantra", "displayName": "Grantra Login", "loginTheme": "grantra",
 				"browserFlow": f.flow, "webAuthnPolicyPasswordlessPasskeysEnabled": f.passkeys})
@@ -57,6 +124,9 @@ func (f *fakeLogin) serve(t *testing.T) *httptest.Server {
 			}
 			if v, ok := body["webAuthnPolicyPasswordlessPasskeysEnabled"].(bool); ok {
 				f.passkeys = v
+			}
+			if v, ok := body["organizationsEnabled"].(bool); ok {
+				f.orgsOn = v
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case path == "/clients" && r.Method == http.MethodGet:
@@ -242,6 +312,64 @@ func TestGrantraLogin(t *testing.T) {
 		t.Errorf("bad policy = %d", rec.Code)
 	}
 
+	// Federation and domain routing.
+	for _, bad := range []string{
+		`{"alias": "entra", "display_name": "Microsoft", "kind": "entra", "tenant": "common", "client_id": "a", "client_secret": "b"}`,
+		`{"alias": "Bad Alias", "display_name": "x", "kind": "oidc", "issuer": "https://login.acme.com", "client_id": "a", "client_secret": "b"}`,
+		`{"alias": "okta", "display_name": "Okta", "kind": "okta", "domain": "acme.okta.com"}`,
+	} {
+		if rec := e.do(admin, http.MethodPost, "/api/v1/login/identity-providers", bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("add provider %s = %d %s", bad, rec.Code, rec.Body)
+		}
+	}
+	rec = e.do(admin, http.MethodPost, "/api/v1/login/identity-providers",
+		`{"alias": "old-login", "display_name": "Old login", "kind": "oidc", "issuer": "https://login.acme.com", "client_id": "grantra", "client_secret": "s3cret"}`)
+	if rec.Code != http.StatusCreated || !f.linkFlow || len(f.idps) != 1 || f.idps[0]["firstBrokerLoginFlowAlias"] != "grantra first broker login" {
+		t.Fatalf("add provider = %d %s, %+v", rec.Code, rec.Body, f.idps)
+	}
+	if strings.Contains(rec.Body.String(), "s3cret") {
+		t.Error("the answer holds the client secret")
+	}
+	if rec := e.do(admin, http.MethodPut, "/api/v1/login/identity-providers/old-login/domains", `{"domains": ["Acme.com"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("route = %d %s", rec.Code, rec.Body)
+	}
+	if !f.orgsOn || len(f.orgs) != 1 || f.idps[0]["config"].(map[string]any)["kc.org.domain"] != "ANY" {
+		t.Errorf("after routing: orgs %v %+v, provider %+v", f.orgsOn, f.orgs, f.idps[0])
+	}
+	status = decode[loginStatus](t, e.do(admin, http.MethodGet, "/api/v1/login", ""))
+	if len(status.IdentityProviders) != 1 || !slices.Equal(status.IdentityProviders[0].Domains, []string{"acme.com"}) || !status.IdentityProviders[0].LinkByEmail {
+		t.Errorf("providers = %+v", status.IdentityProviders)
+	}
+	if rec := e.do(admin, http.MethodPut, "/api/v1/login/identity-providers/nope/domains", `{"domains": ["acme.io"]}`); rec.Code != http.StatusNotFound {
+		t.Errorf("route an unknown provider = %d", rec.Code)
+	}
+	if rec := e.do(auditor, http.MethodDelete, "/api/v1/login/identity-providers/old-login", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("auditor removes a provider = %d", rec.Code)
+	}
+	if rec := e.do(admin, http.MethodDelete, "/api/v1/login/identity-providers/old-login", ""); rec.Code != http.StatusNoContent || len(f.idps) != 0 || f.orgs != nil || f.orgsOn {
+		t.Errorf("remove provider = %d, providers %v, orgs %v %v", rec.Code, f.idps, f.orgs, f.orgsOn)
+	}
+
+	// Import from another Keycloak.
+	export, err := os.ReadFile("../connector/grantralogin/testdata/legacy-realm.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(auditor, http.MethodPost, "/api/v1/login/import?dry_run=true", string(export)); rec.Code != http.StatusForbidden {
+		t.Errorf("auditor imports = %d", rec.Code)
+	}
+	if rec := e.do(admin, http.MethodPost, "/api/v1/login/import", `{"no": "realm"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("import a bad file = %d", rec.Code)
+	}
+	plan := decode[grantralogin.ImportPlan](t, e.do(admin, http.MethodPost, "/api/v1/login/import?dry_run=true", string(export)))
+	if plan.Applied || f.imported != nil || !slices.Equal(plan.Users.Add, []string{"marta@legacy.example"}) || !slices.Equal(plan.Apps.Add, []string{"intranet"}) {
+		t.Errorf("dry run = %+v", plan)
+	}
+	plan = decode[grantralogin.ImportPlan](t, e.do(admin, http.MethodPost, "/api/v1/login/import", string(export)))
+	if !plan.Applied || f.imported["ifResourceExists"] != "SKIP" || len(f.imported["users"].([]any)) != 1 {
+		t.Errorf("import = %+v, sent %v", plan, f.imported)
+	}
+
 	// A service account without the roles it needs gets an answer an admin
 	// can act on.
 	f.forbidden = true
@@ -254,10 +382,10 @@ func TestGrantraLogin(t *testing.T) {
 	}
 
 	var audited int
-	err := db.InTenant(context.Background(), e.pool, e.tenant, func(tx pgx.Tx) error {
+	err = db.InTenant(context.Background(), e.pool, e.tenant, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM audit_events WHERE action LIKE 'login.%'`).Scan(&audited)
 	})
-	if err != nil || audited != 5 {
-		t.Errorf("login audit events = %d, %v; want app, secret, policy and two role changes", audited, err)
+	if err != nil || audited != 9 {
+		t.Errorf("login audit events = %d, %v; want app, secret, policy, two role changes, provider added, routed, removed and import", audited, err)
 	}
 }

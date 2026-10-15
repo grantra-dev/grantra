@@ -1,0 +1,194 @@
+{
+  "id": "legacy-id",
+  "realm": "legacy",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      {
+        "id": "r1",
+        "name": "offline_access",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "legacy-id"
+      },
+      {
+        "id": "r2",
+        "name": "default-roles-legacy",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "offline_access"
+          ]
+        },
+        "clientRole": false,
+        "containerId": "legacy-id"
+      },
+      {
+        "id": "r3",
+        "name": "finance-approver",
+        "description": "Approves payments",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "legacy-id"
+      }
+    ],
+    "client": {
+      "intranet": [
+        {
+          "id": "cr1",
+          "name": "editor",
+          "composite": false,
+          "clientRole": true,
+          "containerId": "c2"
+        }
+      ],
+      "account": [
+        {
+          "id": "cr2",
+          "name": "manage-account",
+          "composite": false,
+          "clientRole": true,
+          "containerId": "c3"
+        }
+      ]
+    }
+  },
+  "groups": [
+    {
+      "id": "g1",
+      "name": "Finance",
+      "path": "/Finance",
+      "attributes": {
+        "description": [
+          "Finance team"
+        ]
+      },
+      "realmRoles": [
+        "finance-approver"
+      ],
+      "clientRoles": {},
+      "subGroups": [
+        {
+          "id": "g2",
+          "name": "Payables",
+          "path": "/Finance/Payables",
+          "subGroups": []
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "u1",
+      "username": "marta@legacy.example",
+      "email": "marta@legacy.example",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Marta",
+      "lastName": "Sanz",
+      "attributes": {
+        "employee_id": [
+          "E-900"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "userLabel": "My password",
+          "createdDate": 1760000000000,
+          "secretData": "{\"value\": \"HZqN8nYM7kFQES/G84Hh4B0jAO7xRzEY0Q6yqt2cIPyYz57JpLFg0WwcHG3yvrY0ZW000PvSoCIn0O0x3a6QWg==\", \"salt\": \"Z3JhbnRyYS1sZWdhY3ktMQ==\", \"additionalParameters\": {}}",
+          "credentialData": "{\"hashIterations\": 210000, \"algorithm\": \"pbkdf2-sha512\", \"additionalParameters\": {}}"
+        }
+      ],
+      "realmRoles": [
+        "default-roles-legacy",
+        "finance-approver"
+      ],
+      "clientRoles": {
+        "intranet": [
+          "editor"
+        ],
+        "account": [
+          "manage-account"
+        ]
+      },
+      "groups": [
+        "/Finance/Payables"
+      ],
+      "federatedIdentities": [
+        {
+          "identityProvider": "google",
+          "userId": "123",
+          "userName": "marta"
+        }
+      ]
+    },
+    {
+      "id": "u2",
+      "username": "service-account-intranet",
+      "enabled": true,
+      "serviceAccountClientId": "intranet",
+      "realmRoles": [
+        "default-roles-legacy"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "id": "c2",
+      "clientId": "intranet",
+      "name": "Intranet",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "intranet-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "https://intranet.legacy.example/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "basic",
+        "email",
+        "legacy-scope"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ],
+      "protocolMappers": [
+        {
+          "id": "pm1",
+          "name": "department",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "department",
+            "claim.name": "department",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "clientId": "account",
+      "name": "${client_account}",
+      "enabled": true
+    },
+    {
+      "id": "c4",
+      "clientId": "legacy-realm",
+      "enabled": true,
+      "bearerOnly": true
+    }
+  ]
+}
