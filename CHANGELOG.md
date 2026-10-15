@@ -4,6 +4,10 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
+Grantra Login becomes a full identity provider you manage from the Grantra console, and your own apps can ask Grantra for authorization decisions.
+
 ### Grantra Login
 
 - **Grantra Login theme** for the sign-in pages and account emails, light and dark, in English and Spanish ([docs](docs/grantra-login.md)).
@@ -50,4 +54,6 @@ The first public release: identity governance (IGA) you can run on your laptop i
 - Multi-tenant PostgreSQL with row-level security.
 - Container image and binaries signed with cosign (keyless), with an SPDX SBOM ([docs](docs/releases.md)).
 
+[Unreleased]: https://github.com/grantra-dev/grantra/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.2.0
 [0.1.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.1.0
