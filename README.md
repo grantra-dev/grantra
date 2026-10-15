@@ -16,13 +16,13 @@
 
 Grantra is an open-source alternative to SailPoint and CyberArk. It starts with identity governance (IGA): it keeps track of who has access to which applications, gives and removes access as people join, move and leave, lets people ask for access and their managers approve it, runs access reviews, and stops toxic combinations of access before they happen.
 
-It works with the identity provider you already run (Entra ID, Okta, Keycloak). Companies without one can use **Grantra Login**, a Keycloak that ships preconfigured with Grantra.
+It works with the identity provider you already run (Entra ID, Okta, Keycloak). Companies without one can use **Grantra Login**, a Keycloak that ships preconfigured with Grantra and is managed from the Grantra console: single sign-on, MFA and passkeys, and a gradual move over from Entra ID or Okta.
 
 <p align="center">
   <img src="site/screenshots/home.png" width="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
 </p>
 
-> **Status:** v0.1 is the first public release. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
+> **Status:** v0.2 adds Grantra Login (access management) on top of identity governance. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
 
 ## Try it in five minutes
 
@@ -62,6 +62,8 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 | **Access reviews** | Campaigns where managers or owners keep or revoke the access their people hold. [Docs](docs/access-reviews.md) |
 | **Separation of duties** | Policies such as "nobody both creates and approves payments", detected every 30 minutes or prevented at request time, with time-boxed exceptions. [Docs](docs/separation-of-duties.md) |
 | **Web console and emails** | One app for employees, managers, owners and admins, plus email notifications. [Docs](docs/console.md), [emails](docs/notifications.md) |
+| **Grantra Login** | Single sign-on for your apps, MFA and passkeys (required only for people with sensitive access, if you like), sign-in with Entra ID, Okta, OIDC or SAML, and migration one email domain at a time. [Docs](docs/grantra-login.md) |
+| **Authorization for your apps** | Your apps ask Grantra "may this person do this?" through an API, answered by Cedar policies with the person's department, roles and access filled in. [Docs](docs/app-authorization.md) |
 | **Audit log** | Every change and decision, searchable. |
 | **Policies as code** | Authorization inside Grantra runs on [Cedar](https://www.cedarpolicy.com/). |
 
@@ -80,13 +82,13 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 
 - **Kubernetes:** the Helm chart in [`deploy/helm/grantra`](deploy/helm/grantra) runs Grantra with separate database roles for migrations and the app, and any number of replicas. See [docs/production.md](docs/production.md).
 - **Observability:** traces, metrics and logs go to any OpenTelemetry backend, with a Grafana dashboard included. See [docs/observability.md](docs/observability.md).
-- **Supply chain:** every release ships a multi-arch image on `ghcr.io/grantra-dev/grantra` and binaries for Linux, macOS and Windows, all signed with cosign (keyless) and shipped with an SPDX SBOM. See [docs/releases.md](docs/releases.md).
+- **Supply chain:** every release ships a multi-arch image on `ghcr.io/grantra-dev/grantra` (and `ghcr.io/grantra-dev/grantra-login` for Grantra Login) and binaries for Linux, macOS and Windows, all signed with cosign (keyless) and shipped with an SPDX SBOM. See [docs/releases.md](docs/releases.md).
 
 ## Roadmap
 
-1. **Foundations and identity governance** *(done in v0.1)*: everything listed above.
-2. **Integrated IAM** *(next)*: Grantra Login managed from the console, single sign-on and MFA policies, and gradual migration from another identity provider.
-3. **Privileged access (PAM)**: credential vault, just-in-time access, session recording.
+1. **Foundations and identity governance** *(done in v0.1)*.
+2. **Integrated IAM** *(done in v0.2)*: Grantra Login managed from the console, single sign-on and MFA policies, gradual migration from another identity provider, and authorization for your apps.
+3. **Privileged access (PAM)** *(next)*: credential vault, just-in-time access, session recording.
 4. **Identity threat detection** and AI-assisted recommendations.
 
 The plan lives in the [GitHub milestones](https://github.com/grantra-dev/grantra/milestones).

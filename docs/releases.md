@@ -5,11 +5,14 @@ Pushing a version tag (`v1.2.3`) runs [`.github/workflows/release.yml`](../.gith
 | What | Where | Signed with | SBOM |
 |---|---|---|---|
 | Container image for linux/amd64 and linux/arm64 | `ghcr.io/grantra-dev/grantra:1.2.3` (and `:1.2`) | cosign, keyless | SPDX, attached to the image as a cosign attestation; BuildKit SBOM and provenance stored with the image too |
+| Grantra Login image (Keycloak with the Grantra theme) for linux/amd64 and linux/arm64 | `ghcr.io/grantra-dev/grantra-login:1.2.3` (and `:1.2`) | cosign, keyless | same as the Grantra image |
 | Binaries for Linux, macOS and Windows | the GitHub release | cosign, keyless, over `checksums.txt` | `grantra.spdx.json` in the release, listed in `checksums.txt` |
 
 Keyless signing means there is no long-lived signing key to leak: each release is signed with a short-lived certificate tied to the GitHub Actions workflow that built it, and recorded in Sigstore's public transparency log.
 
 ## Verify the image
+
+The same commands work for `ghcr.io/grantra-dev/grantra-login`.
 
 ```sh
 cosign verify ghcr.io/grantra-dev/grantra:1.2.3 \
