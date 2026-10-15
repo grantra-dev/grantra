@@ -90,7 +90,7 @@ curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
 | `roles` | Default `true`: realm roles are entitlements too, besides groups |
 | `page_size` | Items per request, default 100 |
 
-The client needs **Service accounts** on and, on its service account, the `realm-management` roles `manage-users` and `view-realm`, nothing else. [`deploy/keycloak/grantra-realm.json`](../deploy/keycloak/grantra-realm.json) has it ready, with a development secret to replace.
+The client needs **Service accounts** on and, on its service account, the `realm-management` roles `manage-users` and `view-realm` to read and provision. The Grantra Login page in the console also needs `manage-clients` (apps) and `manage-realm` (sign-in policy); leave them out if you manage those in Keycloak yourself. [`deploy/keycloak/grantra-realm.json`](../deploy/keycloak/grantra-realm.json) has it ready, with a development secret to replace.
 
 - Groups are named by their path (`Staff/Finance`), and subgroups are read too. Keycloak 26.4 has no group description, so a `description` attribute on the group stands in for it.
 - Accounts hold the groups and realm roles they were given directly; roles inherited through a group or a composite role come with that group or role. Keycloak's built-in `default-roles-<realm>`, `offline_access` and `uma_authorization` are left out.

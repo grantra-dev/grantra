@@ -76,6 +76,8 @@ const (
 	DecideReview       Action = "review_item.decide"
 	ReadSoD            Action = "sod.read"
 	ManageSoD          Action = "sod.manage"
+	ReadLogin          Action = "login.read"
+	ManageLogin        Action = "login.manage"
 )
 
 var actionGroup = map[Action]string{
@@ -104,6 +106,8 @@ var actionGroup = map[Action]string{
 	DecideReview:       "write",
 	ReadSoD:            "read",
 	ManageSoD:          "write",
+	ReadLogin:          "read",
+	ManageLogin:        "write",
 }
 
 // Writes reports whether the action changes something.
@@ -216,6 +220,9 @@ func ReviewItemResource(id, identity string, reviewers []string) Resource {
 
 // SoDResource is the tenant's separation of duties policies and violations.
 func SoDResource() Resource { return Resource{uid: cedar.NewEntityUID("SoD", "tenant")} }
+
+// LoginResource is Grantra Login.
+func LoginResource() Resource { return Resource{uid: cedar.NewEntityUID("Login", "tenant")} }
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {

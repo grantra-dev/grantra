@@ -98,3 +98,56 @@ func TestLive(t *testing.T) {
 		t.Logf("clean up: %v (the service account may not delete users)", err)
 	}
 }
+
+// TestLiveAdmin manages apps and the sign-in policy of a real Keycloak, like
+// TestLive. It leaves the realm on the optional policy.
+func TestLiveAdmin(t *testing.T) {
+	base := os.Getenv("GRANTRA_TEST_KEYCLOAK_URL")
+	if base == "" {
+		t.Skip("GRANTRA_TEST_KEYCLOAK_URL is not set")
+	}
+	r, err := New(json.RawMessage(`{"url": "`+base+`", "client_secret": "env:X", "allow_http": true}`),
+		func(string) (string, error) { return "grantra-dev-connector-secret", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := r.(*Client)
+	ctx := context.Background()
+
+	st, err := c.Status(ctx)
+	if err != nil || st.Realm != "grantra" || st.LoginTheme != "grantra" {
+		t.Fatalf("status = %+v, %v", st, err)
+	}
+	app, secret, err := c.CreateApp(ctx, NewSSOApp{ClientID: "live-wiki", Name: "Wiki", RedirectURIs: []string{"https://wiki.example.com/callback"}})
+	if err != nil || secret == "" || app.ID == "" {
+		t.Fatalf("create = %+v %q %v", app, secret, err)
+	}
+	if again, err := c.RotateSecret(ctx, app.ID); err != nil || again == "" || again == secret {
+		t.Fatalf("rotate = %q, %v", again, err)
+	}
+	apps, err := c.Apps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, a := range apps {
+		ids = append(ids, a.ClientID)
+	}
+	if !slices.Contains(ids, "live-wiki") || !slices.Contains(ids, "grantra-console") || slices.Contains(ids, "grantra-connector") {
+		t.Errorf("apps = %v", ids)
+	}
+	defer c.do(ctx, "DELETE", "/clients/"+app.ID, nil, nil) //nolint:errcheck
+
+	for _, p := range []Policy{{MFA: MFARequired}, {MFA: MFASensitive, Passkeys: true}, {MFA: MFAOptional}} {
+		if err := c.SetPolicy(ctx, p); err != nil {
+			t.Fatalf("set %+v: %v", p, err)
+		}
+		got, err := c.Policy(ctx)
+		if err != nil || got != p {
+			t.Fatalf("policy = %+v, %v; want %+v", got, err, p)
+		}
+	}
+	if _, err := c.RoleHolders(ctx, MFARole); err != nil {
+		t.Fatal(err)
+	}
+}

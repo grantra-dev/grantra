@@ -162,10 +162,7 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	}
 	_ = json.Unmarshal(body, &t)
 	if resp.StatusCode != http.StatusOK || t.AccessToken == "" {
-		if t.Error != "" {
-			return "", fmt.Errorf("sign in as %s: %s: %s", c.clientID, resp.Status, t.Error)
-		}
-		return "", fmt.Errorf("sign in as %s: %s", c.clientID, resp.Status)
+		return "", &apiError{where: "sign in as " + c.clientID, status: resp.StatusCode, msg: t.Error}
 	}
 	c.token = t.AccessToken
 	// Renew a little early so a token never expires mid-request.
@@ -185,6 +182,16 @@ func (e *apiError) Error() string {
 		return fmt.Sprintf("%s: %d %s: %s", e.where, e.status, http.StatusText(e.status), e.msg)
 	}
 	return fmt.Sprintf("%s: %d %s", e.where, e.status, http.StatusText(e.status))
+}
+
+// IsRemote reports whether err came from talking to Keycloak: an error
+// answer, or a network failure.
+func IsRemote(err error) bool {
+	var (
+		api *apiError
+		net *url.Error
+	)
+	return errors.As(err, &api) || errors.As(err, &net)
 }
 
 func hasStatus(err error, status int) bool {
@@ -342,7 +349,9 @@ func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
 			return connector.Snapshot{}, err
 		}
 		for _, r := range roles {
-			if builtinRoles[r.Name] || r.Name == "default-roles-"+c.realm {
+			// The MFA role follows sensitive access on its own (see SyncMFA);
+			// governing it as access too would have two owners fight over it.
+			if builtinRoles[r.Name] || r.Name == "default-roles-"+c.realm || r.Name == MFARole {
 				continue
 			}
 			id := rolePrefix + r.Name

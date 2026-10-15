@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Tabs } from "@/components/Tabs";
 import { AccessModel } from "./AccessModel";
 import { Applications } from "./Applications";
+import { GrantraLogin } from "./GrantraLogin";
 import { HrSources } from "./HrSources";
 import { SeparationOfDuties } from "./SeparationOfDuties";
 
@@ -11,6 +12,7 @@ const tabs = [
   ["applications", "Applications"],
   ["access", "Roles and rules"],
   ["sod", "Separation of duties"],
+  ["login", "Grantra Login"],
 ] as const;
 
 type Tab = (typeof tabs)[number][0];
@@ -34,6 +36,7 @@ export function Administration() {
       {tab === "applications" && <Applications />}
       {tab === "access" && <AccessModel />}
       {tab === "sod" && <SeparationOfDuties />}
+      {tab === "login" && <GrantraLogin />}
     </>
   );
 }

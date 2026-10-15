@@ -209,3 +209,61 @@ describe("Separation of duties", () => {
     );
   });
 });
+
+describe("Grantra Login", () => {
+  it("sets the sign-in policy and registers an app", async () => {
+    const sent: Record<string, unknown> = {};
+    serve({
+      "GET /api/v1/me": ok(admin),
+      "GET /api/v1/login": ok({
+        connected: true,
+        application: { id: "kc", name: "Grantra Login" },
+        realm: { realm: "grantra", display_name: "Grantra Login", login_theme: "grantra", url: "" },
+        policy: { mfa: "optional", passkeys: false },
+        apps: [
+          {
+            id: "c1",
+            client_id: "grantra-console",
+            name: "Grantra console",
+            enabled: true,
+            public: false,
+            redirect_uris: ["http://localhost:8080/auth/callback"],
+          },
+        ],
+      }),
+      "PUT /api/v1/login/policy": (init) => {
+        sent.policy = JSON.parse(init!.body as string);
+        return { status: 200, body: { policy: sent.policy, sync: { added: 2, removed: 0 } } };
+      },
+      "POST /api/v1/login/apps": (init) => {
+        sent.app = JSON.parse(init!.body as string);
+        return {
+          status: 201,
+          body: { app: { id: "c2", client_id: "wiki", name: "Wiki" }, secret: "s3cret" },
+        };
+      },
+    });
+    renderAt("/admin?tab=login");
+
+    expect(await screen.findByText("grantra-console")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText(/For people with sensitive access/));
+    await userEvent.click(screen.getByLabelText(/Passkeys/));
+    await userEvent.click(screen.getByRole("button", { name: "Save policy" }));
+    await waitFor(() => expect(sent.policy).toEqual({ mfa: "sensitive", passkeys: true }));
+
+    await userEvent.type(screen.getByLabelText("Name"), "Wiki");
+    await userEvent.type(screen.getByLabelText("Client ID"), "wiki");
+    await userEvent.type(
+      screen.getByLabelText("Redirect URIs, one per line"),
+      "https://wiki.example.com/cb",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Register app" }));
+    expect(await screen.findByText("s3cret")).toBeInTheDocument();
+    expect(sent.app).toEqual({
+      name: "Wiki",
+      client_id: "wiki",
+      public: false,
+      redirect_uris: ["https://wiki.example.com/cb"],
+    });
+  });
+});
