@@ -2,6 +2,15 @@
 
 All notable changes to Grantra are listed here. Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may change behavior or the API.
 
+## [Unreleased]
+
+### Grantra Login
+
+- **Grantra Login theme** for the sign-in pages and account emails, light and dark, in English and Spanish ([docs](docs/grantra-login.md)).
+- **`ghcr.io/grantra-dev/grantra-login`** image: Keycloak with the theme built in, used by the Helm chart.
+- **Grantra Login connector**: Grantra reads and provisions users, groups and realm roles in Grantra Login. New users set their own password from an email ([docs](docs/connectors.md#grantra-login)).
+- The demo connects Grantra Login as an application.
+
 ## [0.1.0] - 2026-10-14
 
 The first public release: identity governance (IGA) you can run on your laptop in five minutes or on Kubernetes.

@@ -19,11 +19,11 @@ func TestSeed(t *testing.T) {
 	if err := authz.EnsureBuiltinApp(ctx, pool, tenant); err != nil {
 		t.Fatal(err)
 	}
-	seeded, err := Seed(ctx, pool, tenant)
+	seeded, err := Seed(ctx, pool, tenant, Options{})
 	if err != nil || !seeded {
 		t.Fatalf("Seed = %v, %v", seeded, err)
 	}
-	if again, err := Seed(ctx, pool, tenant); err != nil || again {
+	if again, err := Seed(ctx, pool, tenant, Options{}); err != nil || again {
 		t.Fatalf("second Seed = %v, %v; want nothing done", again, err)
 	}
 
@@ -59,5 +59,28 @@ func TestSeed(t *testing.T) {
 	}
 	if res.Detected != 1 {
 		t.Errorf("scan = %+v, want Pedro's violation", res)
+	}
+}
+
+func TestSeedWithGrantraLogin(t *testing.T) {
+	t.Setenv("GRANTRA_SECRET_GRANTRA_LOGIN", "grantra-dev-connector-secret")
+	pool := dbtest.Open(t)
+	tenant := dbtest.Tenant(t, pool, "demo-login")
+	ctx := context.Background()
+	if err := authz.EnsureBuiltinApp(ctx, pool, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Seed(ctx, pool, tenant, Options{LoginURL: "http://keycloak:8080"}); err != nil {
+		t.Fatal(err)
+	}
+	var kind string
+	var cfg map[string]any
+	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT connector, config FROM applications WHERE name = 'Grantra Login'`).Scan(&kind, &cfg)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "grantra-login" || cfg["url"] != "http://keycloak:8080" || cfg["allow_http"] != true {
+		t.Errorf("Grantra Login = %s %v", kind, cfg)
 	}
 }

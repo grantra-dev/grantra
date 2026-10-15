@@ -8,13 +8,18 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
+	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
+	"github.com/grantra-dev/grantra/core/internal/connector"
+	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/sod"
@@ -71,9 +76,17 @@ var roles = []role{
 		[]string{"CRM/Sales users", "Slack/Members"}},
 }
 
+// Options tune the sample company.
+type Options struct {
+	// LoginURL is where Grantra reaches Grantra Login. When set, the demo
+	// adds Grantra Login as an application read through its connector, with
+	// the client secret in GRANTRA_SECRET_GRANTRA_LOGIN.
+	LoginURL string
+}
+
 // Seed loads the sample company into a tenant that has no HR source yet. It
 // returns false, and changes nothing, when the tenant already has one.
-func Seed(ctx context.Context, pool *pgxpool.Pool, tenantID string) (bool, error) {
+func Seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, opts Options) (bool, error) {
 	seeded := false
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		// One server seeds at a time.
@@ -86,7 +99,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, tenantID string) (bool, error
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM identity_sources)`).Scan(&done); err != nil || done {
 			return err
 		}
-		if err := seed(ctx, tx, tenantID); err != nil {
+		if err := seed(ctx, tx, tenantID, opts); err != nil {
 			return fmt.Errorf("demo data: %w", err)
 		}
 		seeded = true
@@ -100,7 +113,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, tenantID string) (bool, error
 	return true, err
 }
 
-func seed(ctx context.Context, tx pgx.Tx, tenantID string) error {
+func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 	src, err := lifecycle.CreateSource(ctx, tx, tenantID, "HR (demo)", "csv", lifecycle.Config{})
 	if err != nil {
 		return err
@@ -176,6 +189,25 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		"assignment_id": assignment, "origin": access.OriginManual, "entitlement_id": ents["ERP/Approve payments"],
 	}); err != nil {
 		return err
+	}
+
+	if opts.LoginURL != "" {
+		// Its groups and the people in them show up after the first
+		// aggregation, a few minutes after start.
+		app, err := catalog.CreateApplication(ctx, tx, tenantID, "Grantra Login", people["ana.garcia@example.com"])
+		if err != nil {
+			return err
+		}
+		cfg, err := json.Marshal(map[string]any{
+			"url": opts.LoginURL, "client_secret": "env:GRANTRA_SECRET_GRANTRA_LOGIN",
+			"allow_http": strings.HasPrefix(opts.LoginURL, "http://"),
+		})
+		if err != nil {
+			return err
+		}
+		if err := accounts.SetConnector(ctx, tx, app.ID, grantralogin.Kind, cfg, connector.EnvSecrets); err != nil {
+			return fmt.Errorf("connect Grantra Login: %w", err)
+		}
 	}
 
 	_, err = sod.Save(ctx, tx, tenantID, "", sod.Input{

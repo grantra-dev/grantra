@@ -44,9 +44,14 @@ On top of the people:
 
 `elena` signs in once she joins in step 1.
 
-The applications have no connector, so nothing is provisioned. Grantra keeps
-track of who should have what. See [connectors.md](connectors.md) to connect
-a real application.
+GitHub, ERP, CRM and Slack have no connector, so nothing is provisioned there:
+Grantra keeps track of who should have what. **Grantra Login** is connected
+for real: a few minutes after start (or right away with **Read accounts now** on its
+page under **Administration** → **Applications**), Grantra reads its users and
+the groups *VPN users* and *Wiki editors*, and links each account to its
+person. Turn provisioning on for it to see joiners get a Grantra Login
+account with a "set up your account" email in Mailpit, and leavers get
+disabled. See [connectors.md](connectors.md) to connect a real application.
 
 ## 1. Joiner
 

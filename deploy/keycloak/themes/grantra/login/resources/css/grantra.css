@@ -1,0 +1,76 @@
+/* Grantra Login look, on top of keycloak.v2. The colors match the console
+   and grantra.dev. */
+:root {
+  --grantra-brand: #4338ca;
+  --grantra-brand-hover: #3730a3;
+  --grantra-bg: #f6f7fb;
+  --grantra-bg-accent: #eef2ff;
+  --grantra-text: #0f172a;
+  --grantra-muted: #475569;
+  --keycloak-card-top-color: var(--grantra-brand);
+  --pf-v5-global--primary-color--100: var(--grantra-brand);
+  --pf-v5-global--primary-color--200: var(--grantra-brand-hover);
+  --pf-v5-global--link--Color: var(--grantra-brand);
+  --pf-v5-global--link--Color--hover: var(--grantra-brand-hover);
+}
+
+:root.pf-v5-theme-dark {
+  --grantra-brand: #818cf8;
+  --grantra-brand-hover: #a5b4fc;
+  --grantra-bg: #0b1020;
+  --grantra-bg-accent: #1e2547;
+  --grantra-text: #e5e7eb;
+  --grantra-muted: #9aa4b8;
+}
+
+.login-pf body {
+  background: radial-gradient(60rem 40rem at 50% -10%, var(--grantra-bg-accent), var(--grantra-bg) 70%) fixed;
+}
+
+#kc-header-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0;
+  /* keycloak.v2 forces white text for its dark background image. */
+  color: var(--grantra-text) !important;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  background: url("../img/grantra-mark.svg") no-repeat center / contain;
+}
+
+.pf-v5-c-login__main {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 0.08);
+}
+
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--grantra-brand);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--grantra-brand-hover);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--grantra-brand-hover);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--grantra-brand-hover);
+  --pf-v5-c-button--BorderRadius: 0.5rem;
+}
+
+.pf-v5-theme-dark .pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--Color: #0b1020;
+  --pf-v5-c-button--m-primary--hover--Color: #0b1020;
+}
+
+.grantra-footer {
+  margin-top: var(--pf-v5-global--spacer--lg);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--grantra-muted);
+}

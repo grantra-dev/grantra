@@ -41,7 +41,7 @@ spec:
         {{- include "grantra.podSecurity" . | nindent 8 }}
       containers:
         - name: keycloak
-          image: {{ printf "%s:%s" .Values.login.image.repository .Values.login.image.tag }}
+          image: {{ printf "%s:%s" .Values.login.image.repository (default .Chart.AppVersion .Values.login.image.tag) }}
           args: [start]
           env:
             - name: KC_HOSTNAME

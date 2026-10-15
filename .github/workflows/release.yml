@@ -1,5 +1,5 @@
-# Publishes a release when a version tag (v1.2.3) is pushed: a multi-arch
-# container image and binaries, each signed with Sigstore cosign (keyless,
+# Publishes a release when a version tag (v1.2.3) is pushed: multi-arch
+# container images (Grantra, and Grantra Login with its theme) and binaries, each signed with Sigstore cosign (keyless,
 # through GitHub's OIDC identity) and shipped with an SPDX SBOM.
 # docs/releases.md explains how to verify them.
 name: Release
@@ -11,12 +11,20 @@ on:
 permissions:
   contents: read
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   image:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: grantra
+            context: .
+            file: core/Dockerfile
+          - name: grantra-login
+            context: deploy/keycloak
+            file: deploy/keycloak/Dockerfile
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
     permissions:
       contents: read
       packages: write
@@ -41,8 +49,8 @@ jobs:
       - id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: core/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -56,7 +64,7 @@ jobs:
         with:
           image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
-          output-file: grantra-image.spdx.json
+          output-file: ${{ matrix.name }}-image.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Sign the image and attach the SBOM
@@ -64,7 +72,7 @@ jobs:
           REF: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
         run: |
           cosign sign --yes "$REF"
-          cosign attest --yes --type spdxjson --predicate grantra-image.spdx.json "$REF"
+          cosign attest --yes --type spdxjson --predicate ${{ matrix.name }}-image.spdx.json "$REF"
 
   binaries:
     runs-on: ubuntu-latest
