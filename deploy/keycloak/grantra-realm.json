@@ -64,7 +64,7 @@
       "username": "service-account-grantra-connector",
       "enabled": true,
       "serviceAccountClientId": "grantra-connector",
-      "clientRoles": { "realm-management": ["manage-users", "view-realm"] }
+      "clientRoles": { "realm-management": ["manage-users", "view-realm", "manage-clients", "manage-realm"] }
     },
     {
       "username": "admin",

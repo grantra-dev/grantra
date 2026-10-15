@@ -34,6 +34,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/demo"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
 	"github.com/grantra-dev/grantra/core/internal/requests"
@@ -306,6 +307,15 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 				} else {
 					log.InfoContext(ctx, "aggregated application", "application", r.ApplicationID, "counts", r.Counts)
 				}
+			}
+			return err
+		}},
+		// Under the "sensitive access" sign-in policy, Grantra Login asks
+		// for a second factor from whoever holds high-risk access now.
+		{"sync Grantra Login MFA", 5 * time.Minute, func(ctx context.Context) error {
+			s, err := login.SyncMFA(ctx, pool, tenantID, connector.EnvSecrets)
+			if s.Added+s.Removed > 0 {
+				log.InfoContext(ctx, "synced Grantra Login MFA role", "added", s.Added, "removed", s.Removed)
 			}
 			return err
 		}},

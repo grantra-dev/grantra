@@ -50,6 +50,9 @@ entity ReviewItem {
 // The tenant's separation of duties policies and their violations.
 entity SoD;
 
+// Grantra Login: its apps and sign-in policy.
+entity Login;
+
 // Action groups.
 action "read";
 action "write";
@@ -171,5 +174,18 @@ action "sod.read" in ["read"] appliesTo {
 action "sod.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: SoD,
+  context: {},
+};
+
+// manage registers apps, rotates their secrets and sets the sign-in policy.
+action "login.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Login,
+  context: {},
+};
+
+action "login.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Login,
   context: {},
 };
