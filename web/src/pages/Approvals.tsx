@@ -6,9 +6,11 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
-import { decideRequest, listApprovals, type AccessRequest, type Me } from "@/lib/api";
+import { decideRequest, durationText, listApprovals, type AccessRequest, type Me } from "@/lib/api";
 import { kindLabels } from "@/lib/requests";
 import { formatDate } from "@/lib/utils";
+
+const wants = { access: "", eligibility: "to be eligible for ", activation: "to activate " };
 
 interface Outcome {
   id: string;
@@ -72,7 +74,7 @@ function ApprovalCard({
   const queryClient = useQueryClient();
   const step = r.steps.find((s) => s.status === "pending");
   const risk = step?.kind === "risk";
-  const [days, setDays] = useState(r.duration_days ?? 90);
+  const [days, setDays] = useState(r.duration_days ?? (r.duration_hours ? 7 : 90));
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") =>
       decideRequest(
@@ -100,13 +102,14 @@ function ApprovalCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium">
-              {r.beneficiary_name} wants {r.target_name}
+              {r.beneficiary_name} wants {wants[r.kind]}
+              {r.target_name}
             </div>
             <div className="text-sm text-slate-500">
               {r.type === "role" ? "Role" : r.application}
               {r.requester_id !== r.beneficiary_id && <> · asked by {r.requester_name}</>}
               {" · "}
-              {r.duration_days ? `for ${r.duration_days} days` : "no end date"}
+              {durationText(r) || "no end date"}
               {" · "}
               asked {formatDate(r.created_at)}
             </div>

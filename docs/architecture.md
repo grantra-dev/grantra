@@ -81,7 +81,8 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
 | `/api/v1/review-campaigns`, `/api/v1/review-items` | Access reviews, see [access-reviews.md](access-reviews.md) |
 | `/api/v1/sod-policies`, `/api/v1/sod-violations` | Separation of duties, see [separation-of-duties.md](separation-of-duties.md) |
-| `/api/v1/vault/...` | Credential vault: accounts, check-outs, rotation and discovery, see [vault.md](vault.md) |
+| `/api/v1/vault/...` | Credential vault: accounts, check-outs, break glass, rotation and discovery, see [vault.md](vault.md) |
+| `/api/v1/identities/{id}/eligibilities`, `/api/v1/eligibilities/...`, `/api/v1/entitlements/{id}/jit`, `/api/v1/standing-access`, `/api/v1/assignments/{id}/eligibility` | Just-in-time access, see [just-in-time.md](just-in-time.md) |
 
 ## Identity lifecycle
 

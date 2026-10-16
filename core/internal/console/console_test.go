@@ -114,6 +114,17 @@ func (e *env) count(sql string, args ...any) int {
 	return n
 }
 
+func (e *env) exec(sql string, args ...any) {
+	e.t.Helper()
+	err := db.InTenant(context.Background(), e.pool, e.tenant, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), sql, args...)
+		return err
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	t.Helper()
 	var v T

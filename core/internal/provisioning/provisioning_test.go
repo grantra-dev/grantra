@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
@@ -613,5 +614,73 @@ func TestProvisionWithoutCreate(t *testing.T) {
 	e.aggregate()
 	if got, want := ops(e.provision(Options{})), []string{"add_member u1 sales done"}; !slices.Equal(got, want) {
 		t.Errorf("run = %q, want %q", got, want)
+	}
+}
+
+// ProvisionQueued carries just-in-time changes over at once: only the
+// applications in the queue, and the queue empties.
+func TestProvisionQueued(t *testing.T) {
+	e := newEnv(t, "sales")
+	ctx := context.Background()
+	e.aggregate()
+	e.settings(Settings{Mode: ModeOn})
+	ana := e.identity("Ana", "ana@example.com", "active")
+	e.assign(ana, e.entitlement("sales"))
+	if runs, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets); err != nil || len(runs) != 0 {
+		t.Fatalf("nothing queued = %+v, %v", runs, err)
+	}
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO jit_provisioning_queue (tenant_id, application_id) VALUES ($1, $2)`, e.tenant, e.app)
+		return err
+	})
+	runs, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets)
+	if err != nil || len(runs) != 1 || runs[0].Counts[OpCreateAccount] != 1 {
+		t.Fatalf("queued = %+v, %v", runs, err)
+	}
+	var n int
+	e.tx(func(tx pgx.Tx) error { return tx.QueryRow(ctx, `SELECT count(*) FROM jit_provisioning_queue`).Scan(&n) })
+	if n != 0 {
+		t.Errorf("%d left in the queue", n)
+	}
+
+	// A run already going may have missed the change: the app stays queued.
+	e.tx(func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO jit_provisioning_queue (tenant_id, application_id) VALUES ($1, $2)`, e.tenant, e.app); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO connector_runs (tenant_id, application_id, kind, actor, status, started_at, finished_at)
+			 VALUES ($1, $2, 'provisioning', 'test', 'running', now(), NULL)`, e.tenant, e.app)
+		return err
+	})
+	if runs, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets); err != nil || len(runs) != 0 {
+		t.Fatalf("queued while running = %+v, %v", runs, err)
+	}
+	e.tx(func(tx pgx.Tx) error { return tx.QueryRow(ctx, `SELECT count(*) FROM jit_provisioning_queue`).Scan(&n) })
+	if n != 1 {
+		t.Errorf("%d in the queue while a run goes, want 1", n)
+	}
+}
+
+// Standing access found in the application and turned into eligibility
+// leaves the application, and comes back only while activated.
+func TestConvertedAccessLeavesTheApp(t *testing.T) {
+	e := newEnv(t, "admins")
+	ctx := context.Background()
+	ana := e.identity("Ana", "ana@example.com", "active")
+	e.user("u-ana", "ana@example.com", true, "admins")
+	e.aggregate()
+	e.settings(Settings{Mode: ModeOn}) // memberships Grantra did not grant stay
+	admins := e.entitlement("admins")
+	assignment := e.assign(ana, admins)
+	e.tx(func(tx pgx.Tx) error {
+		_, err := access.ConvertToEligibility(ctx, tx, e.tenant, "identity:admin", assignment)
+		return err
+	})
+	if _, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.calls(); len(got) != 1 || got[0] != "remove admins u-ana" {
+		t.Fatalf("calls after converting = %v, want the membership removed", got)
 	}
 }

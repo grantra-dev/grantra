@@ -6,12 +6,14 @@ import { Applications } from "./Applications";
 import { GrantraLogin } from "./GrantraLogin";
 import { HrSources } from "./HrSources";
 import { SeparationOfDuties } from "./SeparationOfDuties";
+import { StandingAccess } from "./StandingAccess";
 
 const tabs = [
   ["sources", "HR sources"],
   ["applications", "Applications"],
   ["access", "Roles and rules"],
   ["sod", "Separation of duties"],
+  ["standing", "Standing access"],
   ["login", "Grantra Login"],
 ] as const;
 
@@ -36,6 +38,7 @@ export function Administration() {
       {tab === "applications" && <Applications />}
       {tab === "access" && <AccessModel />}
       {tab === "sod" && <SeparationOfDuties />}
+      {tab === "standing" && <StandingAccess />}
       {tab === "login" && <GrantraLogin />}
     </>
   );

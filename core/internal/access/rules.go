@@ -120,18 +120,18 @@ func (in *RuleInput) check(ctx context.Context, tx pgx.Tx) error {
 	if err := catalog.CheckEntitlements(ctx, tx, in.EntitlementIDs); err != nil {
 		return err
 	}
-	// Vault access is requested and approved; a rule would hand it out to
-	// whoever matches, the admin who wrote it included.
-	var vault bool
+	// Just-in-time only access (vault access among it) is never held
+	// without an end date; a rule would hand it out for good to whoever
+	// matches, the admin who wrote it included.
+	var jit bool
 	err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM vault_accounts WHERE entitlement_id = ANY($1::uuid[]))
-		    OR EXISTS (SELECT 1 FROM role_entitlements re JOIN vault_accounts va ON va.entitlement_id = re.entitlement_id
-		               WHERE re.role_id = ANY($2::uuid[]))`, in.EntitlementIDs, in.RoleIDs).Scan(&vault)
+		SELECT EXISTS (SELECT 1 FROM entitlements WHERE id = ANY($1::uuid[]) AND jit_only)
+		    OR EXISTS (SELECT 1 FROM unnest($2::uuid[]) r WHERE access_is_jit_only(r, NULL))`, in.EntitlementIDs, in.RoleIDs).Scan(&jit)
 	if err != nil {
 		return err
 	}
-	if vault {
-		return apperr.Invalidf("birthright rules cannot give vault access: people request it and approvers approve it")
+	if jit {
+		return apperr.Invalidf("birthright rules cannot give just-in-time only access: people are made eligible and activate it, or request it for a time")
 	}
 	return nil
 }

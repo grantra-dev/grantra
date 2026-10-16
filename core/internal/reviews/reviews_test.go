@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
@@ -283,5 +284,44 @@ func TestOwnersAndDeadlines(t *testing.T) {
 	c3, err := e.launch(Input{Name: "Nothing", ApplicationIDs: []string{emptyApp}})
 	if err != nil || c3.Status != Completed {
 		t.Errorf("empty campaign = %+v, %v", c3, err)
+	}
+}
+
+// Revoking a just-in-time activation also takes away the eligibility behind
+// it, or it could be activated again at once.
+func TestRevokeActivation(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	boss := e.identity("Boss", "")
+	ana := e.identity("Ana", boss)
+	_, ent := e.app("Cloud", "")
+	e.tx(func(tx pgx.Tx) error {
+		id, err := access.MakeEligible(ctx, tx, e.tenant, "identity:admin", ana, access.Target{EntitlementID: ent}, nil, "")
+		if err != nil {
+			return err
+		}
+		el, err := access.GetEligibility(ctx, tx, id, true)
+		if err != nil {
+			return err
+		}
+		_, err = access.Activate(ctx, tx, e.tenant, "identity:"+ana, el, 1, "deploy", "")
+		return err
+	})
+	if _, err := e.launch(Input{Name: "Q4"}); err != nil {
+		t.Fatal(err)
+	}
+	items := e.items(ItemFilter{Mine: true, Me: boss})
+	if len(items) != 1 || items[0].Origin != access.OriginActivation {
+		t.Fatalf("items = %+v", items)
+	}
+	if _, err := e.decide(boss, items[0].ID, Revoke); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM access_eligibilities WHERE identity_id = $1`, ana).Scan(&n)
+	})
+	if n != 0 || e.holds(ana, ent) {
+		t.Errorf("after revoking the activation: %d eligibilities, holds = %v", n, e.holds(ana, ent))
 	}
 }

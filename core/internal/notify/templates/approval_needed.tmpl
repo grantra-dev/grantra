@@ -1,13 +1,15 @@
-{{define "subject"}}{{if eq .Data.step "risk"}}Separation of duties risk: {{.Data.beneficiary}} asks for {{.Data.target}}{{else}}{{.Data.beneficiary}} needs your approval for {{.Data.target}}{{end}}{{end}}
+{{define "subject"}}{{if eq .Data.step "risk"}}Separation of duties risk: {{.Data.beneficiary}} asks for {{.Data.target}}{{else if eq .Data.kind "activation"}}{{.Data.beneficiary}} wants to activate {{.Data.target}}{{else}}{{.Data.beneficiary}} needs your approval for {{.Data.target}}{{end}}{{end}}
 {{define "body"}}Hi {{.Name}},
 
-{{if eq .Data.requester_id .Data.beneficiary_id}}{{.Data.beneficiary}} asked for{{else}}{{.Data.requester}} asked for {{.Data.beneficiary}} to get{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}, and the request is waiting for you{{if eq .Data.step "admin" "risk"}} or another Grantra admin{{end}}.
+{{if eq .Data.kind "activation"}}{{.Data.beneficiary}} is eligible for {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} and wants to activate it for {{.Data.duration_hours}} {{plural .Data.duration_hours "hour" "hours"}}, which needs an approval{{else}}{{if eq .Data.requester_id .Data.beneficiary_id}}{{.Data.beneficiary}} asked {{if eq .Data.kind "eligibility"}}to be eligible for{{else}}for{{end}}{{else}}{{.Data.requester}} asked for {{.Data.beneficiary}} to {{if eq .Data.kind "eligibility"}}be eligible for{{else}}get{{end}}{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}{{end}}, and the request is waiting for you{{if eq .Data.step "admin" "risk"}} or another Grantra admin{{end}}.
 {{if eq .Data.step "risk"}}
 Together with what {{.Data.beneficiary}} already has, this access breaks separation of duties: {{.Data.sod_conflicts}}. Approving it means accepting that risk, with a reason and an end date. Rejecting it closes the request.
 {{end}}
 Why: {{.Data.justification}}
-{{with .Data.duration_days}}For: {{.}} days
-{{end}}
+{{if eq .Data.kind "eligibility"}}Being eligible gives no access by itself: {{.Data.beneficiary}} activates it for a few hours when needed, with a reason each time.
+{{end}}{{with .Data.duration_days}}For: {{.}} days
+{{end}}{{if ne .Data.kind "activation"}}{{with .Data.duration_hours}}For: {{.}} hours
+{{end}}{{end}}
 Approve or reject it by {{date .Data.due_at}}. After that the request expires.
 
 {{.URL}}

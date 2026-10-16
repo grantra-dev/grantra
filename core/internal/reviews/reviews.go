@@ -395,13 +395,29 @@ func decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, it Item, dec
 	if decision != Revoke || it.assignmentID == "" {
 		return nil
 	}
-	tag, err := tx.Exec(ctx, `DELETE FROM access_assignments WHERE id = $1`, it.assignmentID)
-	if err != nil || tag.RowsAffected() == 0 {
+	var eligibility *string
+	err := tx.QueryRow(ctx, `DELETE FROM access_assignments WHERE id = $1 RETURNING eligibility_id`, it.assignmentID).Scan(&eligibility)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	return db.Audit(ctx, tx, tenantID, actor, "access.removed", "identity", it.IdentityID,
+	if err := db.Audit(ctx, tx, tenantID, actor, "access.removed", "identity", it.IdentityID,
 		map[string]any{"assignment_id": it.assignmentID, it.Type + "_id": it.TargetID, "origin": it.Origin,
-			"reason": "revoked in access review", "review_item_id": it.ID})
+			"reason": "revoked in access review", "review_item_id": it.ID}); err != nil {
+		return err
+	}
+	// Revoking a just-in-time activation revokes the eligibility behind it:
+	// otherwise it could be activated again at once.
+	if eligibility == nil {
+		return nil
+	}
+	err = access.RemoveEligibility(ctx, tx, tenantID, actor, *eligibility)
+	if errors.Is(err, apperr.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 // Close ends an active campaign now. What nobody reviewed is kept or revoked

@@ -23,6 +23,7 @@ const request: AccessRequest = {
   target_name: "Approve payments",
   application: "ERP",
   justification: "Covering Pedro's leave",
+  kind: "access",
   duration_days: 30,
   status: "pending",
   created_at: "2026-10-10T09:00:00Z",

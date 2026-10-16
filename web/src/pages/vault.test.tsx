@@ -32,6 +32,8 @@ const rootAccount: VaultAccount = {
   secret_at: "2026-10-16T10:00:00Z",
   checkouts: [],
   held: true,
+  responder: false,
+  break_glass: false,
   created_at: "2026-10-16T10:00:00Z",
 };
 

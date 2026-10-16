@@ -1,0 +1,11 @@
+{{define "subject"}}Break-glass: {{.Data.person}} opened {{.Data.account}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{.Data.person}} opened the break-glass vault account {{.Data.account}} ({{.Data.username}}) at {{date .Data.checked_out_at}}, without approval. They have the secret until {{date .Data.expires_at}}{{if .Data.rotates}}, and its password changes when they are done{{end}}.
+
+Their reason: {{.Data.reason}}
+
+Every break-glass use is reviewed afterwards: an admin other than {{.Data.person}} confirms it was justified, or flags it.
+
+{{.URL}}
+{{end}}

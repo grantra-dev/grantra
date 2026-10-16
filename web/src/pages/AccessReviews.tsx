@@ -65,6 +65,7 @@ const originLabels = {
   request: "Requested",
   manual: "Granted by an admin",
   birthright: "Birthright",
+  activation: "Activated just in time",
 };
 
 function ToReview() {

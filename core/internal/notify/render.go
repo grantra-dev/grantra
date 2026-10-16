@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"maps"
 	"strings"
 	"text/template"
 	"time"
@@ -20,6 +21,8 @@ var pages = map[Kind]string{
 	ReviewAssigned:  "/reviews",
 	CampaignDueSoon: "/reviews",
 	SoDViolation:    "/admin?tab=sod",
+	BreakGlassUsed:  "/vault?tab=break-glass",
+	BreakGlassDue:   "/vault?tab=break-glass",
 }
 
 var templates = func() map[Kind]*template.Template {
@@ -70,6 +73,14 @@ func render(kind Kind, v view) (subject, body string, err error) {
 	if !ok {
 		return "", "", fmt.Errorf("no template for %q", kind)
 	}
+	// Requests queued before they had kinds asked for access.
+	if _, ok := v.Data["kind"]; !ok && (kind == ApprovalNeeded || kind == RequestExpiring || kind == RequestDecided) {
+		v.Data = maps.Clone(v.Data)
+		if v.Data == nil {
+			v.Data = map[string]any{}
+		}
+		v.Data["kind"] = "access"
+	}
 	var s, b bytes.Buffer
 	if err := t.ExecuteTemplate(&s, "subject", v); err != nil {
 		return "", "", err
@@ -80,7 +91,7 @@ func render(kind Kind, v view) (subject, body string, err error) {
 	// A subject is one line, whatever the data holds.
 	subject = strings.Join(strings.Fields(s.String()), " ")
 	body = strings.TrimLeft(b.String(), "\n") +
-		"\n--\nGrantra sends this because of your role in access requests, reviews or separation of duties.\n" +
+		"\n--\nGrantra sends this because of your role in access requests, reviews, separation of duties or the vault.\n" +
 		"Choose which emails you get: " + v.SettingsURL + "\n"
 	return subject, body, nil
 }

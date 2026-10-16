@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Expiry, Origin } from "@/components/AccessBadges";
+import { Eligibilities } from "@/components/Eligibilities";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -37,6 +38,7 @@ export function MyAccess({ me }: { me: Me }) {
         title="My access"
         description="Everything you can access through Grantra, why you have it and when it ends."
       />
+      <Eligibilities identityId={me.identity_id} self canManage={false} />
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
           <label className="relative block w-full max-w-xs">

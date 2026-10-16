@@ -18,6 +18,13 @@ func TestRenderEveryKind(t *testing.T) {
 	data["count"] = float64(3)
 	data["more"] = float64(0)
 	data["violations"] = []any{map[string]any{"identity": "Ana", "policy": "Payments", "severity": "high", "reopened": false}}
+	data["person"] = "Ana"
+	data["account"] = "Production database root"
+	data["username"] = "postgres"
+	data["reason"] = "INC-1234"
+	data["checked_out_at"] = "2026-11-13T07:00:00Z"
+	data["rotates"] = true
+	data["uses"] = []any{map[string]any{"person": "Ana", "account": "Production database root", "reason": "INC-1234", "checked_out_at": "2026-11-13T07:00:00Z"}}
 	for _, k := range Kinds {
 		subject, body, err := render(k.Kind, view{Name: "Boss", RecipientID: "boss", URL: "https://g/x", Data: data, SettingsURL: "https://g/s"})
 		if err != nil {

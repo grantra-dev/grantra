@@ -752,15 +752,38 @@ func record(ctx context.Context, tx pgx.Tx, tenantID, appID, actor, runID string
 // successful aggregation in the last MaxAggregationAge. Runs with nothing to
 // do are not recorded. One application failing does not stop the others.
 func ProvisionDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets connector.SecretResolver) ([]Run, error) {
+	return provisionDue(ctx, pool, tenantID, secrets, false)
+}
+
+// ProvisionQueued provisions, like ProvisionDue, only the applications
+// whose access changed through just-in-time activations since the last
+// call (see access.Activate), so that an activation reaches the
+// application in seconds rather than at the next regular pass.
+func ProvisionQueued(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets connector.SecretResolver) ([]Run, error) {
+	return provisionDue(ctx, pool, tenantID, secrets, true)
+}
+
+func provisionDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets connector.SecretResolver, queued bool) ([]Run, error) {
 	var due []string
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
+		var only []string
+		if queued {
+			rows, err := tx.Query(ctx, `DELETE FROM jit_provisioning_queue RETURNING application_id::text`)
+			if err != nil {
+				return err
+			}
+			if only, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil || len(only) == 0 {
+				return err
+			}
+		}
 		rows, err := tx.Query(ctx,
 			`SELECT a.id FROM applications a
 			 WHERE a.provisioning->>'mode' = 'on'
+			   AND (NOT $2 OR a.id = ANY($3::uuid[]))
 			   AND EXISTS (SELECT 1 FROM connector_runs r
 			               WHERE r.application_id = a.id AND r.kind = 'aggregation' AND r.status = 'succeeded'
 			                 AND r.started_at > now() - make_interval(secs => $1))
-			 ORDER BY a.name`, MaxAggregationAge.Seconds())
+			 ORDER BY a.name`, MaxAggregationAge.Seconds(), queued, only)
 		if err != nil {
 			return err
 		}
@@ -777,7 +800,19 @@ func ProvisionDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secr
 	for _, id := range due {
 		run, err := provision(ctx, pool, tenantID, id, "system:provisioning", Options{}, secrets, false)
 		if errors.Is(err, ErrRunning) {
-			continue // someone started one from the console; it covers this pass
+			// Someone started one from the console. It may have read the
+			// access before the change that queued this pass: try again on
+			// the next one.
+			if queued {
+				if err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
+					_, err := tx.Exec(ctx,
+						`INSERT INTO jit_provisioning_queue (tenant_id, application_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, tenantID, id)
+					return err
+				}); err != nil {
+					errs = append(errs, fmt.Errorf("queue %s again: %w", id, err))
+				}
+			}
+			continue
 		}
 		if err != nil {
 			if ctx.Err() != nil {

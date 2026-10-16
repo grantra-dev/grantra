@@ -126,6 +126,10 @@ export interface Entitlement {
   name: string;
   description?: string;
   risk: Risk;
+  /** Nobody holds it for good: people activate it for a few hours. */
+  jit_only: boolean;
+  max_activation_hours: number;
+  activation_approval: boolean;
   created_at: string;
 }
 

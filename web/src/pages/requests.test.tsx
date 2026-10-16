@@ -13,9 +13,29 @@ const me: Me = {
 };
 
 const catalog: Requestable[] = [
-  { type: "role", id: "r1", name: "Sales team", description: "CRM and pipeline tools" },
-  { type: "entitlement", id: "e1", name: "Approve payments", application: "ERP", risk: "high" },
-  { type: "entitlement", id: "e2", name: "Billing read-only", application: "Stripe", risk: "low" },
+  {
+    type: "role",
+    id: "r1",
+    name: "Sales team",
+    description: "CRM and pipeline tools",
+    jit_only: false,
+  },
+  {
+    type: "entitlement",
+    id: "e1",
+    name: "Approve payments",
+    application: "ERP",
+    risk: "high",
+    jit_only: false,
+  },
+  {
+    type: "entitlement",
+    id: "e2",
+    name: "Billing read-only",
+    application: "Stripe",
+    risk: "low",
+    jit_only: false,
+  },
 ];
 
 const pendingRequest: AccessRequest = {
@@ -29,6 +49,7 @@ const pendingRequest: AccessRequest = {
   target_name: "Billing read-only",
   application: "Stripe",
   justification: "Monthly close",
+  kind: "access",
   status: "pending",
   created_at: "2026-10-10T09:00:00Z",
   steps: [
@@ -76,11 +97,16 @@ describe("Request access", () => {
     const send = screen.getByRole("button", { name: "Send request" });
     expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Why do you need it?"), "Joining sales");
-    await userEvent.selectOptions(screen.getByLabelText("For how long?"), "90");
+    await userEvent.selectOptions(screen.getByLabelText("For how long?"), "d:90");
     await waitFor(() => expect(send).toBeEnabled());
     await userEvent.click(send);
     expect(await screen.findByText(/sent\. It now waits/)).toBeInTheDocument();
-    expect(sent).toEqual({ role_id: "r1", justification: "Joining sales", duration_days: 90 });
+    expect(sent).toEqual({
+      role_id: "r1",
+      kind: "access",
+      justification: "Joining sales",
+      duration_days: 90,
+    });
   });
 
   it("warns about a separation of duties conflict and says an admin must accept it", async () => {

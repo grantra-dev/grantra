@@ -195,6 +195,17 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 		return err
 	}
 
+	// Nobody holds GitHub org admin for good: Luis, the CTO, activates it
+	// for up to two hours when he needs it.
+	if _, err := catalog.SetJIT(ctx, tx, tenantID, actor, ents["GitHub/Org admins"],
+		catalog.JIT{JITOnly: true, MaxActivationHours: 2}); err != nil {
+		return err
+	}
+	if _, err := access.MakeEligible(ctx, tx, tenantID, actor, people["luis.perez@example.com"],
+		access.Target{EntitlementID: ents["GitHub/Org admins"]}, nil, ""); err != nil {
+		return err
+	}
+
 	if opts.LoginURL != "" {
 		// Its groups and the people in them show up after the first
 		// aggregation, a few minutes after start.
@@ -215,11 +226,13 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 	}
 
 	if opts.Vault.Enabled() {
-		// Luis's team can ask for the production database's root password.
+		// Luis's team can ask for the production database's root password,
+		// and Luis, on call, can break the glass in an emergency.
 		if _, err := opts.Vault.Create(ctx, tx, tenantID, actor, vault.Input{
 			Name: "Production database root", Username: "postgres", Secret: "demo-root-password",
 			Settings: vault.Settings{Address: "db.prod.example.com:5432", CheckoutMinutes: 30, Exclusive: true,
-				Notes: "For incidents only. Say which in the reason."},
+				Notes: "For incidents only. Say which in the reason.", BreakGlass: true,
+				Responders: []string{people["luis.perez@example.com"]}},
 		}); err != nil {
 			return err
 		}

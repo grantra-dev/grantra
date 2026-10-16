@@ -18,6 +18,13 @@ export function Origin({ a }: { a: Assignment }) {
       return <Badge variant="green">Requested and approved</Badge>;
     case "manual":
       return <Badge>Granted by an administrator</Badge>;
+    case "activation":
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="amber">Activated for now</Badge>
+          {a.justification && <span className="text-slate-500">{a.justification}</span>}
+        </div>
+      );
   }
 }
 

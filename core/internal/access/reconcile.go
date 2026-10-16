@@ -35,6 +35,8 @@ type Assignment struct {
 	GrantedBy   string     `json:"granted_by"`
 	GrantedAt   time.Time  `json:"granted_at"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	// Justification is why an activation was made.
+	Justification string `json:"justification,omitempty"`
 }
 
 // IdentityAccess lists the assignments of one identity.
@@ -42,7 +44,8 @@ func IdentityAccess(ctx context.Context, tx pgx.Tx, identityID string) ([]Assign
 	rows, err := tx.Query(ctx,
 		`SELECT x.id, CASE WHEN x.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 		        coalesce(x.role_id, x.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''),
-		        x.origin, coalesce(x.rule_id::text, ''), coalesce(r.name, ''), x.granted_by, x.granted_at, x.expires_at
+		        x.origin, coalesce(x.rule_id::text, ''), coalesce(r.name, ''), x.granted_by, x.granted_at, x.expires_at,
+		        coalesce(x.justification, '')
 		 FROM access_assignments x
 		 LEFT JOIN roles ro ON ro.id = x.role_id
 		 LEFT JOIN entitlements e ON e.id = x.entitlement_id
@@ -56,7 +59,7 @@ func IdentityAccess(ctx context.Context, tx pgx.Tx, identityID string) ([]Assign
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Assignment, error) {
 		var a Assignment
 		err := row.Scan(&a.ID, &a.Type, &a.TargetID, &a.Name, &a.Application, &a.Origin, &a.RuleID, &a.RuleName,
-			&a.GrantedBy, &a.GrantedAt, &a.ExpiresAt)
+			&a.GrantedBy, &a.GrantedAt, &a.ExpiresAt, &a.Justification)
 		return a, err
 	})
 }
@@ -214,6 +217,9 @@ func Reconcile(ctx context.Context, tx pgx.Tx, tenantID, actor string, ids []str
 			have[h.key()] = true
 		}
 	}
+	if err := removeEligibilities(ctx, tx, tenantID, actor, terminated); err != nil {
+		return ch, err
+	}
 	for k, h := range want {
 		if have[k] {
 			continue
@@ -227,6 +233,43 @@ func Reconcile(ctx context.Context, tx pgx.Tx, tenantID, actor string, ids []str
 		}
 	}
 	return ch, nil
+}
+
+// removeEligibilities takes leavers' eligibilities away, so nothing comes
+// back if they return.
+func removeEligibilities(ctx context.Context, tx pgx.Tx, tenantID, actor string, terminated map[string]bool) error {
+	if len(terminated) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(terminated))
+	for id := range terminated {
+		ids = append(ids, id)
+	}
+	rows, err := tx.Query(ctx,
+		`DELETE FROM access_eligibilities WHERE identity_id = ANY($1::uuid[])
+		 RETURNING id::text, identity_id::text, coalesce(role_id::text, ''), coalesce(entitlement_id::text, '')`, ids)
+	if err != nil {
+		return err
+	}
+	type gone struct {
+		id, identity string
+		t            Target
+	}
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (gone, error) {
+		var g gone
+		err := row.Scan(&g.id, &g.identity, &g.t.RoleID, &g.t.EntitlementID)
+		return g, err
+	})
+	if err != nil {
+		return err
+	}
+	for _, g := range list {
+		if err := db.Audit(ctx, tx, tenantID, actor, "access.eligibility_removed", "identity", g.identity,
+			g.t.details(map[string]any{"eligibility_id": g.id, "reason": "identity terminated"})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func wanted(want map[string]held, h held) bool {

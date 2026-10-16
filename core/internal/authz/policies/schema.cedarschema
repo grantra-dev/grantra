@@ -61,6 +61,16 @@ entity VaultAccount {
   holders: Set<Identity>,
 };
 
+// A break-glass vault account and who may open it in an emergency.
+entity BreakGlassAccount {
+  responders: Set<Identity>,
+};
+
+// One break-glass use of a vault account, to review afterwards.
+entity BreakGlassUse {
+  identity: Identity,
+};
+
 // Action groups.
 action "read";
 action "write";
@@ -216,5 +226,35 @@ action "vault.manage" in ["write"] appliesTo {
 action "vault_account.checkout" in ["write"] appliesTo {
   principal: Identity,
   resource: VaultAccount,
+  context: {},
+};
+
+// break_glass opens a break-glass account without approval.
+action "vault_account.break_glass" in ["write"] appliesTo {
+  principal: Identity,
+  resource: BreakGlassAccount,
+  context: {},
+};
+
+// review confirms a break-glass use was justified, or flags it.
+action "break_glass_use.review" in ["write"] appliesTo {
+  principal: Identity,
+  resource: BreakGlassUse,
+  context: {},
+};
+
+// manage makes people eligible for access, takes eligibility away and turns
+// standing access into eligibility; the resource is the person.
+action "access.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Identity,
+  context: {},
+};
+
+// activate turns one's own eligibility into access for a few hours; the
+// resource is the eligible person.
+action "access.activate" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Identity,
   context: {},
 };

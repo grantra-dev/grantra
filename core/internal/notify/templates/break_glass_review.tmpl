@@ -1,0 +1,11 @@
+{{define "subject"}}{{.Data.count}} break-glass {{plural .Data.count "use waits" "uses wait"}} for review{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{plural .Data.count "This break-glass use has" "These break-glass uses have"}} not been reviewed yet:
+{{range .Data.uses}}
+- {{.person}} opened {{.account}} on {{date .checked_out_at}}: {{.reason}}{{end}}
+
+Confirm each was justified, or flag it. Nobody reviews their own use.
+
+{{.URL}}
+{{end}}
