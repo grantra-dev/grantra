@@ -409,6 +409,38 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			}
 			return err
 		}},
+		{"remind break-glass reviews", 15 * time.Minute, func(ctx context.Context) error {
+			n, err := vault.RemindDue(ctx, pool, tenantID)
+			if n > 0 {
+				log.InfoContext(ctx, "reminded admins of break-glass uses to review", "uses", n)
+			}
+			return err
+		}},
+		// Activations end on time, and what they changed reaches the
+		// applications right away instead of at the next regular pass.
+		{"apply just-in-time access", 30 * time.Second, func(ctx context.Context) error {
+			var h access.JITHousekeeping
+			err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) (err error) {
+				h, err = access.EndActivations(ctx, tx, tenantID)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			if h.ActivationsEnded+h.EligibilitiesEnded > 0 {
+				log.InfoContext(ctx, "ended just-in-time access", "activations", h.ActivationsEnded, "eligibilities", h.EligibilitiesEnded)
+			}
+			runs, err := provisioning.ProvisionQueued(ctx, pool, tenantID, connector.EnvSecrets)
+			for _, r := range runs {
+				m.RecordConnectorRun(ctx, r.Run)
+				if r.Status == accounts.RunSucceeded {
+					log.InfoContext(ctx, "provisioned just-in-time access", "application", r.ApplicationID, "counts", r.Counts)
+				} else {
+					log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
+				}
+			}
+			return err
+		}},
 		{"scan separation of duties", 30 * time.Minute, func(ctx context.Context) error {
 			res, err := sod.Scan(ctx, pool, tenantID)
 			if res.Detected+res.Resolved+res.ExceptionsExpired > 0 {

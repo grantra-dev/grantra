@@ -19,7 +19,9 @@ curl -b cookies -X POST localhost:8080/api/v1/access-requests -d '{
 |---|---|
 | `role_id` or `entitlement_id` | What is asked for: a business role or one entitlement. Platform roles cannot be requested; they have their own guarded flow |
 | `justification` | Required. Why the access is needed; approvers and auditors read it |
-| `duration_days` | Optional, 1 to 365. The access ends on its own after that. Without it, the access lasts until someone removes it |
+| `kind` | `access` (default) or `eligibility`: to be made eligible to activate [just-in-time](just-in-time.md) access when needed. Activations that need approval show up as requests of kind `activation` |
+| `duration_days` | Optional, 1 to 365. The access (or eligibility) ends on its own after that. Without it, it lasts until someone removes it |
+| `duration_hours` | Instead of `duration_days`, 1 to 24, for the access only. Just-in-time only access needs one of the two |
 | `beneficiary_id` | Who gets the access, when it is not the requester. Only their manager (or an admin) can ask for someone else |
 
 A request is refused when the person already has that access, already has an open request for it, or is not active.

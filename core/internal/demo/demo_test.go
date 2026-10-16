@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
@@ -108,11 +109,34 @@ func TestSeedWithVault(t *testing.T) {
 			t.Fatalf("vault accounts = %+v, %v", list, err)
 		}
 		version, entitlement = list[0].Version, list[0].EntitlementName
+		// Luis, on call, is its only break-glass responder.
+		ids, glass, err := vault.Responders(ctx, tx, list[0].ID)
+		var luis string
+		if err == nil {
+			err = tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis)
+		}
+		if err != nil || !glass || len(ids) != 1 || ids[0] != luis {
+			t.Fatalf("responders = %v, %v, %v", ids, glass, err)
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 || entitlement != "Use Production database root" {
 		t.Fatalf("version %d, entitlement %q", version, entitlement)
+	}
+	// Luis may activate GitHub org admin, which nobody holds for good.
+	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
+		var luis string
+		if err := tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis); err != nil {
+			return err
+		}
+		list, err := access.Eligibilities(ctx, tx, luis)
+		if err != nil || len(list) != 1 || list[0].Name != "Org admins" || list[0].MaxActivationHours != 2 {
+			t.Fatalf("luis's eligibilities = %+v, %v", list, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

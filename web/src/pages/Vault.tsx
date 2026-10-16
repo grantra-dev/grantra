@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
@@ -20,30 +20,40 @@ import {
 } from "@/components/ui/table";
 import { PlatformRole, type Me } from "@/lib/api";
 import { formatTime } from "@/lib/utils";
+import { listIdentities } from "@/lib/api";
 import {
+  breakGlass,
   checkinVault,
   checkoutVaultAccount,
   createVaultAccount,
   deleteVaultAccount,
   discoverVaultAccounts,
   getVaultAccount,
+  listBreakGlassUses,
   listVaultAccounts,
+  reviewBreakGlass,
   rotateVaultAccount,
   setVaultSecret,
   updateVaultAccount,
   type NewVaultAccount,
+  type Responder,
   type VaultAccount,
+  type VaultCheckout,
   type VaultFinding,
   type VaultLease,
   type VaultSettings,
 } from "@/lib/vault";
 
-type Tab = "accounts" | "discovery";
+type Tab = "accounts" | "break-glass" | "discovery";
 
 export function Vault({ me }: { me: Me }) {
   const admin = me.platform_roles.includes(PlatformRole.Admin);
   const reader = admin || me.platform_roles.includes(PlatformRole.Auditor);
-  const [tab, setTab] = useState<Tab>("accounts");
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("tab");
+  const tab: Tab =
+    reader && (asked === "break-glass" || asked === "discovery") ? asked : "accounts";
+  const setTab = (t: Tab) => setParams(t === "accounts" ? {} : { tab: t });
   const [adding, setAdding] = useState<Partial<NewVaultAccount> | null>(null);
   return (
     <>
@@ -55,14 +65,17 @@ export function Vault({ me }: { me: Me }) {
         <Tabs
           tabs={[
             ["accounts", "Accounts"],
+            ["break-glass", "Break glass"],
             ["discovery", "Discovery"],
           ]}
           current={tab}
           onSelect={setTab}
         />
       )}
-      {tab === "accounts" || !reader ? (
+      {tab === "accounts" ? (
         <Accounts me={me} admin={admin} reader={reader} adding={adding} setAdding={setAdding} />
+      ) : tab === "break-glass" ? (
+        <BreakGlassUses me={me} admin={admin} />
       ) : (
         <Discovery
           admin={admin}
@@ -185,6 +198,7 @@ function AccountRow({
   onToggle: () => void;
 }) {
   const [checkingOut, setCheckingOut] = useState(false);
+  const [breaking, setBreaking] = useState(false);
   const mine = a.checkouts.find((c) => c.identity_id === me.identity_id);
   const others = a.checkouts.filter((c) => c.identity_id !== me.identity_id);
   return (
@@ -205,6 +219,7 @@ function AccountRow({
             )}
             <RiskBadge risk={a.risk} />
             {a.exclusive && <Badge>One at a time</Badge>}
+            {a.break_glass && <Badge variant="red">Break glass</Badge>}
           </div>
           <div className="text-slate-500">
             {a.username}
@@ -242,17 +257,31 @@ function AccountRow({
           ))}
         </TableCell>
         <TableCell className="text-right">
-          {a.held && a.version > 0 && !checkingOut && (
-            <Button size="sm" onClick={() => setCheckingOut(true)}>
-              {mine ? "Show again" : "Check out"}
-            </Button>
-          )}
+          <div className="flex flex-col items-end gap-2">
+            {a.held && a.version > 0 && !checkingOut && !breaking && (
+              <Button size="sm" onClick={() => setCheckingOut(true)}>
+                {mine ? "Show again" : "Check out"}
+              </Button>
+            )}
+            {a.responder && a.version > 0 && !checkingOut && !breaking && (
+              <Button size="sm" variant="destructive" onClick={() => setBreaking(true)}>
+                Break glass
+              </Button>
+            )}
+          </div>
         </TableCell>
       </TableRow>
-      {checkingOut && (
+      {(checkingOut || breaking) && (
         <TableRow>
           <TableCell colSpan={4}>
-            <CheckOut account={a} onDone={() => setCheckingOut(false)} />
+            <CheckOut
+              account={a}
+              emergency={breaking}
+              onDone={() => {
+                setCheckingOut(false);
+                setBreaking(false);
+              }}
+            />
           </TableCell>
         </TableRow>
       )}
@@ -260,14 +289,23 @@ function AccountRow({
   );
 }
 
-function CheckOut({ account, onDone }: { account: VaultAccount; onDone: () => void }) {
+function CheckOut({
+  account,
+  emergency,
+  onDone,
+}: {
+  account: VaultAccount;
+  emergency: boolean;
+  onDone: () => void;
+}) {
   const client = useQueryClient();
   const [reason, setReason] = useState("");
   const [lease, setLease] = useState<VaultLease | null>(null);
   const [copied, setCopied] = useState(false);
   const refresh = () => void client.invalidateQueries({ queryKey: ["vault-accounts"] });
   const checkout = useMutation({
-    mutationFn: () => checkoutVaultAccount(account.id, reason),
+    mutationFn: () =>
+      emergency ? breakGlass(account.id, reason) : checkoutVaultAccount(account.id, reason),
     onSuccess: (l) => {
       setLease(l);
       refresh();
@@ -313,7 +351,7 @@ function CheckOut({ account, onDone }: { account: VaultAccount; onDone: () => vo
             Hide
           </Button>
         </div>
-        {account.rotate_after_checkin && (
+        {(account.rotate_after_checkin || (lease.break_glass && account.can_rotate)) && (
           <p className="text-xs text-slate-500">
             Grantra changes this password once nobody has it checked out.
           </p>
@@ -330,7 +368,15 @@ function CheckOut({ account, onDone }: { account: VaultAccount; onDone: () => vo
         checkout.mutate();
       }}
     >
-      <Label htmlFor="vault-reason">Why do you need {account.name}?</Label>
+      {emergency && (
+        <Alert variant="warning">
+          Breaking the glass opens {account.name} for up to an hour, even if someone else has it.
+          Every admin and auditor is told at once, and an admin reviews it afterwards.
+        </Alert>
+      )}
+      <Label htmlFor="vault-reason">
+        {emergency ? "What is the emergency?" : `Why do you need ${account.name}?`}
+      </Label>
       <Input
         id="vault-reason"
         required
@@ -339,13 +385,20 @@ function CheckOut({ account, onDone }: { account: VaultAccount; onDone: () => vo
         onChange={(e) => setReason(e.target.value)}
         placeholder="INC-1234: restart the replica"
       />
-      <p className="text-xs text-slate-500">
-        It stays checked out for {account.checkout_minutes} minutes. Your reason goes to the audit
-        log.
-      </p>
+      {!emergency && (
+        <p className="text-xs text-slate-500">
+          It stays checked out for {account.checkout_minutes} minutes. Your reason goes to the audit
+          log.
+        </p>
+      )}
       <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={checkout.isPending}>
-          Check out
+        <Button
+          size="sm"
+          type="submit"
+          variant={emergency ? "destructive" : "default"}
+          disabled={checkout.isPending}
+        >
+          {emergency ? "Break glass" : "Check out"}
         </Button>
         <Button size="sm" variant="ghost" type="button" onClick={onDone}>
           Cancel
@@ -363,16 +416,20 @@ const emptySettings: VaultSettings = {
   exclusive: false,
   rotate_every_days: 0,
   rotate_after_checkin: false,
+  break_glass: false,
+  break_glass_responders: [],
 };
 
 function SettingsFields({
   value,
   onChange,
   kind,
+  known = [],
 }: {
   value: VaultSettings;
   onChange: (v: VaultSettings) => void;
   kind: string;
+  known?: Responder[];
 }) {
   return (
     <>
@@ -428,7 +485,28 @@ function SettingsFields({
             Change the password after each use
           </label>
         )}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={value.break_glass}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                break_glass: e.target.checked,
+                break_glass_responders: e.target.checked ? value.break_glass_responders : [],
+              })
+            }
+          />
+          Break glass: responders can open it in an emergency without holding access
+        </label>
       </div>
+      {value.break_glass && (
+        <Responders
+          ids={value.break_glass_responders}
+          known={known}
+          onChange={(ids) => onChange({ ...value, break_glass_responders: ids })}
+        />
+      )}
       <div className="sm:col-span-2">
         <Label htmlFor="vault-notes">Notes</Label>
         <Textarea
@@ -438,6 +516,83 @@ function SettingsFields({
         />
       </div>
     </>
+  );
+}
+
+/** Who may break the glass, picked by searching people. */
+function Responders({
+  ids,
+  known,
+  onChange,
+}: {
+  ids: string[];
+  known: Responder[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [names, setNames] = useState(() => new Map(known.map((r) => [r.id, r.name])));
+  const [q, setQ] = useState("");
+  const found = useQuery({
+    queryKey: ["identities", "responders", q.trim()],
+    queryFn: () => listIdentities({ q: q.trim(), status: "active" }),
+    enabled: q.trim().length >= 2,
+  });
+  return (
+    <div className="flex flex-col gap-2 sm:col-span-2">
+      <Label htmlFor="vault-responders">Responders</Label>
+      <p className="text-xs text-slate-500">
+        {ids.length === 0
+          ? "Nobody listed: the Grantra admins respond."
+          : "Only these people can break the glass."}
+      </p>
+      {ids.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {ids.map((id) => (
+            <li key={id}>
+              <Badge>
+                {names.get(id) ?? id}
+                <button
+                  type="button"
+                  className="ml-1"
+                  aria-label={`Remove ${names.get(id) ?? id}`}
+                  onClick={() => onChange(ids.filter((x) => x !== id))}
+                >
+                  ×
+                </button>
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Input
+        id="vault-responders"
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search people to add"
+      />
+      {found.data && (
+        <ul className="flex flex-col">
+          {found.data
+            .filter((p) => !ids.includes(p.id))
+            .slice(0, 8)
+            .map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className="text-sm text-brand-700 hover:underline"
+                  onClick={() => {
+                    setNames(new Map(names).set(p.id, p.display_name));
+                    onChange([...ids, p.id]);
+                    setQ("");
+                  }}
+                >
+                  Add {p.display_name}
+                </button>
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -677,6 +832,10 @@ function AccountDetail({
                         exclusive: data.exclusive,
                         rotate_every_days: data.rotate_every_days ?? 0,
                         rotate_after_checkin: data.rotate_after_checkin,
+                        break_glass: data.break_glass,
+                        break_glass_responders: (data.break_glass_responders ?? []).map(
+                          (r) => r.id,
+                        ),
                       })
                     }
                   >
@@ -721,7 +880,12 @@ function AccountDetail({
                       save.mutate(settings);
                     }}
                   >
-                    <SettingsFields value={settings} kind={data.kind} onChange={setSettings} />
+                    <SettingsFields
+                      value={settings}
+                      kind={data.kind}
+                      known={data.break_glass_responders}
+                      onChange={setSettings}
+                    />
                     {!data.can_rotate && data.kind === "password" && (
                       <p className="text-xs text-slate-500 sm:col-span-2">
                         Rotation needs the account linked to an application whose connector can set
@@ -885,5 +1049,109 @@ function Discovery({ admin, onAdd }: { admin: boolean; onAdd: (f: VaultFinding) 
         </Table>
       </Loaded>
     </section>
+  );
+}
+
+const reviewBadges = {
+  pending: { variant: "amber", label: "To review" },
+  justified: { variant: "green", label: "Justified" },
+  flagged: { variant: "red", label: "Flagged" },
+} as const;
+
+/** Emergency uses of the vault, and their review. */
+function BreakGlassUses({ me, admin }: { me: Me; admin: boolean }) {
+  const [all, setAll] = useState(false);
+  const { data, error, isPending } = useQuery({
+    queryKey: ["break-glass", all],
+    queryFn: () => listBreakGlassUses(all),
+  });
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">
+          Every time someone breaks the glass, an admin other than them confirms it was justified or
+          flags it. Admins are reminded daily until then.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
+          Show reviewed uses too
+        </label>
+      </div>
+      <Loaded
+        loading={isPending}
+        error={error}
+        empty={
+          data?.length === 0 && (all ? "Nobody has broken the glass yet." : "Nothing to review.")
+        }
+      >
+        <ul className="divide-y divide-slate-200">
+          {data?.map((c) => (
+            <BreakGlassUse key={c.id} c={c} canReview={admin && c.identity_id !== me.identity_id} />
+          ))}
+        </ul>
+      </Loaded>
+    </section>
+  );
+}
+
+function BreakGlassUse({ c, canReview }: { c: VaultCheckout; canReview: boolean }) {
+  const client = useQueryClient();
+  const [comment, setComment] = useState("");
+  const review = useMutation({
+    mutationFn: (justified: boolean) => reviewBreakGlass(c.id, justified, comment.trim()),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["break-glass"] }),
+  });
+  const badge = reviewBadges[c.review_status ?? "pending"];
+  return (
+    <li className="p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">
+          {c.identity_name} opened {c.account_name}
+        </span>
+        <Badge variant={badge.variant}>{badge.label}</Badge>
+      </div>
+      <div className="text-sm text-slate-500">
+        {formatTime(c.checked_out_at)}
+        {c.ended_at
+          ? ` until ${formatTime(c.ended_at)}`
+          : ` · open until ${formatTime(c.expires_at)}`}
+      </div>
+      <p className="mt-1 text-sm text-slate-700">“{c.reason}”</p>
+      {c.review_status !== "pending" && c.reviewed_at && (
+        <p className="mt-1 text-sm text-slate-500">
+          Reviewed {formatTime(c.reviewed_at)}
+          {c.review_comment && `: ${c.review_comment}`}
+        </p>
+      )}
+      {c.review_status === "pending" && canReview && (
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <div className="min-w-60 flex-1">
+            <Label htmlFor={`review-${c.id}`}>Comment (needed to flag)</Label>
+            <Input
+              id={`review-${c.id}`}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Matches INC-1234"
+            />
+          </div>
+          <Button size="sm" disabled={review.isPending} onClick={() => review.mutate(true)}>
+            Justified
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={review.isPending || !comment.trim()}
+            onClick={() => review.mutate(false)}
+          >
+            Flag it
+          </Button>
+        </div>
+      )}
+      {review.error && (
+        <Alert variant="error" className="mt-2">
+          {review.error.message}
+        </Alert>
+      )}
+    </li>
   );
 }

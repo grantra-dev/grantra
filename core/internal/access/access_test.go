@@ -187,6 +187,16 @@ func TestBirthrightFollowsLifecycle(t *testing.T) {
 		return err
 	})
 
+	// Ana is eligible for it too; leaving takes that away.
+	e.tx(func(tx pgx.Tx) error {
+		var ana string
+		if err := tx.QueryRow(ctx, `SELECT id FROM identities WHERE external_id = 'E1'`).Scan(&ana); err != nil {
+			return err
+		}
+		_, err := MakeEligible(ctx, tx, e.tenant, "identity:tester", ana, Target{EntitlementID: crmAdmin}, nil, "")
+		return err
+	})
+
 	// Joiner, mover and leaver in one sync: Marta joins Sales, Luis moves to
 	// Sales and Paris, Ana leaves.
 	e.sync(header +
@@ -201,6 +211,12 @@ func TestBirthrightFollowsLifecycle(t *testing.T) {
 	}
 	if got := strings.Join(e.access("E3"), ","); got != "birthright:CRM user,birthright:Sales rep" {
 		t.Errorf("joiner = %s", got)
+	}
+	if n := e.count(`SELECT count(*) FROM access_eligibilities`); n != 0 {
+		t.Errorf("leaver keeps %d eligibilities", n)
+	}
+	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'access.eligibility_removed' AND details->>'reason' = 'identity terminated'`); n != 1 {
+		t.Errorf("eligibility removals audited = %d, want 1", n)
 	}
 	if n := e.count(`SELECT count(*) FROM lifecycle_events WHERE processed_at IS NULL`); n != 0 {
 		t.Errorf("%d lifecycle events left unprocessed", n)

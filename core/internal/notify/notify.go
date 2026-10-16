@@ -27,6 +27,8 @@ const (
 	ReviewAssigned  Kind = "review_assigned"
 	CampaignDueSoon Kind = "campaign_due_soon"
 	SoDViolation    Kind = "sod_violation"
+	BreakGlassUsed  Kind = "break_glass_used"
+	BreakGlassDue   Kind = "break_glass_review"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -34,16 +36,25 @@ type KindInfo struct {
 	Kind        Kind   `json:"kind"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	// Required kinds cannot be turned off.
+	Required bool `json:"required,omitempty"`
 }
 
 // Kinds lists every kind of notification, in the order the console shows them.
 var Kinds = []KindInfo{
-	{ApprovalNeeded, "Approvals waiting for you", "Someone asked for access and you are the one to approve it."},
-	{RequestExpiring, "Approval reminders", "A request you have not decided expires within a day."},
-	{RequestDecided, "Decisions on requests", "A request you made, or one for you, was approved, rejected or expired."},
-	{ReviewAssigned, "Access reviews to do", "A review campaign started and asks you to keep or revoke some access."},
-	{CampaignDueSoon, "Review reminders", "A campaign ends within two days and you still have access to review."},
-	{SoDViolation, "Separation of duties violations", "For admins: a check found people holding access that should not go together."},
+	{ApprovalNeeded, "Approvals waiting for you", "Someone asked for access and you are the one to approve it.", false},
+	{RequestExpiring, "Approval reminders", "A request you have not decided expires within a day.", false},
+	{RequestDecided, "Decisions on requests", "A request you made, or one for you, was approved, rejected or expired.", false},
+	{ReviewAssigned, "Access reviews to do", "A review campaign started and asks you to keep or revoke some access.", false},
+	{CampaignDueSoon, "Review reminders", "A campaign ends within two days and you still have access to review.", false},
+	{SoDViolation, "Separation of duties violations", "For admins: a check found people holding access that should not go together.", false},
+	{BreakGlassUsed, "Break-glass use", "For admins and auditors: someone opened a break-glass vault account in an emergency.", true},
+	{BreakGlassDue, "Break-glass reviews", "For admins: a break-glass use still waits for someone to confirm it was justified.", false},
+}
+
+// required reports whether nobody may turn k off.
+func required(k Kind) bool {
+	return slices.ContainsFunc(Kinds, func(i KindInfo) bool { return i.Kind == k && i.Required })
 }
 
 // Known reports whether k is a kind of notification.
@@ -53,8 +64,9 @@ func Known(k Kind) bool {
 
 // Enqueue queues one notification of kind for each identity in to, in the
 // caller's transaction, with the data its template needs. Identities that
-// are not active, have no email or turned this kind off get nothing, and
-// each identity gets one notification however often it is listed.
+// are not active, have no email or turned this kind off (unless it is
+// required) get nothing, and each identity gets one notification however
+// often it is listed.
 func Enqueue(ctx context.Context, tx pgx.Tx, tenantID string, kind Kind, to []string, data map[string]any) error {
 	if !Known(kind) {
 		return apperr.Invalidf("unknown notification kind %q", kind)
@@ -71,20 +83,26 @@ func Enqueue(ctx context.Context, tx pgx.Tx, tenantID string, kind Kind, to []st
 		`INSERT INTO notification_outbox (tenant_id, identity_id, kind, data)
 		 SELECT $1, i.id, $2, $3 FROM identities i
 		 WHERE i.id = ANY($4::uuid[]) AND i.status = 'active' AND coalesce(i.email, '') <> ''
-		   AND NOT EXISTS (SELECT 1 FROM notification_opt_outs o WHERE o.identity_id = i.id AND o.kind = $2)`,
-		tenantID, kind, data, to)
+		   AND ($5 OR NOT EXISTS (SELECT 1 FROM notification_opt_outs o WHERE o.identity_id = i.id AND o.kind = $2))`,
+		tenantID, kind, data, to, required(kind))
 	return err
 }
 
 // Admins returns the identities that hold the admin platform role now.
 func Admins(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	return Members(ctx, tx, authz.RoleAdmin)
+}
+
+// Members returns the active identities that hold any of the platform roles
+// now.
+func Members(ctx context.Context, tx pgx.Tx, roles ...string) ([]string, error) {
 	members, err := authz.Members(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
 	var ids []string
 	for _, m := range members {
-		if m.Role == authz.RoleAdmin && m.Status == "active" {
+		if slices.Contains(roles, m.Role) && m.Status == "active" && !slices.Contains(ids, m.IdentityID) {
 			ids = append(ids, m.IdentityID)
 		}
 	}
@@ -109,7 +127,7 @@ func Settings(ctx context.Context, tx pgx.Tx, identityID string) ([]Setting, err
 	}
 	out := make([]Setting, len(Kinds))
 	for i, k := range Kinds {
-		out[i] = Setting{KindInfo: k, Enabled: !slices.Contains(off, k.Kind)}
+		out[i] = Setting{KindInfo: k, Enabled: k.Required || !slices.Contains(off, k.Kind)}
 	}
 	return out, nil
 }
@@ -118,6 +136,9 @@ func Settings(ctx context.Context, tx pgx.Tx, identityID string) ([]Setting, err
 func SetEnabled(ctx context.Context, tx pgx.Tx, tenantID, identityID string, kind Kind, enabled bool) error {
 	if !Known(kind) {
 		return apperr.ErrNotFound
+	}
+	if required(kind) && !enabled {
+		return apperr.Invalidf("this notification cannot be turned off")
 	}
 	var err error
 	if enabled {

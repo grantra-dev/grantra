@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Expiry, IdentityStatusBadge, Origin } from "@/components/AccessBadges";
 import { AuditTable } from "@/components/AuditTable";
+import { Eligibilities } from "@/components/Eligibilities";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
@@ -96,7 +97,16 @@ export function Person({ me }: { me: Me }) {
         current={tab}
         onSelect={(key) => setParams(key === "access" ? {} : { tab: key })}
       />
-      {tab === "access" && <AccessTab id={person.id} />}
+      {tab === "access" && (
+        <>
+          <Eligibilities
+            identityId={person.id}
+            self={person.id === me.identity_id}
+            canManage={isAdmin}
+          />
+          <AccessTab id={person.id} />
+        </>
+      )}
       {tab === "accounts" && <AccountsTab id={person.id} />}
       {tab === "lifecycle" && <LifecycleTab id={person.id} />}
       {tab === "history" && <HistoryTab id={person.id} />}

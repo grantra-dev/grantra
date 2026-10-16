@@ -615,3 +615,30 @@ func TestProvisionWithoutCreate(t *testing.T) {
 		t.Errorf("run = %q, want %q", got, want)
 	}
 }
+
+// ProvisionQueued carries just-in-time changes over at once: only the
+// applications in the queue, and the queue empties.
+func TestProvisionQueued(t *testing.T) {
+	e := newEnv(t, "sales")
+	ctx := context.Background()
+	e.aggregate()
+	e.settings(Settings{Mode: ModeOn})
+	ana := e.identity("Ana", "ana@example.com", "active")
+	e.assign(ana, e.entitlement("sales"))
+	if runs, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets); err != nil || len(runs) != 0 {
+		t.Fatalf("nothing queued = %+v, %v", runs, err)
+	}
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO jit_provisioning_queue (tenant_id, application_id) VALUES ($1, $2)`, e.tenant, e.app)
+		return err
+	})
+	runs, err := ProvisionQueued(ctx, e.pool, e.tenant, noSecrets)
+	if err != nil || len(runs) != 1 || runs[0].Counts[OpCreateAccount] != 1 {
+		t.Fatalf("queued = %+v, %v", runs, err)
+	}
+	var n int
+	e.tx(func(tx pgx.Tx) error { return tx.QueryRow(ctx, `SELECT count(*) FROM jit_provisioning_queue`).Scan(&n) })
+	if n != 0 {
+		t.Errorf("%d left in the queue", n)
+	}
+}

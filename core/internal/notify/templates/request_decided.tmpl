@@ -1,8 +1,9 @@
 {{define "subject"}}{{if eq .Data.status "approved"}}Approved{{else if eq .Data.status "rejected"}}Rejected{{else}}Expired{{end}}: {{.Data.target}}{{if ne .RecipientID .Data.beneficiary_id}} for {{.Data.beneficiary}}{{end}}{{end}}
 {{define "body"}}Hi {{.Name}},
 
-{{$you := eq .RecipientID .Data.beneficiary_id}}{{if eq .Data.status "approved"}}{{if $you}}You now have{{else}}{{.Data.beneficiary}} now has{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}{{with .Data.expires_at}}, until {{date .}}{{end}}.
-{{else if eq .Data.status "rejected"}}The request for {{if $you}}you{{else}}{{.Data.beneficiary}}{{end}} to get {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} was rejected{{with .Data.decided_by}} by {{.}}{{end}}.
+{{$you := eq .RecipientID .Data.beneficiary_id}}{{if eq .Data.status "approved"}}{{if $you}}You {{if eq .Data.kind "eligibility"}}are now eligible for{{else}}now have{{end}}{{else}}{{.Data.beneficiary}} {{if eq .Data.kind "eligibility"}}is now eligible for{{else}}now has{{end}}{{end}} {{.Data.target}}{{with .Data.application}} in {{.}}{{end}}{{with .Data.expires_at}}, until {{date .}}{{end}}.
+{{if eq .Data.kind "eligibility"}}Activate it from My access when you need it, for a few hours at a time.
+{{end}}{{else if eq .Data.status "rejected"}}The request for {{if $you}}you{{else}}{{.Data.beneficiary}}{{end}} to get {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} was rejected{{with .Data.decided_by}} by {{.}}{{end}}.
 {{with .Data.comment}}
 Their reason: {{.}}
 {{end}}{{else}}The request for {{if $you}}you{{else}}{{.Data.beneficiary}}{{end}} to get {{.Data.target}}{{with .Data.application}} in {{.}}{{end}} expired because nobody decided it in time. You can ask again.

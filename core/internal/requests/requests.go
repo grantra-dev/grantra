@@ -47,6 +47,17 @@ const (
 	Expired   = "expired"
 )
 
+// Request kinds.
+const (
+	// KindAccess asks for the access itself.
+	KindAccess = "access"
+	// KindEligibility asks to be made eligible: to activate the access for
+	// a few hours whenever it is needed.
+	KindEligibility = "eligibility"
+	// KindActivation activates an eligibility whose access needs approval.
+	KindActivation = "activation"
+)
+
 // Step statuses.
 const (
 	StepWaiting  = "waiting"
@@ -96,12 +107,15 @@ type Request struct {
 	BeneficiaryID   string `json:"beneficiary_id"`
 	BeneficiaryName string `json:"beneficiary_name"`
 	// Type is "role" or "entitlement".
-	Type          string     `json:"type"`
-	TargetID      string     `json:"target_id"`
-	TargetName    string     `json:"target_name"`
-	Application   string     `json:"application,omitempty"`
-	Justification string     `json:"justification"`
+	Type          string `json:"type"`
+	TargetID      string `json:"target_id"`
+	TargetName    string `json:"target_name"`
+	Application   string `json:"application,omitempty"`
+	Justification string `json:"justification"`
+	// Kind is access, eligibility or activation.
+	Kind          string     `json:"kind"`
 	DurationDays  *int       `json:"duration_days,omitempty"`
+	DurationHours *int       `json:"duration_hours,omitempty"`
 	Status        string     `json:"status"`
 	Reason        string     `json:"reason,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
@@ -137,18 +151,43 @@ func (r Request) Resource() authz.Resource {
 }
 
 // Input is what someone asks for. Exactly one of RoleID and EntitlementID is
-// set; BeneficiaryID defaults to the requester.
+// set; BeneficiaryID defaults to the requester. Kind is access (the default)
+// or eligibility. Access lasts DurationDays or DurationHours, or until
+// removed when neither is set; an eligibility lasts DurationDays.
 type Input struct {
 	BeneficiaryID string `json:"beneficiary_id,omitempty"`
 	RoleID        string `json:"role_id,omitempty"`
 	EntitlementID string `json:"entitlement_id,omitempty"`
+	Kind          string `json:"kind,omitempty"`
 	Justification string `json:"justification"`
 	DurationDays  *int   `json:"duration_days,omitempty"`
+	DurationHours *int   `json:"duration_hours,omitempty"`
+}
+
+func (in *Input) target() access.Target {
+	return access.Target{RoleID: in.RoleID, EntitlementID: in.EntitlementID}
 }
 
 func (in *Input) check() error {
 	if (in.RoleID == "") == (in.EntitlementID == "") {
 		return apperr.Invalidf("ask for exactly one of role_id and entitlement_id")
+	}
+	if in.Kind == "" {
+		in.Kind = KindAccess
+	}
+	switch in.Kind {
+	case KindAccess, KindEligibility, KindActivation:
+	default:
+		return apperr.Invalidf("kind must be access or eligibility")
+	}
+	if in.DurationDays != nil && in.DurationHours != nil {
+		return apperr.Invalidf("give duration_days or duration_hours, not both")
+	}
+	if in.DurationHours != nil && (*in.DurationHours < 1 || *in.DurationHours > 24) {
+		return apperr.Invalidf("duration_hours must be between 1 and 24")
+	}
+	if in.Kind == KindEligibility && in.DurationHours != nil {
+		return apperr.Invalidf("an eligibility lasts days (duration_days); each activation lasts hours")
 	}
 	in.Justification = strings.TrimSpace(in.Justification)
 	if in.Justification == "" {
@@ -175,6 +214,13 @@ func deref(s *string) string {
 // request whose every step is approved at once (an admin asking, or a manager
 // who also owns the application) is granted right away.
 func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Input) (Request, error) {
+	if in.Kind == KindActivation {
+		return Request{}, apperr.Invalidf("kind must be access or eligibility: activate an eligibility from its own page")
+	}
+	return create(ctx, tx, tenantID, requesterID, in)
+}
+
+func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Input) (Request, error) {
 	if in.BeneficiaryID == "" {
 		in.BeneficiaryID = requesterID
 	}
@@ -209,16 +255,33 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	if status != "active" {
 		return Request{}, apperr.Conflictf("access can only be requested for active people")
 	}
-	var held bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM access_assignments
-		                WHERE identity_id = $1 AND coalesce(role_id, entitlement_id) = $2::uuid
-		                  AND (expires_at IS NULL OR expires_at > now()))`,
-		in.BeneficiaryID, in.RoleID+in.EntitlementID).Scan(&held); err != nil {
-		return Request{}, err
+	if in.Kind == KindEligibility {
+		if _, err := access.FindEligibility(ctx, tx, in.BeneficiaryID, in.target()); err == nil {
+			return Request{}, apperr.Conflictf("this person is already eligible for that access")
+		} else if !errors.Is(err, apperr.ErrNotFound) {
+			return Request{}, err
+		}
+	} else {
+		var held bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM access_assignments
+			                WHERE identity_id = $1 AND coalesce(role_id, entitlement_id) = $2::uuid
+			                  AND (expires_at IS NULL OR expires_at > now()))`,
+			in.BeneficiaryID, in.RoleID+in.EntitlementID).Scan(&held); err != nil {
+			return Request{}, err
+		}
+		if held {
+			return Request{}, apperr.Conflictf("this person already has that access")
+		}
 	}
-	if held {
-		return Request{}, apperr.Conflictf("this person already has that access")
+	if in.Kind == KindAccess && in.DurationDays == nil && in.DurationHours == nil {
+		jit, err := access.JITOnly(ctx, tx, in.target())
+		if err != nil {
+			return Request{}, err
+		}
+		if jit {
+			return Request{}, apperr.Invalidf("nobody holds this access for good: ask for it for a number of hours or days, or to be made eligible")
+		}
 	}
 	conflicts, err := sod.Conflicts(ctx, tx, in.BeneficiaryID, in.RoleID, in.EntitlementID)
 	if err != nil {
@@ -227,9 +290,11 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 
 	var id string
 	err = tx.QueryRow(ctx,
-		`INSERT INTO access_requests (tenant_id, requester_id, beneficiary_id, role_id, entitlement_id, justification, duration_days)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		tenantID, requesterID, in.BeneficiaryID, db.Nullable(in.RoleID), db.Nullable(in.EntitlementID), in.Justification, in.DurationDays).Scan(&id)
+		`INSERT INTO access_requests (tenant_id, requester_id, beneficiary_id, role_id, entitlement_id, justification,
+		                             kind, duration_days, duration_hours)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		tenantID, requesterID, in.BeneficiaryID, db.Nullable(in.RoleID), db.Nullable(in.EntitlementID), in.Justification,
+		in.Kind, in.DurationDays, in.DurationHours).Scan(&id)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return Request{}, apperr.Conflictf("there is already an open request for this access")
@@ -272,7 +337,7 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	actor := db.IdentityActor(requesterID)
 	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.created", "access_request", id,
 		map[string]any{"beneficiary_id": in.BeneficiaryID, "role_id": in.RoleID, "entitlement_id": in.EntitlementID,
-			"duration_days": in.DurationDays, "sod_conflicts": conflicts}); err != nil {
+			"kind": in.Kind, "duration_days": in.DurationDays, "duration_hours": in.DurationHours, "sod_conflicts": conflicts}); err != nil {
 		return Request{}, err
 	}
 	if err := advance(ctx, tx, tenantID, actor, id); err != nil {
@@ -333,14 +398,49 @@ func advance(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 // grant closes an approved request and gives the access.
 func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	var (
-		beneficiary string
-		role, ent   *string
-		days        *int
+		beneficiary, kind, justification string
+		role, ent                        *string
+		days, hours                      *int
 	)
 	if err := tx.QueryRow(ctx,
-		`SELECT beneficiary_id, role_id, entitlement_id, duration_days FROM access_requests WHERE id = $1`, id).
-		Scan(&beneficiary, &role, &ent, &days); err != nil {
+		`SELECT beneficiary_id, role_id, entitlement_id, kind, justification, duration_days, duration_hours
+		 FROM access_requests WHERE id = $1`, id).
+		Scan(&beneficiary, &role, &ent, &kind, &justification, &days, &hours); err != nil {
 		return err
+	}
+	target := access.Target{RoleID: deref(role), EntitlementID: deref(ent)}
+	var el access.Eligibility
+	switch kind {
+	case KindEligibility:
+		// Eligibility gives no access by itself: separation of duties is
+		// checked when it is activated.
+		if _, err := tx.Exec(ctx, `UPDATE access_requests SET status = 'approved', closed_at = now() WHERE id = $1`, id); err != nil {
+			return err
+		}
+		var expires *time.Time
+		if days != nil {
+			t := time.Now().Add(time.Duration(*days) * 24 * time.Hour)
+			expires = &t
+		}
+		if _, err := access.MakeEligible(ctx, tx, tenantID, "request:"+id, beneficiary, target, expires, id); err != nil {
+			return err
+		}
+		if err := db.Audit(ctx, tx, tenantID, actor, "access_request.approved", "access_request", id, nil); err != nil {
+			return err
+		}
+		return notifyDecided(ctx, tx, tenantID, id)
+	case KindActivation:
+		var err error
+		el, err = access.FindEligibility(ctx, tx, beneficiary, target)
+		if errors.Is(err, apperr.ErrNotFound) {
+			return closeRequest(ctx, tx, tenantID, actor, id, Cancelled, "the person is no longer eligible")
+		}
+		if err != nil {
+			return err
+		}
+		if el.Active != nil {
+			return closeRequest(ctx, tx, tenantID, actor, id, Cancelled, "the access is already active")
+		}
 	}
 	// Separation of duties may have changed since the request was made: a
 	// risk an admin accepted becomes exceptions, and a conflict nobody
@@ -374,6 +474,15 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if _, err := tx.Exec(ctx, `UPDATE access_requests SET status = 'approved', closed_at = now() WHERE id = $1`, id); err != nil {
 		return err
 	}
+	if kind == KindActivation {
+		if _, err := access.Activate(ctx, tx, tenantID, "request:"+id, el, *hours, justification, id); err != nil {
+			return err
+		}
+		if err := db.Audit(ctx, tx, tenantID, actor, "access_request.approved", "access_request", id, nil); err != nil {
+			return err
+		}
+		return notifyDecided(ctx, tx, tenantID, id)
+	}
 	// An earlier, expired grant from a request makes way for this one.
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM access_assignments WHERE identity_id = $1 AND origin = 'request'
@@ -381,8 +490,12 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		return err
 	}
 	var expires *time.Time
-	if days != nil {
+	switch {
+	case days != nil:
 		t := time.Now().Add(time.Duration(*days) * 24 * time.Hour)
+		expires = &t
+	case hours != nil:
+		t := time.Now().Add(time.Duration(*hours) * time.Hour)
 		expires = &t
 	}
 	var assignment string
@@ -522,7 +635,7 @@ const selectRequests = `
 	SELECT r.id, r.requester_id, rq.display_name, r.beneficiary_id, b.display_name,
 	       CASE WHEN r.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 	       coalesce(r.role_id, r.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''),
-	       r.justification, r.duration_days, r.status, coalesce(r.reason, ''), r.created_at, r.closed_at
+	       r.justification, r.kind, r.duration_days, r.duration_hours, r.status, coalesce(r.reason, ''), r.created_at, r.closed_at
 	FROM access_requests r
 	JOIN identities rq ON rq.id = r.requester_id
 	JOIN identities b ON b.id = r.beneficiary_id
@@ -534,7 +647,7 @@ func scan(row pgx.CollectableRow) (Request, error) {
 	var r Request
 	err := row.Scan(&r.ID, &r.RequesterID, &r.RequesterName, &r.BeneficiaryID, &r.BeneficiaryName,
 		&r.Type, &r.TargetID, &r.TargetName, &r.Application,
-		&r.Justification, &r.DurationDays, &r.Status, &r.Reason, &r.CreatedAt, &r.ClosedAt)
+		&r.Justification, &r.Kind, &r.DurationDays, &r.DurationHours, &r.Status, &r.Reason, &r.CreatedAt, &r.ClosedAt)
 	r.Steps = []Step{}
 	return r, err
 }
@@ -710,15 +823,18 @@ type Requestable struct {
 	Description string `json:"description,omitempty"`
 	Application string `json:"application,omitempty"`
 	Risk        string `json:"risk,omitempty"`
+	// JITOnly says the access is only held for a time: ask for it with a
+	// duration, or to be made eligible.
+	JITOnly bool `json:"jit_only"`
 }
 
 // ListRequestable returns the roles and entitlements people can ask for:
 // all of them but the platform roles, which have their own guarded flow.
 func ListRequestable(ctx context.Context, tx pgx.Tx) ([]Requestable, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT 'role', id, name, coalesce(description, ''), '', '' FROM roles
+		`SELECT 'role', id, name, coalesce(description, ''), '', '', access_is_jit_only(id, NULL) FROM roles
 		 UNION ALL
-		 SELECT 'entitlement', e.id, e.name, coalesce(e.description, ''), a.name, e.risk
+		 SELECT 'entitlement', e.id, e.name, coalesce(e.description, ''), a.name, e.risk, e.jit_only
 		 FROM entitlements e JOIN applications a ON a.id = e.application_id
 		 WHERE a.connector <> $1 AND e.missing_since IS NULL
 		 ORDER BY 1 DESC, 5, 3`, authz.BuiltinConnector)
@@ -727,7 +843,7 @@ func ListRequestable(ctx context.Context, tx pgx.Tx) ([]Requestable, error) {
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Requestable, error) {
 		var r Requestable
-		err := row.Scan(&r.Type, &r.ID, &r.Name, &r.Description, &r.Application, &r.Risk)
+		err := row.Scan(&r.Type, &r.ID, &r.Name, &r.Description, &r.Application, &r.Risk, &r.JITOnly)
 		return r, err
 	})
 }
@@ -776,8 +892,10 @@ func ExpireDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (Housek
 			}
 		}
 
+		// Activations end every 30 seconds, with a quick provisioning pass (see
+		// access.EndActivations).
 		rows, err = tx.Query(ctx,
-			`DELETE FROM access_assignments WHERE expires_at <= now()
+			`DELETE FROM access_assignments WHERE expires_at <= now() AND origin <> 'activation'
 			 RETURNING id, identity_id, coalesce(role_id::text, ''), coalesce(entitlement_id::text, ''), origin, coalesce(request_id::text, '')`)
 		if err != nil {
 			return err
@@ -809,4 +927,70 @@ func ExpireDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (Housek
 		return nil
 	})
 	return h, err
+}
+
+// ActivationResult is what activating an eligibility did: gave the access at
+// once, or opened a request for approval.
+type ActivationResult struct {
+	Activation *access.Activation `json:"activation,omitempty"`
+	Request    *Request           `json:"request,omitempty"`
+}
+
+// Activate turns an eligibility of identityID into access for hours. It is
+// immediate unless the access needs an approval to activate, or would break
+// a prevent-mode separation of duties policy: then it becomes an activation
+// request that approvers decide like any other.
+func Activate(ctx context.Context, tx pgx.Tx, tenantID, identityID, eligibilityID string, hours int, justification string) (ActivationResult, error) {
+	el, err := access.GetEligibility(ctx, tx, eligibilityID, true)
+	if err != nil {
+		return ActivationResult{}, err
+	}
+	if el.IdentityID != identityID {
+		return ActivationResult{}, apperr.ErrNotFound
+	}
+	if justification, err = access.CheckActivation(el, hours, justification); err != nil {
+		return ActivationResult{}, err
+	}
+	in := Input{BeneficiaryID: identityID, Kind: KindActivation, Justification: justification, DurationHours: &hours}
+	if el.Type == "role" {
+		in.RoleID = el.TargetID
+	} else {
+		in.EntitlementID = el.TargetID
+	}
+	conflicts, err := sod.Conflicts(ctx, tx, identityID, in.RoleID, in.EntitlementID)
+	if err != nil {
+		return ActivationResult{}, err
+	}
+	if el.ActivationApproval || len(conflicts) > 0 {
+		r, err := create(ctx, tx, tenantID, identityID, in)
+		if err != nil {
+			return ActivationResult{}, err
+		}
+		if r.Status == Approved {
+			// Nobody else had to approve (an approver activating): the
+			// request granted it at once.
+			el, err = access.GetEligibility(ctx, tx, eligibilityID, false)
+			if err != nil {
+				return ActivationResult{}, err
+			}
+			return ActivationResult{Activation: el.Active, Request: &r}, nil
+		}
+		return ActivationResult{Request: &r}, nil
+	}
+	var held bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM access_assignments
+		                WHERE identity_id = $1 AND coalesce(role_id, entitlement_id) = $2::uuid
+		                  AND (expires_at IS NULL OR expires_at > now()))`,
+		identityID, el.TargetID).Scan(&held); err != nil {
+		return ActivationResult{}, err
+	}
+	if held {
+		return ActivationResult{}, apperr.Conflictf("you already have that access")
+	}
+	a, err := access.Activate(ctx, tx, tenantID, db.IdentityActor(identityID), el, hours, justification, "")
+	if err != nil {
+		return ActivationResult{}, err
+	}
+	return ActivationResult{Activation: &a}, nil
 }

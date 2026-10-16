@@ -131,6 +131,17 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/vault/accounts/{id}/checkouts", a.checkoutVaultAccount)
 	route("POST /api/v1/vault/checkouts/{id}/checkin", a.checkinVault)
 	route("GET /api/v1/vault/discovery", a.discoverVaultAccounts)
+	route("POST /api/v1/vault/accounts/{id}/break-glass", a.breakGlass)
+	route("GET /api/v1/vault/break-glass", a.listBreakGlassUses)
+	route("POST /api/v1/vault/break-glass/{id}/review", a.reviewBreakGlass)
+	route("GET /api/v1/identities/{id}/eligibilities", a.identityEligibilities)
+	route("POST /api/v1/identities/{id}/eligibilities", a.makeEligible)
+	route("DELETE /api/v1/eligibilities/{id}", a.removeEligibility)
+	route("POST /api/v1/eligibilities/{id}/activations", a.activateEligibility)
+	route("POST /api/v1/eligibilities/{id}/deactivate", a.deactivateEligibility)
+	route("PUT /api/v1/entitlements/{id}/jit", a.setEntitlementJIT)
+	route("GET /api/v1/standing-access", a.standingAccess)
+	route("POST /api/v1/assignments/{id}/eligibility", a.convertToEligibility)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)

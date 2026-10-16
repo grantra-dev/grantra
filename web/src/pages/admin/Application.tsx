@@ -41,6 +41,7 @@ import {
   type ProvisioningRun,
   type ProvisioningSettings,
 } from "@/lib/admin";
+import { setEntitlementJIT, type JITSettings } from "@/lib/jit";
 import { formatDate, formatTime } from "@/lib/utils";
 import { NotFound } from "../NotFound";
 import { Authorization } from "./Authorization";
@@ -398,6 +399,7 @@ function Entitlements({ appId }: { appId: string }) {
               <TableHead>Entitlement</TableHead>
               <TableHead>Id in the application</TableHead>
               <TableHead>Risk</TableHead>
+              <TableHead>Held</TableHead>
               <TableHead>Added</TableHead>
             </TableRow>
           </TableHeader>
@@ -416,6 +418,9 @@ function Entitlements({ appId }: { appId: string }) {
                     <RiskBadge risk={e.risk} />
                   )}
                 </TableCell>
+                <TableCell>
+                  <JustInTime ent={e} />
+                </TableCell>
                 <TableCell className="whitespace-nowrap">{formatDate(e.created_at)}</TableCell>
               </TableRow>
             ))}
@@ -423,6 +428,94 @@ function Entitlements({ appId }: { appId: string }) {
         </Table>
       </Loaded>
     </div>
+  );
+}
+
+/** How an entitlement is held: for good, or just in time. */
+function JustInTime({ ent }: { ent: Entitlement }) {
+  const client = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<JITSettings>({
+    jit_only: ent.jit_only,
+    max_activation_hours: ent.max_activation_hours,
+    activation_approval: ent.activation_approval,
+  });
+  const save = useMutation({
+    mutationFn: () => setEntitlementJIT(ent.id, form),
+    onSuccess: () => {
+      setEditing(false);
+      return client.invalidateQueries({ queryKey: ["entitlements", ent.application_id] });
+    },
+  });
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2">
+        {ent.jit_only ? (
+          <Badge variant="amber">
+            Just in time, up to {ent.max_activation_hours}h{ent.activation_approval && ", approved"}
+          </Badge>
+        ) : (
+          <span className="text-slate-500">Standing allowed</span>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setEditing(true)}
+          aria-label={`Change how ${ent.name} is held`}
+        >
+          Change
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex min-w-56 flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={form.jit_only}
+          onChange={(e) => setForm({ ...form, jit_only: e.target.checked })}
+        />
+        Just in time only
+      </label>
+      <label className="flex items-center gap-2">
+        Up to
+        <Input
+          type="number"
+          min={1}
+          max={24}
+          className="w-16"
+          aria-label="Most hours per activation"
+          value={form.max_activation_hours}
+          onChange={(e) => setForm({ ...form, max_activation_hours: Number(e.target.value) })}
+        />
+        hours per activation
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={form.activation_approval}
+          onChange={(e) => setForm({ ...form, activation_approval: e.target.checked })}
+        />
+        Each activation needs approval
+      </label>
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={save.isPending}>
+          Save
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </div>
+      {save.error && <Alert variant="error">{save.error.message}</Alert>}
+    </form>
   );
 }
 

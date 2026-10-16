@@ -29,7 +29,9 @@ func mailData(r Request) map[string]any {
 		"target":         r.TargetName,
 		"application":    r.Application,
 		"justification":  r.Justification,
+		"kind":           r.Kind,
 		"duration_days":  r.DurationDays,
+		"duration_hours": r.DurationHours,
 		"status":         r.Status,
 		"step":           "",
 		"due_at":         "",
@@ -109,7 +111,8 @@ func notifyDecided(ctx context.Context, tx pgx.Tx, tenantID, id string) error {
 	if r.Status == Approved {
 		var expires *time.Time
 		if err := tx.QueryRow(ctx,
-			`SELECT expires_at FROM access_assignments WHERE request_id = $1`, r.ID).Scan(&expires); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			`SELECT expires_at FROM access_assignments WHERE request_id = $1
+			 UNION ALL SELECT expires_at FROM access_eligibilities WHERE request_id = $1 LIMIT 1`, r.ID).Scan(&expires); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		if expires != nil {

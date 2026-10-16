@@ -50,14 +50,26 @@ type Application struct {
 
 // Entitlement is a permission inside an application.
 type Entitlement struct {
-	ID              string    `json:"id"`
-	ApplicationID   string    `json:"application_id"`
-	ApplicationName string    `json:"application_name"`
-	NativeID        string    `json:"native_id"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description,omitempty"`
-	Risk            string    `json:"risk"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string `json:"id"`
+	ApplicationID   string `json:"application_id"`
+	ApplicationName string `json:"application_name"`
+	NativeID        string `json:"native_id"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	Risk            string `json:"risk"`
+	JIT
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// JIT is how an entitlement is held just in time. JITOnly means nobody holds
+// it without an end date: requests carry a duration, birthright rules cannot
+// give it, and people are made eligible and activate it when they need it.
+// An activation lasts at most MaxActivationHours and, with
+// ActivationApproval, goes through the approvals of an access request.
+type JIT struct {
+	JITOnly            bool `json:"jit_only"`
+	MaxActivationHours int  `json:"max_activation_hours"`
+	ActivationApproval bool `json:"activation_approval"`
 }
 
 // Role is a business role: a bundle of entitlements given together.
@@ -170,7 +182,7 @@ func CreateEntitlement(ctx context.Context, tx pgx.Tx, tenantID, applicationID s
 		return Entitlement{}, apperr.Invalidf("risk must be one of %s", strings.Join(Risks, ", "))
 	}
 	e := Entitlement{ApplicationID: app.ID, ApplicationName: app.Name, NativeID: native, Name: name,
-		Description: strings.TrimSpace(in.Description), Risk: in.Risk}
+		Description: strings.TrimSpace(in.Description), Risk: in.Risk, JIT: JIT{MaxActivationHours: DefaultActivationHours}}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO entitlements (tenant_id, application_id, native_id, name, description, risk)
 		 VALUES ($1, $2, $3, $4, nullif($5, ''), $6)
@@ -180,6 +192,64 @@ func CreateEntitlement(ctx context.Context, tx pgx.Tx, tenantID, applicationID s
 		return Entitlement{}, apperr.Conflictf("%s already has an entitlement %q", app.Name, native)
 	}
 	return e, err
+}
+
+// DefaultActivationHours is how long an activation may last unless the
+// entitlement says otherwise.
+const DefaultActivationHours = 4
+
+// SetJIT changes how an entitlement is held just in time. Making it
+// just-in-time only is refused while a birthright rule gives it, and vault
+// entitlements always stay just-in-time only. Standing access people already
+// hold stays until it is turned into eligibility (see the standing access
+// report).
+func SetJIT(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, j JIT) (Entitlement, error) {
+	if !db.ValidUUID(id) {
+		return Entitlement{}, apperr.ErrNotFound
+	}
+	if j.MaxActivationHours == 0 {
+		j.MaxActivationHours = DefaultActivationHours
+	}
+	if j.MaxActivationHours < 1 || j.MaxActivationHours > 24 {
+		return Entitlement{}, apperr.Invalidf("max_activation_hours must be between 1 and 24")
+	}
+	var connector string
+	var vault, birthright bool
+	err := tx.QueryRow(ctx,
+		`SELECT a.connector,
+		        EXISTS (SELECT 1 FROM vault_accounts va WHERE va.entitlement_id = e.id),
+		        EXISTS (SELECT 1 FROM access_rule_grants g WHERE g.entitlement_id = e.id
+		                   OR g.role_id IN (SELECT role_id FROM role_entitlements WHERE entitlement_id = e.id))
+		 FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1 FOR UPDATE OF e`, id).
+		Scan(&connector, &vault, &birthright)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entitlement{}, apperr.ErrNotFound
+	}
+	if err != nil {
+		return Entitlement{}, err
+	}
+	switch {
+	case connector == builtinConnector:
+		return Entitlement{}, apperr.Invalidf("platform roles are fixed; manage their members under platform roles")
+	case vault && !j.JITOnly:
+		return Entitlement{}, apperr.Invalidf("vault access is always just-in-time only")
+	case j.JITOnly && birthright:
+		return Entitlement{}, apperr.Conflictf("a birthright rule gives this entitlement, directly or through a role; remove it from the rule first")
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE entitlements SET jit_only = $2, max_activation_hours = $3, activation_approval = $4 WHERE id = $1`,
+		id, j.JITOnly, j.MaxActivationHours, j.ActivationApproval); err != nil {
+		return Entitlement{}, err
+	}
+	if err := db.Audit(ctx, tx, tenantID, actor, "entitlement.jit_updated", "entitlement", id, map[string]any{
+		"jit_only": j.JITOnly, "max_activation_hours": j.MaxActivationHours, "activation_approval": j.ActivationApproval}); err != nil {
+		return Entitlement{}, err
+	}
+	rows, err := tx.Query(ctx, `SELECT `+entitlementColumns+` FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1`, id)
+	if err != nil {
+		return Entitlement{}, err
+	}
+	return pgx.CollectExactlyOneRow(rows, scanEntitlement)
 }
 
 func lockApplication(ctx context.Context, tx pgx.Tx, id string) (Application, error) {
@@ -195,11 +265,13 @@ func lockApplication(ctx context.Context, tx pgx.Tx, id string) (Application, er
 	return a, err
 }
 
-const entitlementColumns = `e.id, e.application_id, a.name, e.native_id, e.name, coalesce(e.description, ''), e.risk, e.created_at`
+const entitlementColumns = `e.id, e.application_id, a.name, e.native_id, e.name, coalesce(e.description, ''), e.risk,
+	e.jit_only, e.max_activation_hours, e.activation_approval, e.created_at`
 
 func scanEntitlement(row pgx.CollectableRow) (Entitlement, error) {
 	var e Entitlement
-	err := row.Scan(&e.ID, &e.ApplicationID, &e.ApplicationName, &e.NativeID, &e.Name, &e.Description, &e.Risk, &e.CreatedAt)
+	err := row.Scan(&e.ID, &e.ApplicationID, &e.ApplicationName, &e.NativeID, &e.Name, &e.Description, &e.Risk,
+		&e.JITOnly, &e.MaxActivationHours, &e.ActivationApproval, &e.CreatedAt)
 	return e, err
 }
 
@@ -294,17 +366,17 @@ func saveRole(ctx context.Context, tx pgx.Tx, tenantID, id string, in RoleInput)
 		return Role{}, err
 	}
 	if id != "" {
-		// Birthright rules cannot give vault access (see package access),
-		// so neither can a role they give.
-		var vault bool
+		// Birthright rules cannot give just-in-time only access (see
+		// package access), so neither can a role they give.
+		var jit bool
 		err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM vault_accounts WHERE entitlement_id = ANY($1::uuid[]))
-			   AND EXISTS (SELECT 1 FROM access_rule_grants WHERE role_id = $2)`, ents, id).Scan(&vault)
+			SELECT EXISTS (SELECT 1 FROM entitlements WHERE id = ANY($1::uuid[]) AND jit_only)
+			   AND EXISTS (SELECT 1 FROM access_rule_grants WHERE role_id = $2)`, ents, id).Scan(&jit)
 		if err != nil {
 			return Role{}, err
 		}
-		if vault {
-			return Role{}, apperr.Invalidf("a birthright rule gives this role, so it cannot include vault access")
+		if jit {
+			return Role{}, apperr.Invalidf("a birthright rule gives this role, so it cannot include just-in-time only access")
 		}
 	}
 	desc := strings.TrimSpace(in.Description)
@@ -390,7 +462,8 @@ func listRoles(ctx context.Context, tx pgx.Tx, id string) ([]Role, error) {
 			roleID string
 			e      Entitlement
 		)
-		if err := rows.Scan(&roleID, &e.ID, &e.ApplicationID, &e.ApplicationName, &e.NativeID, &e.Name, &e.Description, &e.Risk, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&roleID, &e.ID, &e.ApplicationID, &e.ApplicationName, &e.NativeID, &e.Name, &e.Description, &e.Risk,
+			&e.JITOnly, &e.MaxActivationHours, &e.ActivationApproval, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		if i, ok := byRole[roleID]; ok {

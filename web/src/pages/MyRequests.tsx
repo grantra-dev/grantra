@@ -6,7 +6,14 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cancelRequest, listMyRequests, type AccessRequest, type Me } from "@/lib/api";
+import {
+  cancelRequest,
+  durationText,
+  kindText,
+  listMyRequests,
+  type AccessRequest,
+  type Me,
+} from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 const statusBadges = {
@@ -73,6 +80,7 @@ function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{r.target_name}</span>
               <Badge variant={badge.variant}>{badge.label}</Badge>
+              {kindText(r) && <Badge variant="brand">{kindText(r)}</Badge>}
             </div>
             <div className="text-sm text-slate-500">
               {r.type === "role" ? "Role" : r.application}
@@ -80,7 +88,7 @@ function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
               {r.requester_id !== me.identity_id && <> · asked by {r.requester_name}</>}
               {" · "}
               {formatDate(r.created_at)}
-              {r.duration_days && <> · for {r.duration_days} days</>}
+              {durationText(r) && <> · {durationText(r)}</>}
             </div>
           </div>
           {r.status === "pending" && (

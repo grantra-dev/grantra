@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
+import { listEligibilities } from "@/lib/jit";
 import {
   createRequest,
   getIdentityAccess,
@@ -29,8 +30,13 @@ export function RequestAccess({ me }: { me: Me }) {
     queryFn: () => getIdentityAccess(me.identity_id),
   });
   const mine = useQuery({ queryKey: ["my-requests"], queryFn: listMyRequests });
+  const eligible = useQuery({
+    queryKey: ["eligibilities", me.identity_id],
+    queryFn: () => listEligibilities(me.identity_id),
+  });
 
   const held = new Set(access.data?.map((a) => a.target_id));
+  const canActivate = new Set(eligible.data?.map((e) => e.target_id));
   const pending = new Set(
     mine.data
       ?.filter((r) => r.status === "pending" && r.beneficiary_id === me.identity_id)
@@ -88,6 +94,7 @@ export function RequestAccess({ me }: { me: Me }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{i.name}</span>
                       <RiskBadge risk={i.risk} />
+                      {i.jit_only && <Badge variant="amber">Just in time</Badge>}
                     </div>
                     <div className="text-sm text-slate-500">
                       {i.type === "role" ? "Role" : i.application}
@@ -98,6 +105,8 @@ export function RequestAccess({ me }: { me: Me }) {
                   </div>
                   {held.has(i.id) ? (
                     <Badge variant="green">You have this</Badge>
+                  ) : canActivate.has(i.id) ? (
+                    <Badge variant="green">Activate it from My access</Badge>
                   ) : pending.has(i.id) ? (
                     <Badge variant="amber">Requested</Badge>
                   ) : (
@@ -129,18 +138,36 @@ export function RequestAccess({ me }: { me: Me }) {
   );
 }
 
-const durations = [
-  { days: 0, label: "Until it is removed" },
-  { days: 7, label: "1 week" },
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
-  { days: 180, label: "6 months" },
-  { days: 365, label: "1 year" },
+// Durations as "h:<hours>", "d:<days>" or "" for no end date.
+const hourOptions = [
+  { value: "h:1", label: "1 hour" },
+  { value: "h:4", label: "4 hours" },
+  { value: "h:8", label: "8 hours" },
 ];
+const dayOptions = [
+  { value: "d:1", label: "1 day" },
+  { value: "d:7", label: "1 week" },
+  { value: "d:30", label: "30 days" },
+  { value: "d:90", label: "90 days" },
+  { value: "d:180", label: "6 months" },
+  { value: "d:365", label: "1 year" },
+];
+const forever = { value: "", label: "Until it is removed" };
+
+function durationOptions(item: Requestable, kind: "access" | "eligibility") {
+  if (kind === "eligibility") return [forever, ...dayOptions];
+  // Just-in-time access is never held for good.
+  return item.jit_only ? [...hourOptions, ...dayOptions] : [forever, ...hourOptions, ...dayOptions];
+}
 
 function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void }) {
   const [justification, setJustification] = useState("");
-  const [days, setDays] = useState(0);
+  // For just-in-time access, being eligible is the usual ask.
+  const [kind, setKind] = useState<"access" | "eligibility">(
+    item.jit_only ? "eligibility" : "access",
+  );
+  const options = durationOptions(item, kind);
+  const [duration, setDuration] = useState(options[0]!.value);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const target = targetOf(item);
@@ -152,12 +179,16 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
   const conflicts = check.data ?? [];
 
   const submit = useMutation({
-    mutationFn: () =>
-      createRequest({
+    mutationFn: () => {
+      const [unit, n] = duration.split(":");
+      return createRequest({
         ...target,
+        kind,
         justification: justification.trim(),
-        duration_days: days || undefined,
-      }),
+        duration_days: unit === "d" ? Number(n) : undefined,
+        duration_hours: unit === "h" ? Number(n) : undefined,
+      });
+    },
     onSuccess: async (req) => {
       await queryClient.invalidateQueries({ queryKey: ["my-requests"] });
       navigate("/requests", { state: { created: req.target_name } });
@@ -212,11 +243,39 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
               Your approvers and the auditors read this.
             </p>
           </div>
+          {item.jit_only && (
+            <fieldset>
+              <legend className="mb-1 text-sm font-medium">What do you need?</legend>
+              <p className="mb-2 text-xs text-slate-500">Nobody holds this access all the time.</p>
+              {(
+                [
+                  ["eligibility", "To be eligible: activate it for a few hours when needed"],
+                  ["access", "The access itself, once, for a set time"],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="flex items-start gap-2 py-1 text-sm">
+                  <input
+                    type="radio"
+                    name="kind"
+                    className="mt-1"
+                    checked={kind === k}
+                    onChange={() => {
+                      setKind(k);
+                      setDuration(durationOptions(item, k)[0]!.value);
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+          )}
           <div>
-            <Label htmlFor="duration">For how long?</Label>
-            <Select id="duration" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-              {durations.map((d) => (
-                <option key={d.days} value={d.days}>
+            <Label htmlFor="duration">
+              {kind === "eligibility" ? "Eligible for how long?" : "For how long?"}
+            </Label>
+            <Select id="duration" value={duration} onChange={(e) => setDuration(e.target.value)}>
+              {options.map((d) => (
+                <option key={d.value} value={d.value}>
                   {d.label}
                 </option>
               ))}

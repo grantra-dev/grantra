@@ -10,6 +10,15 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - **Password rotation** in Active Directory, OpenLDAP and Grantra Login, on a schedule and after each use, without ever losing a password the target accepted ([docs](docs/vault.md#rotation)).
 - **Discovery** of privileged, orphaned and service accounts that belong in the vault.
 - Helm: `vault.key` / `vault.existingSecret`.
+- **Just-in-time access** (zero standing privileges): mark an entitlement *just in time only* with a maximum of hours per activation and optional approval. People are made eligible by an admin or ask to be eligible, then activate it for a few hours with a reason from **My access**; it ends on its own and provisioning takes it back within seconds. The database refuses standing assignments to such access, and birthright rules cannot give it ([docs](docs/just-in-time.md)).
+- **Standing access report**: high and critical risk access held with no end date, converted into eligibility in one click.
+- **Break glass**: responders open an emergency vault account without holding its access, for up to an hour, ignoring exclusivity. Every admin and auditor is emailed at once (an email nobody can turn off), the password rotates afterwards, and another admin reviews each use, with daily reminders ([docs](docs/vault.md#break-glass)).
+- Access requests take `kind` (`access` or `eligibility`) and `duration_hours`.
+- Leavers lose their eligibilities along with their access.
+
+### Changed
+
+- Vault entitlements are always just in time only: requests for them need a duration, and the existing ones are switched on upgrade. Existing assignments with no end date stay, and show in the Standing access report to convert.
 
 ## [0.2.0] - 2026-10-15
 

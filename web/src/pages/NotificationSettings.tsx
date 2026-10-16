@@ -52,11 +52,16 @@ export function NotificationSettings({ me }: { me: Me }) {
                     type="checkbox"
                     className="mt-1 size-4"
                     checked={k.enabled}
-                    disabled={toggle.isPending}
+                    disabled={toggle.isPending || k.required}
                     onChange={(e) => toggle.mutate({ kind: k.kind, enabled: e.target.checked })}
                   />
                   <span>
-                    <span className="block text-sm font-medium">{k.title}</span>
+                    <span className="block text-sm font-medium">
+                      {k.title}
+                      {k.required && (
+                        <span className="font-normal text-slate-500"> · always on</span>
+                      )}
+                    </span>
                     <span className="block text-sm text-slate-500">{k.description}</span>
                   </span>
                 </label>

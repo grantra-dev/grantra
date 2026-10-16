@@ -64,7 +64,8 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 | **Web console and emails** | One app for employees, managers, owners and admins, plus email notifications. [Docs](docs/console.md), [emails](docs/notifications.md) |
 | **Grantra Login** | Single sign-on for your apps, MFA and passkeys (required only for people with sensitive access, if you like), sign-in with Entra ID, Okta, OIDC or SAML, and migration one email domain at a time. [Docs](docs/grantra-login.md) |
 | **Authorization for your apps** | Your apps ask Grantra "may this person do this?" through an API, answered by Cedar policies with the person's department, roles and access filled in. [Docs](docs/app-authorization.md) |
-| **Credential vault** | Passwords and SSH keys of privileged accounts, encrypted, checked out with a reason by the people who hold access to them, and rotated in Active Directory, LDAP and Grantra Login after use or on a schedule. Finds privileged and service accounts that belong in it. [Docs](docs/vault.md) |
+| **Credential vault** | Passwords and SSH keys of privileged accounts, encrypted, checked out with a reason by the people who hold access to them, and rotated in Active Directory, LDAP and Grantra Login after use or on a schedule. Finds privileged and service accounts that belong in it. Break glass for emergencies, always alerted and reviewed. [Docs](docs/vault.md) |
+| **Just-in-time access** | Zero standing privileges: people are eligible for privileged access and activate it for a few hours with a reason, with or without approval; it ends on its own. A report finds standing privileged access and converts it. [Docs](docs/just-in-time.md) |
 | **Audit log** | Every change and decision, searchable. |
 | **Policies as code** | Authorization inside Grantra runs on [Cedar](https://www.cedarpolicy.com/). |
 

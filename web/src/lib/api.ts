@@ -62,12 +62,14 @@ export interface Assignment {
   target_id: string;
   name: string;
   application?: string;
-  origin: "birthright" | "manual" | "request";
+  origin: "birthright" | "manual" | "request" | "activation";
   rule_id?: string;
   rule_name?: string;
   granted_by: string;
   granted_at: string;
   expires_at?: string;
+  /** Why an activation was made. */
+  justification?: string;
 }
 
 export const getMe = () => api<Me>("/api/v1/me");
@@ -85,7 +87,12 @@ export interface Requestable {
   description?: string;
   application?: string;
   risk?: "low" | "medium" | "high" | "critical";
+  /** Nobody holds it for good: ask for it for a time, or to be eligible. */
+  jit_only: boolean;
 }
+
+/** What a request asks for: the access, to be eligible, or to activate. */
+export type RequestKind = "access" | "eligibility" | "activation";
 
 export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled" | "expired";
 
@@ -114,7 +121,9 @@ export interface AccessRequest {
   target_name: string;
   application?: string;
   justification: string;
+  kind: RequestKind;
   duration_days?: number;
+  duration_hours?: number;
   status: RequestStatus;
   reason?: string;
   created_at: string;
@@ -127,9 +136,23 @@ export interface AccessRequest {
 export interface NewRequest {
   role_id?: string;
   entitlement_id?: string;
+  kind?: "access" | "eligibility";
   justification: string;
   duration_days?: number;
+  duration_hours?: number;
 }
+
+/** "for 3 hours", "for 30 days" or "" for a request's duration. */
+export const durationText = (r: Pick<AccessRequest, "duration_days" | "duration_hours">) =>
+  r.duration_hours
+    ? `for ${r.duration_hours} ${r.duration_hours === 1 ? "hour" : "hours"}`
+    : r.duration_days
+      ? `for ${r.duration_days} ${r.duration_days === 1 ? "day" : "days"}`
+      : "";
+
+/** "Eligibility" or "Activation" for requests that are not for the access itself. */
+export const kindText = (r: Pick<AccessRequest, "kind">) =>
+  r.kind === "eligibility" ? "Eligibility" : r.kind === "activation" ? "Activation" : "";
 
 const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 
@@ -383,6 +406,8 @@ export interface NotificationSetting {
   title: string;
   description: string;
   enabled: boolean;
+  /** Required emails cannot be turned off. */
+  required?: boolean;
 }
 
 /** From GET /api/v1/me/notifications. */

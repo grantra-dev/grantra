@@ -193,7 +193,13 @@ func (e *env) create(in Input) Account {
 	return a
 }
 
+// grant gives access to a vault entitlement, for a day unless expires says
+// otherwise: vault access is just-in-time only.
 func (e *env) grant(identity, entitlement string, expires *time.Time) {
+	if expires == nil {
+		t := time.Now().Add(24 * time.Hour)
+		expires = &t
+	}
 	e.exec(`INSERT INTO access_assignments (tenant_id, identity_id, entitlement_id, origin, granted_by, expires_at)
 	        VALUES ($1, $2, $3, 'manual', 'test', $4)`, e.tenant, identity, entitlement, expires)
 }
@@ -262,7 +268,8 @@ func TestCreateAndCheckout(t *testing.T) {
 	// Through a business role too.
 	role := e.one(`INSERT INTO roles (tenant_id, name) VALUES ($1, 'DBAs') RETURNING id`, e.tenant)
 	e.exec(`INSERT INTO role_entitlements (tenant_id, role_id, entitlement_id) VALUES ($1, $2, $3)`, e.tenant, role, a.EntitlementID)
-	e.exec(`INSERT INTO access_assignments (tenant_id, identity_id, role_id, origin, granted_by) VALUES ($1, $2, $3, 'manual', 'test')`, e.tenant, luis, role)
+	e.exec(`INSERT INTO access_assignments (tenant_id, identity_id, role_id, origin, granted_by, expires_at)
+	        VALUES ($1, $2, $3, 'manual', 'test', now() + interval '1 day')`, e.tenant, luis, role)
 	if h := e.holders(a.ID); len(h) != 2 {
 		t.Fatalf("holders = %v, want ana and luis (through the role)", h)
 	}

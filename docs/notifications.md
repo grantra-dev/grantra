@@ -11,6 +11,8 @@ page where the person acts.
 | `request_decided` | The requester and the person the access is for | The request is approved, rejected (with who rejected it and their comment) or expired |
 | `review_assigned` | Each reviewer, with how many items they have; admins also count the items with nobody else to review them | A review campaign is launched |
 | `campaign_due_soon` | Reviewers who still have items pending, with how many | Once, when the campaign ends within 48 hours |
+| `break_glass_used` | Every admin and auditor. **Cannot be turned off** | Someone breaks the glass on a vault account |
+| `break_glass_review` | Admins, about uses other than their own | A break-glass use is still not reviewed a day after it started, then daily |
 | `sod_violation` | Admins | A separation of duties check (every 30 minutes, or run from the console) finds new violations or ends exceptions. One email per check lists up to 20, most severe first |
 
 Nobody is emailed about their own access as an approver. Withdrawn requests,
@@ -43,7 +45,8 @@ Everyone chooses which kinds they get, from the bell in the console header
 - `GET /api/v1/me/notifications` returns `email_enabled` (whether this
   install sends email), `has_email` and each kind with `enabled`.
 - `PUT /api/v1/me/notifications/{kind}` with `{"enabled": false}` turns a
-  kind off. Changes are audited as `notifications.updated`.
+  kind off. Changes are audited as `notifications.updated`. Kinds marked
+  `required` (the break-glass alert) cannot be turned off.
 
 Every email ends with a link to the settings page.
 

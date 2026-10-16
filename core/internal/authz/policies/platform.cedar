@@ -93,6 +93,36 @@ when { resource.holders.contains(principal) };
 forbid (principal, action == Action::"vault_account.checkout", resource is VaultAccount)
 unless { resource.holders.contains(principal) };
 
+// Break-glass accounts open without approval for their responders, and for
+// nobody else, admins included unless they are responders.
+@id("vault-break-glass-responders")
+permit (principal, action == Action::"vault_account.break_glass", resource is BreakGlassAccount)
+when { resource.responders.contains(principal) };
+
+@id("vault-break-glass-responders-only")
+forbid (principal, action == Action::"vault_account.break_glass", resource is BreakGlassAccount)
+unless { resource.responders.contains(principal) };
+
+// Nobody reviews their own break-glass use, not even an admin.
+@id("no-self-break-glass-review")
+forbid (principal, action == Action::"break_glass_use.review", resource is BreakGlassUse)
+when { resource.identity == principal };
+
+// Nobody makes themselves eligible for access, or turns their own standing
+// access into eligibility, not even an admin: they request it.
+@id("no-self-eligibility")
+forbid (principal, action == Action::"access.manage", resource)
+when { resource == principal };
+
+// People activate their own eligibilities, and nobody else's.
+@id("activate-own")
+permit (principal, action == Action::"access.activate", resource)
+when { resource == principal };
+
+@id("activate-own-only")
+forbid (principal, action == Action::"access.activate", resource)
+unless { resource == principal };
+
 // Only active identities act. Sessions already end when an identity stops
 // being active; this keeps that true for any future way in.
 @id("only-active-identities")

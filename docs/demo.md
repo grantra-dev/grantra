@@ -41,7 +41,8 @@ On top of the people:
 - **Roles**: Engineer, Finance clerk and Sales rep. Each is given to its department by a birthright rule.
 - **Manual access**: Pedro was granted *Approve payments* by hand.
 - **Separation of duties**: the policy *Create and approve payments* (prevent mode) says nobody may hold both.
-- **Vault**: the root password of a production database, which only people granted *Use Production database root* can check out (needs `GRANTRA_VAULT_KEY`, set in docker-compose).
+- **Just-in-time access**: nobody holds GitHub *Org admins* for good; Luis is eligible to activate it for up to two hours.
+- **Vault**: the root password of a production database, which only people granted *Use Production database root* can check out (needs `GRANTRA_VAULT_KEY`, set in docker-compose). Luis can also break the glass on it in an emergency.
 
 `elena` signs in once she joins in step 1.
 
@@ -124,16 +125,30 @@ The demo vault holds the root password of a production database. Nobody can
 read it yet, not even the admin.
 
 1. Sign in as `luis`. In **Request access**, search for *Use Production
-   database root* and request it, for a day.
+   database root*. Vault access is just in time only: pick *The access
+   itself, once, for a set time* and *1 day* (or ask to be eligible, and
+   activate it from **My access** when needed).
 2. As `ana` (his manager), then as `admin` (the vault has no owner, so admins
    decide), approve it in **Approvals**.
 3. Back as `luis`, open **Vault**, click **Check out**, give a reason and see
    the password. It is his for 30 minutes, and nobody else can take it out
    meanwhile. Click **Check in** when done.
+4. Still as `luis`, open **My access**: he is eligible for GitHub *Org
+   admins*. Click **Activate**, pick up to 2 hours and say why. He has it at
+   once, and it goes away on its own when the hours run out (or click
+   **Done, end it now**).
+5. Emergency: as `luis`, click **Break glass** on the database account and
+   describe the incident. Every admin and auditor gets an email (see
+   Mailpit), and the password changes once he checks in if the account can
+   rotate.
+6. As `admin`, open **Vault** → **Break glass** and mark Luis's use
+   *Justified*, or flag it with a reason.
 
 As `admin`, click the account's name in **Vault** to see every check-out and
-its reason. Once Grantra Login has been read, the **Discovery** tab lists its
-accounts that look privileged or belong to nobody. See [vault.md](vault.md).
+its reason, and **Administration** → **Standing access** to see who holds
+high-risk access for good and turn it into eligibility. Once Grantra Login has been read, the **Discovery** tab lists its
+accounts that look privileged or belong to nobody. See [vault.md](vault.md)
+and [just-in-time.md](just-in-time.md).
 
 ## Everything is on record
 

@@ -15,6 +15,18 @@ export interface VaultCheckout {
   expires_at: string;
   ended_at?: string;
   ended_by?: "checked_in" | "expired" | "ended";
+  account_name: string;
+  /** Opened in an emergency: an admin other than the person reviews it. */
+  break_glass: boolean;
+  review_status?: "pending" | "justified" | "flagged";
+  reviewed_by?: string;
+  reviewed_at?: string;
+  review_comment?: string;
+}
+
+export interface Responder {
+  id: string;
+  name: string;
 }
 
 export interface VaultAccount {
@@ -42,8 +54,14 @@ export interface VaultAccount {
   version: number;
   secret_at?: string;
   checkouts: VaultCheckout[];
+  /** Responders may open it in an emergency without holding access. */
+  break_glass: boolean;
+  /** Who may break the glass; the platform admins when empty. */
+  break_glass_responders?: Responder[];
   /** Whether you hold access to it, and so can check it out. */
   held: boolean;
+  /** Whether you may break the glass on it. */
+  responder: boolean;
   created_at: string;
 }
 
@@ -54,6 +72,8 @@ export interface VaultSettings {
   exclusive: boolean;
   rotate_every_days: number;
   rotate_after_checkin: boolean;
+  break_glass: boolean;
+  break_glass_responders: string[];
 }
 
 export interface NewVaultAccount extends VaultSettings {
@@ -133,3 +153,21 @@ export const checkinVault = (checkoutId: string) =>
 
 export const discoverVaultAccounts = () =>
   api<{ findings: VaultFinding[] }>("/api/v1/vault/discovery?limit=200").then((r) => r.findings);
+
+export const breakGlass = (id: string, reason: string) =>
+  send<VaultLease>("POST", `${account(id)}/break-glass`, { reason });
+
+export const listBreakGlassUses = (all: boolean) =>
+  api<{ uses: VaultCheckout[] }>(
+    `/api/v1/vault/break-glass?status=${all ? "all" : "pending"}`,
+  ).then((r) => r.uses);
+
+export const reviewBreakGlass = (checkoutId: string, justified: boolean, comment: string) =>
+  send<VaultCheckout>(
+    "POST",
+    `/api/v1/vault/break-glass/${encodeURIComponent(checkoutId)}/review`,
+    {
+      justified,
+      comment,
+    },
+  );

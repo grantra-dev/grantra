@@ -177,6 +177,28 @@ func TestDecisions(t *testing.T) {
 		{"auditor cannot check out", Request{Principal: auditor, Action: CheckoutVault, Resource: VaultAccountResource("v1", nil)}, false, []string{"vault-checkout-holders-only"}},
 		{"suspended holder cannot check out", Request{Principal: suspendedAdmin, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{suspendedAdmin.ID})}, false, []string{"only-active-identities"}},
 
+		// Break-glass: only responders open it, admins included; nobody
+		// reviews their own use.
+		{"responder breaks glass", Request{Principal: report, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{report.ID})}, true, []string{"vault-break-glass-responders"}},
+		{"admin responder breaks glass", Request{Principal: admin, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{admin.ID})}, true, nil},
+		{"admin not a responder cannot break glass", Request{Principal: admin, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{report.ID})}, false, []string{"vault-break-glass-responders-only"}},
+		{"others cannot break glass", Request{Principal: peer, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{report.ID})}, false, nil},
+		{"admin reviews a break-glass use", Request{Principal: admin, Action: ReviewBreakGlass, Resource: BreakGlassUseResource("c1", report.ID)}, true, []string{"admin-all"}},
+		{"nobody reviews own break-glass use", Request{Principal: admin, Action: ReviewBreakGlass, Resource: BreakGlassUseResource("c1", admin.ID)}, false, []string{"no-self-break-glass-review"}},
+		{"auditor cannot review break-glass", Request{Principal: auditor, Action: ReviewBreakGlass, Resource: BreakGlassUseResource("c1", report.ID)}, false, nil},
+		{"employee cannot review break-glass", Request{Principal: peer, Action: ReviewBreakGlass, Resource: BreakGlassUseResource("c1", report.ID)}, false, nil},
+
+		// Just-in-time access: admins make others eligible, never
+		// themselves; people activate only their own eligibilities.
+		{"admin makes someone eligible", Request{Principal: admin, Action: ManageAccess, Resource: IdentityResource(report)}, true, []string{"admin-all"}},
+		{"admin cannot make self eligible", Request{Principal: admin, Action: ManageAccess, Resource: IdentityResource(admin)}, false, []string{"no-self-eligibility"}},
+		{"manager cannot make reports eligible", Request{Principal: manager, Action: ManageAccess, Resource: IdentityResource(report)}, false, nil},
+		{"auditor cannot make people eligible", Request{Principal: auditor, Action: ManageAccess, Resource: IdentityResource(report)}, false, nil},
+		{"person activates own", Request{Principal: report, Action: ActivateAccess, Resource: IdentityResource(report)}, true, []string{"activate-own"}},
+		{"admin cannot activate for others", Request{Principal: admin, Action: ActivateAccess, Resource: IdentityResource(report)}, false, []string{"activate-own-only"}},
+		{"manager cannot activate for reports", Request{Principal: manager, Action: ActivateAccess, Resource: IdentityResource(report)}, false, nil},
+		{"suspended person cannot activate", Request{Principal: suspendedAdmin, Action: ActivateAccess, Resource: IdentityResource(suspendedAdmin)}, false, []string{"only-active-identities"}},
+
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
 		{"suspended person cannot read self", Request{Principal: suspendedAdmin, Action: ReadIdentity, Resource: IdentityResource(suspendedAdmin)}, false, nil},

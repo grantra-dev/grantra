@@ -21,9 +21,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/notify"
 )
 
 // ApplicationName is the application whose entitlements give access to
@@ -87,10 +89,22 @@ type Account struct {
 	Version   int        `json:"version"`
 	SecretAt  *time.Time `json:"secret_at,omitempty"`
 	Checkouts []Checkout `json:"checkouts"`
+	// BreakGlass accounts open in an emergency without approval, for the
+	// responders (the platform admins when none are listed).
+	BreakGlass bool        `json:"break_glass"`
+	Responders []Responder `json:"break_glass_responders"`
 	// Held says whether the person asking holds access to it, and so can
-	// check it out. Set by the console.
+	// check it out; Responder whether they may break the glass. Set by the
+	// console.
 	Held      bool      `json:"held"`
+	Responder bool      `json:"responder"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Responder is someone who may open a break-glass account.
+type Responder struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Checkout is one lease of a vault account's secret.
@@ -105,6 +119,14 @@ type Checkout struct {
 	ExpiresAt      time.Time  `json:"expires_at"`
 	EndedAt        *time.Time `json:"ended_at,omitempty"`
 	EndedBy        string     `json:"ended_by,omitempty"`
+	// BreakGlass check-outs are reviewed afterwards: ReviewStatus is
+	// pending, justified or flagged.
+	BreakGlass    bool       `json:"break_glass"`
+	ReviewStatus  string     `json:"review_status,omitempty"`
+	ReviewedBy    string     `json:"reviewed_by,omitempty"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
+	ReviewComment string     `json:"review_comment,omitempty"`
+	AccountName   string     `json:"account_name"`
 }
 
 // Version is one value a vault account has had, without the value.
@@ -126,6 +148,10 @@ type Settings struct {
 	Exclusive          bool   `json:"exclusive"`
 	RotateEveryDays    int    `json:"rotate_every_days"`
 	RotateAfterCheckin bool   `json:"rotate_after_checkin"`
+	// BreakGlass lets Responders (identity ids; the platform admins when
+	// empty) open the account in an emergency without approval.
+	BreakGlass bool     `json:"break_glass"`
+	Responders []string `json:"break_glass_responders"`
 }
 
 // Input describes a new vault account. AccountID links it to an aggregated
@@ -157,6 +183,18 @@ func (s *Settings) check(kind string, canRotate bool) error {
 	}
 	if s.CheckoutMinutes < 5 || s.CheckoutMinutes > 480 {
 		return apperr.Invalidf("checkout_minutes must be between 5 and 480")
+	}
+	s.Responders = slices.Compact(slices.Sorted(slices.Values(s.Responders)))
+	if len(s.Responders) > 50 {
+		return apperr.Invalidf("list at most 50 break-glass responders")
+	}
+	for _, r := range s.Responders {
+		if !db.ValidUUID(r) {
+			return apperr.Invalidf("break_glass_responders must be identity ids")
+		}
+	}
+	if len(s.Responders) > 0 && !s.BreakGlass {
+		return apperr.Invalidf("break-glass responders are only for break-glass accounts")
 	}
 	if s.RotateEveryDays < 0 || s.RotateEveryDays > 365 {
 		return apperr.Invalidf("rotate_every_days must be between 1 and 365, or 0 for no schedule")
@@ -254,22 +292,32 @@ func (v *Vault) Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, i
 		}
 		return Account{}, err
 	}
+	// Nobody holds vault access for good: people request it for a time or
+	// are made eligible and activate it.
+	if _, err := tx.Exec(ctx, `UPDATE entitlements SET jit_only = true WHERE id = $1`, ent.ID); err != nil {
+		return Account{}, err
+	}
 	var id string
 	err = tx.QueryRow(ctx,
 		`INSERT INTO vault_accounts (tenant_id, name, username, address, notes, kind, account_id, entitlement_id,
-		                             checkout_minutes, exclusive, rotate_every_days, rotate_after_checkin, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, 0), $12, $13)
+		                             checkout_minutes, exclusive, rotate_every_days, rotate_after_checkin, break_glass, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, 0), $12, $13, $14)
 		 ON CONFLICT DO NOTHING RETURNING id`,
 		tenantID, name, username, db.Nullable(in.Settings.Address), db.Nullable(in.Settings.Notes), in.Kind, db.Nullable(in.AccountID), ent.ID,
-		in.Settings.CheckoutMinutes, in.Settings.Exclusive, in.Settings.RotateEveryDays, in.Settings.RotateAfterCheckin, actor).Scan(&id)
+		in.Settings.CheckoutMinutes, in.Settings.Exclusive, in.Settings.RotateEveryDays, in.Settings.RotateAfterCheckin,
+		in.Settings.BreakGlass, actor).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, apperr.Conflictf("a vault account named %q, or one for that account, already exists", name)
 	}
 	if err != nil {
 		return Account{}, err
 	}
+	if err := setResponders(ctx, tx, tenantID, id, in.Settings.Responders); err != nil {
+		return Account{}, err
+	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "vault.account_created", "vault_account", id,
-		map[string]any{"name": name, "username": username, "entitlement_id": ent.ID}); err != nil {
+		map[string]any{"name": name, "username": username, "entitlement_id": ent.ID,
+			"break_glass": in.Settings.BreakGlass, "break_glass_responders": in.Settings.Responders}); err != nil {
 		return Account{}, err
 	}
 	if in.Secret != "" {
@@ -337,20 +385,24 @@ func (v *Vault) Update(ctx context.Context, tx pgx.Tx, tenantID, actor, id strin
 	// the next date unless a rotation is already owed for another reason.
 	_, err = tx.Exec(ctx,
 		`UPDATE vault_accounts SET address = $2, notes = $3, checkout_minutes = $4, exclusive = $5,
-		        rotate_every_days = nullif($6, 0), rotate_after_checkin = $7, updated_at = now(),
+		        rotate_every_days = nullif($6, 0), rotate_after_checkin = $7, break_glass = $8, updated_at = now(),
 		        rotate_at = CASE
 		            WHEN rotation_failures > 0 OR rotate_at <= now() THEN rotate_at
 		            WHEN $6 = 0 THEN NULL
 		            ELSE (SELECT created_at FROM vault_secret_versions s WHERE s.vault_account_id = $1 AND s.status = 'current') + make_interval(days => $6)
 		        END
 		 WHERE id = $1`,
-		id, db.Nullable(s.Address), db.Nullable(s.Notes), s.CheckoutMinutes, s.Exclusive, s.RotateEveryDays, s.RotateAfterCheckin)
+		id, db.Nullable(s.Address), db.Nullable(s.Notes), s.CheckoutMinutes, s.Exclusive, s.RotateEveryDays, s.RotateAfterCheckin, s.BreakGlass)
 	if err != nil {
+		return Account{}, err
+	}
+	if err := setResponders(ctx, tx, tenantID, id, s.Responders); err != nil {
 		return Account{}, err
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "vault.account_updated", "vault_account", id, map[string]any{
 		"checkout_minutes": s.CheckoutMinutes, "exclusive": s.Exclusive,
-		"rotate_every_days": s.RotateEveryDays, "rotate_after_checkin": s.RotateAfterCheckin}); err != nil {
+		"rotate_every_days": s.RotateEveryDays, "rotate_after_checkin": s.RotateAfterCheckin,
+		"break_glass": s.BreakGlass, "break_glass_responders": s.Responders}); err != nil {
 		return Account{}, err
 	}
 	return Get(ctx, tx, id)
@@ -494,6 +546,21 @@ type Lease struct {
 // must hold access to it (the caller checks the policies), until the
 // account's checkout time runs out.
 func (v *Vault) Checkout(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, reason string) (Lease, error) {
+	return v.lease(ctx, tx, tenantID, identityID, id, reason, false)
+}
+
+// BreakGlassMinutes caps how long a break-glass check-out lasts.
+const BreakGlassMinutes = 60
+
+// BreakGlass opens a break-glass account for identityID, a responder (the
+// caller checks the policies), without approval. The lease lasts at most
+// BreakGlassMinutes, ignores exclusivity, alerts every admin and auditor,
+// rotates the password when it ends and waits for an admin's review.
+func (v *Vault) BreakGlass(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, reason string) (Lease, error) {
+	return v.lease(ctx, tx, tenantID, identityID, id, reason, true)
+}
+
+func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, reason string, breakGlass bool) (Lease, error) {
 	if !v.Enabled() {
 		return Lease{}, ErrDisabled
 	}
@@ -505,20 +572,30 @@ func (v *Vault) Checkout(ctx context.Context, tx pgx.Tx, tenantID, identityID, i
 		return Lease{}, err
 	}
 	var (
-		minutes, version int
-		exclusive        bool
+		minutes, version     int
+		exclusive, glass     bool
+		name, username, link string
 	)
 	err := tx.QueryRow(ctx,
-		`SELECT va.checkout_minutes, va.exclusive, coalesce(s.version, 0)
+		`SELECT va.checkout_minutes, va.exclusive, va.break_glass, coalesce(s.version, 0), va.name, va.username,
+		        coalesce(va.account_id::text, '')
 		 FROM vault_accounts va LEFT JOIN vault_secret_versions s ON s.vault_account_id = va.id AND s.status = 'current'
-		 WHERE va.id = $1`, id).Scan(&minutes, &exclusive, &version)
+		 WHERE va.id = $1`, id).Scan(&minutes, &exclusive, &glass, &version, &name, &username, &link)
 	if err != nil {
 		return Lease{}, err
+	}
+	if breakGlass && !glass {
+		return Lease{}, apperr.Conflictf("this vault account is not a break-glass account")
 	}
 	if version == 0 {
 		return Lease{}, apperr.Conflictf("this vault account has no secret yet")
 	}
-	if exclusive {
+	if breakGlass {
+		minutes = min(minutes, BreakGlassMinutes)
+	}
+	// In an emergency, someone else holding the account does not stop a
+	// responder.
+	if exclusive && !breakGlass {
 		var who string
 		var until time.Time
 		err := tx.QueryRow(ctx,
@@ -544,18 +621,37 @@ func (v *Vault) Checkout(ctx context.Context, tx pgx.Tx, tenantID, identityID, i
 	}
 	l := Lease{Secret: secret}
 	err = tx.QueryRow(ctx,
-		`INSERT INTO vault_checkouts (tenant_id, vault_account_id, identity_id, version, reason, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6))
+		`INSERT INTO vault_checkouts (tenant_id, vault_account_id, identity_id, version, reason, expires_at, break_glass, review_status)
+		 VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7, CASE WHEN $7 THEN 'pending' END)
 		 RETURNING id, vault_account_id, identity_id, version, reason, checked_out_at, expires_at,
-		           (SELECT display_name FROM identities WHERE id = $3)`,
-		tenantID, id, identityID, version, reason, minutes).
-		Scan(&l.ID, &l.VaultAccountID, &l.IdentityID, &l.Version, &l.Reason, &l.CheckedOutAt, &l.ExpiresAt, &l.IdentityName)
+		           (SELECT display_name FROM identities WHERE id = $3), break_glass, coalesce(review_status, '')`,
+		tenantID, id, identityID, version, reason, minutes, breakGlass).
+		Scan(&l.ID, &l.VaultAccountID, &l.IdentityID, &l.Version, &l.Reason, &l.CheckedOutAt, &l.ExpiresAt, &l.IdentityName,
+			&l.BreakGlass, &l.ReviewStatus)
 	if err != nil {
 		return Lease{}, err
 	}
-	err = db.Audit(ctx, tx, tenantID, db.IdentityActor(identityID), "vault.checked_out", "vault_account", id,
-		map[string]any{"checkout_id": l.ID, "version": version, "reason": reason, "expires_at": l.ExpiresAt.UTC()})
-	return l, err
+	l.AccountName = name
+	event := "vault.checked_out"
+	if breakGlass {
+		event = "vault.break_glass_opened"
+	}
+	if err := db.Audit(ctx, tx, tenantID, db.IdentityActor(identityID), event, "vault_account", id,
+		map[string]any{"checkout_id": l.ID, "version": version, "reason": reason, "expires_at": l.ExpiresAt.UTC(),
+			"break_glass": breakGlass}); err != nil {
+		return Lease{}, err
+	}
+	if !breakGlass {
+		return l, nil
+	}
+	to, err := notify.Members(ctx, tx, authz.RoleAdmin, authz.RoleAuditor)
+	if err != nil {
+		return Lease{}, err
+	}
+	return l, notify.Enqueue(ctx, tx, tenantID, notify.BreakGlassUsed, to, map[string]any{
+		"account": name, "username": username, "person": l.IdentityName, "reason": reason,
+		"checked_out_at": l.CheckedOutAt.UTC().Format(time.RFC3339), "expires_at": l.ExpiresAt.UTC().Format(time.RFC3339),
+		"rotates": link != ""})
 }
 
 // CheckoutOwner returns whose check-out id is, and its vault account.
@@ -597,12 +693,17 @@ func Checkin(ctx context.Context, tx pgx.Tx, tenantID, actor, checkoutID, endedB
 }
 
 // afterUse makes the rotation of a locked account due once its last open
-// check-out ended, when it rotates after use.
+// check-out ended, when it rotates after use or when a break-glass
+// check-out revealed its current secret. A break-glass account that is not
+// linked to an account cannot rotate, so nothing is due.
 func afterUse(ctx context.Context, tx pgx.Tx, id string) error {
 	_, err := tx.Exec(ctx,
-		`UPDATE vault_accounts SET rotate_at = now()
-		 WHERE id = $1 AND rotate_after_checkin AND rotation_failures = 0
-		   AND NOT EXISTS (SELECT 1 FROM vault_checkouts c WHERE c.vault_account_id = $1 AND c.ended_at IS NULL)`, id)
+		`UPDATE vault_accounts va SET rotate_at = now()
+		 WHERE va.id = $1 AND va.rotation_failures = 0
+		   AND NOT EXISTS (SELECT 1 FROM vault_checkouts c WHERE c.vault_account_id = $1 AND c.ended_at IS NULL)
+		   AND (va.rotate_after_checkin OR (va.account_id IS NOT NULL AND EXISTS (
+		         SELECT 1 FROM vault_checkouts c JOIN vault_secret_versions s ON s.vault_account_id = c.vault_account_id
+		         WHERE c.vault_account_id = $1 AND c.break_glass AND s.status = 'current' AND c.version = s.version)))`, id)
 	return err
 }
 
@@ -650,7 +751,7 @@ func ExpireCheckouts(ctx context.Context, tx pgx.Tx, tenantID string) (int, erro
 const accountColumns = `va.id, va.name, va.username, coalesce(va.address, ''), coalesce(va.notes, ''), va.kind,
 	coalesce(va.account_id::text, ''), coalesce(app.id::text, ''), coalesce(app.name, ''), coalesce(app.connector, ''),
 	va.entitlement_id, e.name, e.risk, va.checkout_minutes, va.exclusive, coalesce(va.rotate_every_days, 0), va.rotate_after_checkin,
-	va.rotate_at, va.rotation_failures, coalesce(va.last_rotation_error, ''), coalesce(s.version, 0), s.created_at, va.created_at`
+	va.rotate_at, va.rotation_failures, coalesce(va.last_rotation_error, ''), coalesce(s.version, 0), s.created_at, va.break_glass, va.created_at`
 
 const accountFrom = ` FROM vault_accounts va
 	JOIN entitlements e ON e.id = va.entitlement_id
@@ -664,9 +765,10 @@ func scanAccount(row pgx.CollectableRow) (Account, error) {
 	err := row.Scan(&a.ID, &a.Name, &a.Username, &a.Address, &a.Notes, &a.Kind,
 		&a.AccountID, &a.ApplicationID, &a.ApplicationName, &connKind,
 		&a.EntitlementID, &a.EntitlementName, &a.Risk, &a.CheckoutMinutes, &a.Exclusive, &a.RotateEveryDays, &a.RotateAfterCheckin,
-		&a.RotateAt, &a.RotationFailures, &a.LastRotationError, &a.Version, &a.SecretAt, &a.CreatedAt)
+		&a.RotateAt, &a.RotationFailures, &a.LastRotationError, &a.Version, &a.SecretAt, &a.BreakGlass, &a.CreatedAt)
 	a.CanRotate = a.AccountID != "" && a.Kind == KindPassword && connector.SetsPasswords(connKind)
 	a.Checkouts = []Checkout{}
+	a.Responders = []Responder{}
 	return a, err
 }
 
@@ -685,6 +787,9 @@ func List(ctx context.Context, tx pgx.Tx, holder string) ([]Account, error) {
 	list, err := pgx.CollectRows(rows, scanAccount)
 	if err != nil || len(list) == 0 {
 		return list, err
+	}
+	if err := loadResponders(ctx, tx, list); err != nil {
+		return nil, err
 	}
 	open, err := checkouts(ctx, tx, `c.ended_at IS NULL`, nil)
 	if err != nil {
@@ -718,6 +823,11 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
+	one := []Account{a}
+	if err := loadResponders(ctx, tx, one); err != nil {
+		return Account{}, err
+	}
+	a = one[0]
 	open, err := checkouts(ctx, tx, `c.ended_at IS NULL AND c.vault_account_id = $1`, []any{id})
 	if err != nil {
 		return Account{}, err
@@ -729,15 +839,17 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Account, error) {
 func checkouts(ctx context.Context, tx pgx.Tx, where string, args []any) ([]Checkout, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT c.id, c.vault_account_id, c.identity_id, i.display_name, c.version, c.reason, c.checked_out_at, c.expires_at,
-		        c.ended_at, coalesce(c.ended_by, '')
-		 FROM vault_checkouts c JOIN identities i ON i.id = c.identity_id
+		        c.ended_at, coalesce(c.ended_by, ''), c.break_glass, coalesce(c.review_status, ''), coalesce(c.reviewed_by, ''),
+		        c.reviewed_at, coalesce(c.review_comment, ''), va.name
+		 FROM vault_checkouts c JOIN identities i ON i.id = c.identity_id JOIN vault_accounts va ON va.id = c.vault_account_id
 		 WHERE `+where+` ORDER BY c.checked_out_at DESC LIMIT 100`, args...)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Checkout, error) {
 		var c Checkout
-		err := row.Scan(&c.ID, &c.VaultAccountID, &c.IdentityID, &c.IdentityName, &c.Version, &c.Reason, &c.CheckedOutAt, &c.ExpiresAt, &c.EndedAt, &c.EndedBy)
+		err := row.Scan(&c.ID, &c.VaultAccountID, &c.IdentityID, &c.IdentityName, &c.Version, &c.Reason, &c.CheckedOutAt, &c.ExpiresAt,
+			&c.EndedAt, &c.EndedBy, &c.BreakGlass, &c.ReviewStatus, &c.ReviewedBy, &c.ReviewedAt, &c.ReviewComment, &c.AccountName)
 		return c, err
 	})
 }

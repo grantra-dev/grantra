@@ -2,16 +2,19 @@ package console
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 // listVaultAccounts shows admins and auditors every vault account, and
-// everyone else the ones they hold access to. Only vault readers see why
-// other people checked an account out.
+// everyone else the ones they hold access to or may break the glass of.
+// Only vault readers see why other people checked an account out.
 func (a *API) listVaultAccounts(w http.ResponseWriter, r *http.Request) {
 	var out []vault.Account
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
@@ -20,27 +23,35 @@ func (a *API) listVaultAccounts(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out = held
-		if reader {
-			if out, err = vault.List(r.Context(), tx, ""); err != nil {
-				return err
-			}
+		all, err := vault.List(r.Context(), tx, "")
+		if err != nil {
+			return err
 		}
 		mine := map[string]bool{}
 		for _, h := range held {
 			mine[h.ID] = true
 		}
-		for i := range out {
-			out[i].Held = mine[out[i].ID]
-		}
-		if !reader {
-			for i := range out {
-				for j := range out[i].Checkouts {
-					if out[i].Checkouts[j].IdentityID != me.ID {
-						out[i].Checkouts[j].Reason = ""
+		for i := range all {
+			acct := &all[i]
+			acct.Held = mine[acct.ID]
+			if acct.BreakGlass {
+				responders, _, err := vault.Responders(r.Context(), tx, acct.ID)
+				if err != nil {
+					return err
+				}
+				acct.Responder = slices.Contains(responders, me.ID)
+			}
+			if !reader && !acct.Held && !acct.Responder {
+				continue
+			}
+			if !reader {
+				for j := range acct.Checkouts {
+					if acct.Checkouts[j].IdentityID != me.ID {
+						acct.Checkouts[j].Reason = ""
 					}
 				}
 			}
+			out = append(out, *acct)
 		}
 		return nil
 	})
@@ -182,4 +193,78 @@ func (a *API) discoverVaultAccounts(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	a.respond(w, r, http.StatusOK, map[string]any{"findings": nonNil(out)}, err)
+}
+
+// breakGlass opens a break-glass vault account without approval, for its
+// responders.
+func (a *API) breakGlass(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeBodyMax(w, r, &in, 8<<10, `{"reason": "INC-1234: production is down and the DBA is unreachable"}`) {
+		return
+	}
+	var out vault.Lease
+	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
+		id := r.PathValue("id")
+		responders, glass, err := vault.Responders(r.Context(), tx, id)
+		if err != nil {
+			return err
+		}
+		if !glass {
+			return apperr.Conflictf("this vault account is not a break-glass account")
+		}
+		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.BreakGlassVault, Resource: authz.BreakGlassResource(id, responders)}); err != nil {
+			return err
+		}
+		out, err = a.Vault.BreakGlass(r.Context(), tx, a.tenantID, me.ID, id, in.Reason)
+		return err
+	})
+	w.Header().Set("Cache-Control", "no-store")
+	a.respond(w, r, http.StatusCreated, out, err)
+}
+
+// listBreakGlassUses lists break-glass check-outs: ?status=pending (the
+// default) for the ones still to review, or all.
+func (a *API) listBreakGlassUses(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	if status != "" && status != "pending" && status != "all" {
+		httpjson.Error(w, http.StatusBadRequest, "status must be pending or all")
+		return
+	}
+	var out []vault.Checkout
+	err := a.guardedOn(r, authz.ReadVault, authz.VaultResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
+		out, err = vault.BreakGlassUses(r.Context(), tx, status != "all")
+		return err
+	})
+	a.respond(w, r, http.StatusOK, map[string]any{"uses": nonNil(out)}, err)
+}
+
+// reviewBreakGlass confirms a break-glass use was justified, or flags it.
+// Admins review, never their own use.
+func (a *API) reviewBreakGlass(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Justified *bool  `json:"justified"`
+		Comment   string `json:"comment"`
+	}
+	if !decodeBody(w, r, &in, `{"justified": true, "comment": "matches INC-1234"}`) {
+		return
+	}
+	if in.Justified == nil {
+		httpjson.Error(w, http.StatusBadRequest, "say whether the use was justified")
+		return
+	}
+	var out vault.Checkout
+	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
+		use, err := vault.BreakGlassUse(r.Context(), tx, r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReviewBreakGlass, Resource: authz.BreakGlassUseResource(use.ID, use.IdentityID)}); err != nil {
+			return err
+		}
+		out, err = vault.ReviewBreakGlass(r.Context(), tx, a.tenantID, me.Actor(), use.ID, *in.Justified, in.Comment)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, out, err)
 }

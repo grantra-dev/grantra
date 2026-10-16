@@ -83,6 +83,10 @@ const (
 	ReadVault          Action = "vault.read"
 	ManageVault        Action = "vault.manage"
 	CheckoutVault      Action = "vault_account.checkout"
+	BreakGlassVault    Action = "vault_account.break_glass"
+	ReviewBreakGlass   Action = "break_glass_use.review"
+	ManageAccess       Action = "access.manage"
+	ActivateAccess     Action = "access.activate"
 )
 
 var actionGroup = map[Action]string{
@@ -116,6 +120,10 @@ var actionGroup = map[Action]string{
 	ReadVault:          "read",
 	ManageVault:        "write",
 	CheckoutVault:      "write",
+	BreakGlassVault:    "write",
+	ReviewBreakGlass:   "write",
+	ManageAccess:       "write",
+	ActivateAccess:     "write",
 }
 
 // Writes reports whether the action changes something.
@@ -251,6 +259,32 @@ func VaultAccountResource(id string, holders []string) Resource {
 		Attributes: cedar.NewRecord(cedar.RecordMap{"holders": cedar.NewSet(vals...)}),
 	}
 	return Resource{uid: e.UID, entity: &e}
+}
+
+// BreakGlassResource is a break-glass vault account and who may open it.
+func BreakGlassResource(id string, responders []string) Resource {
+	e := cedar.Entity{
+		UID:        cedar.NewEntityUID("BreakGlassAccount", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{"responders": identitySet(responders)}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
+
+// BreakGlassUseResource is one break-glass check-out and who made it.
+func BreakGlassUseResource(id, identity string) Resource {
+	e := cedar.Entity{
+		UID:        cedar.NewEntityUID("BreakGlassUse", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{"identity": cedar.NewEntityUID("Identity", cedar.String(identity))}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
+
+func identitySet(ids []string) cedar.Set {
+	vals := make([]cedar.Value, 0, len(ids))
+	for _, id := range ids {
+		vals = append(vals, cedar.NewEntityUID("Identity", cedar.String(id)))
+	}
+	return cedar.NewSet(vals...)
 }
 
 // RoleResource is a platform role.

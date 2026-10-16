@@ -30,7 +30,7 @@ Secrets never appear in API lists, logs or the audit log. Only a check-out retur
 ## Who can use an account
 
 Adding a vault account also adds an entitlement, **"Use \<name\>"**, to an application called **Privileged vault** (created the first time, governed by hand). Holding that entitlement, directly or through a business role, is what lets someone check the account out. So everything Grantra does with access applies:
-- People [request](access-requests.md) it and approvers approve it, optionally for a number of days.
+- People [request](access-requests.md) it for a time, or to be eligible, and approvers approve it. Vault entitlements are always [just in time only](just-in-time.md): nobody holds them with no end date, and eligible people activate them for a few hours when needed.
 - [Access reviews](access-reviews.md) cover it, and [separation of duties](separation-of-duties.md) policies can use it.
 - It expires, and leavers lose it.
 
@@ -46,6 +46,24 @@ curl -b cookies -X POST localhost:8080/api/v1/vault/accounts/$ID/checkouts -d '{
 - The check-out lasts the account's `checkout_minutes` (default 60, up to 480) and ends on its own (`vault.checkout_expired`), or earlier when the person checks it in. Admins can end anyone's check-out.
 - Checking out again while yours is open replaces it with a fresh one.
 - **Exclusive** accounts are checked out by one person at a time; the next person gets a `409` saying who has it until when.
+
+## Break glass
+
+For emergencies, an account can be marked **break glass**. Its
+**responders** (people you list, or the Grantra admins when you list nobody)
+can open it without holding its access:
+
+```sh
+curl -b cookies -X POST localhost:8080/api/v1/vault/accounts/$ID/break-glass -d '{"reason": "INC-9: production is down"}'
+```
+
+- A reason is required. The check-out lasts the account's `checkout_minutes`, at most 60, and ignores exclusivity: an emergency does not wait for whoever has it.
+- Every admin and auditor gets an email at once (`break_glass_used`), which nobody can turn off (`vault.break_glass_opened` in the audit log).
+- When the last check-out of the exposed password ends, Grantra rotates it if it can (the account is linked to an application whose connector sets passwords), even when the account does not rotate after each use.
+- Every use waits for review in **Vault → Break glass**: an admin other than the person who used it marks it *justified* or *flags* it with a reason (`vault.break_glass_reviewed`). Admins get a reminder email every day until then (job **remind break-glass reviews**, every 15 minutes).
+
+In the console, admins tick *Break glass* in the account's settings and add
+responders; responders see a **Break glass** button next to the account.
 
 ## Rotation
 
@@ -82,15 +100,18 @@ Accounts already in the vault are listed too, marked, after the ones still outsi
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v1/vault/accounts` | Everyone: admins and auditors see every account, others the ones they hold. `held` says whether you can check it out; other people's check-out reasons show only to admins and auditors |
+| `GET /api/v1/vault/accounts` | Everyone: admins and auditors see every account, others the ones they hold or respond to. `held` says whether you can check it out, `responder` whether you can break the glass; other people's check-out reasons show only to admins and auditors |
 | `GET /api/v1/vault/accounts/{id}` | `vault.read` (admins, auditors): the account, its versions and latest check-outs |
-| `POST /api/v1/vault/accounts` | `vault.manage` (admins): `{"name", "username", "kind": "password" \| "ssh_key", "risk": "critical" \| "high", "account_id", "secret", "address", "notes", "checkout_minutes", "exclusive", "rotate_every_days", "rotate_after_checkin"}` |
-| `PUT /api/v1/vault/accounts/{id}` | `vault.manage`: `address`, `notes`, `checkout_minutes`, `exclusive`, `rotate_every_days`, `rotate_after_checkin` |
+| `POST /api/v1/vault/accounts` | `vault.manage` (admins): `{"name", "username", "kind": "password" \| "ssh_key", "risk": "critical" \| "high", "account_id", "secret", "address", "notes", "checkout_minutes", "exclusive", "rotate_every_days", "rotate_after_checkin", "break_glass", "break_glass_responders": [identity ids]}` |
+| `PUT /api/v1/vault/accounts/{id}` | `vault.manage`: `address`, `notes`, `checkout_minutes`, `exclusive`, `rotate_every_days`, `rotate_after_checkin`, `break_glass`, `break_glass_responders` |
 | `DELETE /api/v1/vault/accounts/{id}` | `vault.manage`. Removes its secrets, check-outs and its entitlement with every assignment and request of it |
 | `PUT /api/v1/vault/accounts/{id}/secret` | `vault.manage`: `{"secret": "..."}`, becomes the current version |
 | `POST /api/v1/vault/accounts/{id}/rotations` | `vault.manage`: `200` with `{"rotated": true, "version": 3}`, or `rotated: false` and the `error` |
 | `POST /api/v1/vault/accounts/{id}/checkouts` | `vault_account.checkout`: only people holding the access, admins included. `201` with the secret |
 | `POST /api/v1/vault/checkouts/{id}/checkin` | The person who checked it out, or `vault.manage` |
+| `POST /api/v1/vault/accounts/{id}/break-glass` | `vault_account.break_glass`: the account's responders. `{"reason"}`, `201` with the secret |
+| `GET /api/v1/vault/break-glass?status=pending\|all` | `vault.read` (admins, auditors) |
+| `POST /api/v1/vault/break-glass/{id}/review` | `break_glass_use.review`: admins, never on their own use. `{"justified": true \| false, "comment"}`; flagging needs a comment |
 | `GET /api/v1/vault/discovery?limit=` | `vault.read` |
 
-Audit events: `vault.account_created`, `vault.account_updated`, `vault.account_deleted`, `vault.secret_set`, `vault.checked_out`, `vault.checked_in`, `vault.checkout_expired`, `vault.rotated`, `vault.rotation_failed`.
+Audit events: `vault.account_created`, `vault.account_updated`, `vault.account_deleted`, `vault.secret_set`, `vault.checked_out`, `vault.checked_in`, `vault.checkout_expired`, `vault.rotated`, `vault.rotation_failed`, `vault.break_glass_opened`, `vault.break_glass_reviewed`.
