@@ -44,6 +44,8 @@ oidc:
   # An existing Secret with the key oidc-client-secret.
   existingSecret: ""
 
+# Notification email over SMTP. For Microsoft 365, Google Workspace, SES and
+# others, see docs/notifications.md.
 smtp:
   host: ""
   port: 587

@@ -63,3 +63,93 @@ later does not send a backlog.
 
 The dev stack in `deploy/docker-compose.yml` sends to Mailpit: open
 http://localhost:8025 to read what Grantra sent.
+
+## Using Microsoft 365, Google Workspace or another provider
+
+Grantra speaks plain SMTP, so it works with any mail service that accepts
+SMTP: Microsoft 365, Google Workspace, Gmail, Amazon SES, SendGrid, Mailgun,
+Postmark, or your own Exchange or Postfix server. It signs in with
+`AUTH PLAIN` (username and password) or not at all. It does not yet sign in
+with OAuth (`XOAUTH2`), so pick one of the options below for your provider.
+
+Whatever you use, the domain in `GRANTRA_SMTP_FROM` must allow that service to
+send for it (SPF and DKIM), or the emails land in spam. Microsoft 365 and
+Google Workspace already do for your own domain.
+
+### Microsoft 365 (Exchange Online)
+
+Microsoft is turning off username and password sign-in for SMTP
+(`smtp.office365.com`), so do not point Grantra there with a mailbox password.
+Use one of these instead:
+
+- **Relay through a connector** (recommended). In the Exchange admin center,
+  add a connector from "Your organization's email server" to "Office 365"
+  that accepts mail from the public IP address Grantra sends from. Then send
+  to your domain's MX host with no username. Grantra needs a fixed public IP
+  and outbound port 25 open; many cloud providers block port 25 by default.
+
+  ```sh
+  GRANTRA_SMTP_HOST=example-com.mail.protection.outlook.com  # your MX record
+  GRANTRA_SMTP_PORT=25
+  GRANTRA_SMTP_TLS=starttls
+  GRANTRA_SMTP_FROM="Grantra <grantra@example.com>"
+  ```
+
+- **A transactional email service** (see below), when you cannot open port 25
+  or do not have a fixed IP.
+
+### Google Workspace and Gmail
+
+- **A mailbox with an app password**. Create a mailbox for Grantra (for
+  example `grantra@example.com`), turn on 2-Step Verification for it and
+  create an app password. A Workspace admin may have to allow app passwords
+  first. The sender must be that mailbox or one of its aliases. Gmail caps
+  how many emails a mailbox sends per day, which is plenty for most
+  companies.
+
+  ```sh
+  GRANTRA_SMTP_HOST=smtp.gmail.com
+  GRANTRA_SMTP_PORT=587
+  GRANTRA_SMTP_TLS=starttls
+  GRANTRA_SMTP_USERNAME=grantra@example.com
+  GRANTRA_SMTP_PASSWORD=<the 16-letter app password>
+  GRANTRA_SMTP_FROM="Grantra <grantra@example.com>"
+  ```
+
+- **The SMTP relay service** (Workspace only). In the Admin console, under
+  Apps, Google Workspace, Gmail, Routing, add an SMTP relay rule that allows
+  Grantra's public IP address. Then send with no username to
+  `smtp-relay.gmail.com`, port 587, `starttls`. If the rule requires SMTP
+  authentication instead, set the username and app password as above.
+
+### Transactional email services
+
+These give you SMTP credentials made for applications and work from any
+network:
+
+| Service | Host | Username | Password |
+|---|---|---|---|
+| Amazon SES | `email-smtp.<region>.amazonaws.com` | SMTP username from the SES console | SMTP password from the SES console |
+| SendGrid | `smtp.sendgrid.net` | `apikey` | An API key |
+| Mailgun | `smtp.mailgun.org` (`smtp.eu.mailgun.org` in the EU) | The domain's SMTP login | Its SMTP password |
+| Postmark | `smtp.postmarkapp.com` | A server API token | The same token |
+
+All of them take port 587 with `starttls`. Verify your sending domain with the
+service first.
+
+### With Helm
+
+The chart's `smtp` values map to the same settings. Keep the password in a
+Secret with the key `smtp-password`:
+
+```yaml
+smtp:
+  host: smtp.gmail.com
+  port: 587
+  tls: starttls
+  from: "Grantra <grantra@example.com>"
+  username: grantra@example.com
+  existingSecret: grantra-smtp   # holds smtp-password
+```
+
+For a relay with no sign-in, leave `username` empty.
