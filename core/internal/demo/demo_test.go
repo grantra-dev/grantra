@@ -10,6 +10,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 func TestSeed(t *testing.T) {
@@ -82,5 +83,36 @@ func TestSeedWithGrantraLogin(t *testing.T) {
 	}
 	if kind != "grantra-login" || cfg["url"] != "http://keycloak:8080" || cfg["allow_http"] != true {
 		t.Errorf("Grantra Login = %s %v", kind, cfg)
+	}
+}
+
+func TestSeedWithVault(t *testing.T) {
+	pool := dbtest.Open(t)
+	tenant := dbtest.Tenant(t, pool, "demo-vault")
+	ctx := context.Background()
+	if err := authz.EnsureBuiltinApp(ctx, pool, tenant); err != nil {
+		t.Fatal(err)
+	}
+	key, err := vault.NewLocalKey("Z3JhbnRyYS1kZW1vLXZhdWx0LWtleS0wMDAwMDAwMDA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Seed(ctx, pool, tenant, Options{Vault: vault.New(key, nil)}); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	var entitlement string
+	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
+		list, err := vault.List(ctx, tx, "")
+		if err != nil || len(list) != 1 {
+			t.Fatalf("vault accounts = %+v, %v", list, err)
+		}
+		version, entitlement = list[0].Version, list[0].EntitlementName
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 || entitlement != "Use Production database root" {
+		t.Fatalf("version %d, entitlement %q", version, entitlement)
 	}
 }

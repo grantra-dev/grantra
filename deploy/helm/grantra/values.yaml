@@ -56,6 +56,14 @@ smtp:
   # An existing Secret with the key smtp-password.
   existingSecret: ""
 
+# The credential vault's master key: 32 random bytes in base64, from
+# `openssl rand -base64 32`. Without it the vault stores no secrets. Keep a
+# copy somewhere safe: secrets sealed with a lost key cannot be recovered.
+vault:
+  key: ""
+  # An existing Secret with the key vault-key.
+  existingSecret: ""
+
 # Extra environment variables for the core, such as connector credentials
 # (GRANTRA_SECRET_*). Prefer envFromSecrets for anything sensitive.
 extraEnv: []

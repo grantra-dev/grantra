@@ -29,7 +29,10 @@ import (
 // Kind is the connector name applications use.
 const Kind = "grantra-login"
 
-func init() { connector.Register(Kind, New) }
+func init() {
+	connector.Register(Kind, New)
+	connector.RegisterPasswordSetter(Kind)
+}
 
 // Config is the Grantra Login connector's settings.
 type Config struct {
@@ -465,6 +468,18 @@ func (c *Client) SetActive(ctx context.Context, accountID string, active bool) e
 		return err
 	}
 	return nil
+}
+
+// SetPassword sets a user's password, for good (not one to change at next
+// sign-in), and ends their sessions so the old password stops mattering.
+func (c *Client) SetPassword(ctx context.Context, accountID, password string) error {
+	path := "/users/" + url.PathEscape(accountID)
+	if _, err := c.do(ctx, http.MethodPut, path+"/reset-password",
+		map[string]any{"type": "password", "value": password, "temporary": false}, nil); err != nil {
+		return err
+	}
+	_, err := c.do(ctx, http.MethodPost, path+"/logout", nil, nil)
+	return err
 }
 
 // AddMember adds a user to a group or gives them a realm role.

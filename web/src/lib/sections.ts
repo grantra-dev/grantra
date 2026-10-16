@@ -5,6 +5,7 @@ import {
   Inbox,
   KeyRound,
   ListChecks,
+  LockKeyhole,
   type LucideIcon,
   Settings,
   ShoppingBag,
@@ -61,6 +62,13 @@ export const sections: Section[] = [
     title: "My requests",
     description: "Follow what you asked for, and withdraw it while it is pending.",
     icon: Inbox,
+    visible: everyone,
+  },
+  {
+    path: "/vault",
+    title: "Vault",
+    description: "Check out the privileged accounts you hold access to.",
+    icon: LockKeyhole,
     visible: everyone,
   },
   {

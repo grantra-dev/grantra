@@ -112,6 +112,13 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if or .Values.vault.existingSecret .Values.vault.key }}
+            - name: GRANTRA_VAULT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "grantra.vaultSecret" . }}
+                  key: vault-key
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

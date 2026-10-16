@@ -117,7 +117,23 @@ func (in *RuleInput) check(ctx context.Context, tx pgx.Tx) error {
 	if err := catalog.CheckRoles(ctx, tx, in.RoleIDs); err != nil {
 		return err
 	}
-	return catalog.CheckEntitlements(ctx, tx, in.EntitlementIDs)
+	if err := catalog.CheckEntitlements(ctx, tx, in.EntitlementIDs); err != nil {
+		return err
+	}
+	// Vault access is requested and approved; a rule would hand it out to
+	// whoever matches, the admin who wrote it included.
+	var vault bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM vault_accounts WHERE entitlement_id = ANY($1::uuid[]))
+		    OR EXISTS (SELECT 1 FROM role_entitlements re JOIN vault_accounts va ON va.entitlement_id = re.entitlement_id
+		               WHERE re.role_id = ANY($2::uuid[]))`, in.EntitlementIDs, in.RoleIDs).Scan(&vault)
+	if err != nil {
+		return err
+	}
+	if vault {
+		return apperr.Invalidf("birthright rules cannot give vault access: people request it and approvers approve it")
+	}
+	return nil
 }
 
 // CreateRule adds a birthright rule. Call Reconcile afterwards to apply it.

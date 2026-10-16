@@ -42,6 +42,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/server"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 	"github.com/grantra-dev/grantra/core/internal/telemetry"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 	"github.com/grantra-dev/grantra/core/internal/webui"
 )
 
@@ -136,8 +137,21 @@ func run() error {
 		}
 	}
 
+	keys, err := vault.LocalKeyFromEnv()
+	if err != nil {
+		return err
+	}
+	var vlt *vault.Vault
+	if keys != nil {
+		vlt = vault.New(keys, connector.EnvSecrets)
+		log.Info("credential vault enabled", "key", keys.KeyID())
+	} else {
+		vlt = vault.New(nil, connector.EnvSecrets)
+		log.Warn("credential vault cannot store secrets: " + vault.KeyEnv + " is not set")
+	}
+
 	if cfg.Demo {
-		seeded, err := demo.Seed(ctx, pool, tenantID, demo.Options{LoginURL: cfg.DemoLoginURL})
+		seeded, err := demo.Seed(ctx, pool, tenantID, demo.Options{LoginURL: cfg.DemoLoginURL, Vault: vlt})
 		if err != nil {
 			return err
 		}
@@ -168,7 +182,7 @@ func run() error {
 		return err
 	}
 
-	startJobs(ctx, log, pool, tenantID, sender, metrics)
+	startJobs(ctx, log, pool, tenantID, sender, vlt, metrics)
 
 	az, err := authz.New()
 	if err != nil {
@@ -191,6 +205,7 @@ func run() error {
 		}, pool, tenantID, log)
 		api = console.New(pool, tenantID, az, log)
 		api.EmailEnabled = cfg.SMTP.Enabled()
+		api.Vault = vlt
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
 	} else {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
@@ -272,7 +287,7 @@ type job struct {
 // startJobs runs every background job once at start and then on its timer,
 // until ctx ends. With several replicas, each pass runs on whichever replica
 // takes the job's lock first; the others skip it.
-func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, m *telemetry.Metrics) {
+func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, vlt *vault.Vault, m *telemetry.Metrics) {
 	locks := db.NewJobLocks(pool)
 	context.AfterFunc(ctx, func() { locks.Close(context.Background()) })
 
@@ -375,6 +390,22 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			n, err := reviews.CloseDue(ctx, pool, tenantID)
 			if n > 0 {
 				log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
+			}
+			return err
+		}},
+		// Vault check-outs end on time, and passwords rotate when their
+		// schedule says or after someone used them.
+		{"rotate vault credentials", time.Minute, func(ctx context.Context) error {
+			expired, rotations, err := vlt.RotateDue(ctx, pool, tenantID)
+			if expired > 0 {
+				log.InfoContext(ctx, "ended expired vault check-outs", "checkouts", expired)
+			}
+			for _, r := range rotations {
+				if r.Rotated {
+					log.InfoContext(ctx, "rotated vault password", "vault_account", r.VaultAccountID, "version", r.Version)
+				} else {
+					log.WarnContext(ctx, "vault password rotation failed", "vault_account", r.VaultAccountID, "error", r.Error)
+				}
 			}
 			return err
 		}},

@@ -293,6 +293,20 @@ func saveRole(ctx context.Context, tx pgx.Tx, tenantID, id string, in RoleInput)
 	if err := CheckEntitlements(ctx, tx, ents); err != nil {
 		return Role{}, err
 	}
+	if id != "" {
+		// Birthright rules cannot give vault access (see package access),
+		// so neither can a role they give.
+		var vault bool
+		err := tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM vault_accounts WHERE entitlement_id = ANY($1::uuid[]))
+			   AND EXISTS (SELECT 1 FROM access_rule_grants WHERE role_id = $2)`, ents, id).Scan(&vault)
+		if err != nil {
+			return Role{}, err
+		}
+		if vault {
+			return Role{}, apperr.Invalidf("a birthright rule gives this role, so it cannot include vault access")
+		}
+	}
 	desc := strings.TrimSpace(in.Description)
 	if id == "" {
 		err = tx.QueryRow(ctx,

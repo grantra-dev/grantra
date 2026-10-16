@@ -41,6 +41,7 @@ On top of the people:
 - **Roles**: Engineer, Finance clerk and Sales rep. Each is given to its department by a birthright rule.
 - **Manual access**: Pedro was granted *Approve payments* by hand.
 - **Separation of duties**: the policy *Create and approve payments* (prevent mode) says nobody may hold both.
+- **Vault**: the root password of a production database, which only people granted *Use Production database root* can check out (needs `GRANTRA_VAULT_KEY`, set in docker-compose).
 
 `elena` signs in once she joins in step 1.
 
@@ -117,8 +118,25 @@ As `admin`, back in **HR sources**, check and apply
 
 She can no longer sign in to Grantra.
 
+## 7. Privileged access
+
+The demo vault holds the root password of a production database. Nobody can
+read it yet, not even the admin.
+
+1. Sign in as `luis`. In **Request access**, search for *Use Production
+   database root* and request it, for a day.
+2. As `ana` (his manager), then as `admin` (the vault has no owner, so admins
+   decide), approve it in **Approvals**.
+3. Back as `luis`, open **Vault**, click **Check out**, give a reason and see
+   the password. It is his for 30 minutes, and nobody else can take it out
+   meanwhile. Click **Check in** when done.
+
+As `admin`, click the account's name in **Vault** to see every check-out and
+its reason. Once Grantra Login has been read, the **Discovery** tab lists its
+accounts that look privileged or belong to nobody. See [vault.md](vault.md).
+
 ## Everything is on record
 
 Open **Audit log**. Every step above is there: who did it, to whom, and when.
 That includes the sync, the request, the approval, the accepted risk, the
-review decision and the leaver.
+review decision, the leaver and the vault check-out.

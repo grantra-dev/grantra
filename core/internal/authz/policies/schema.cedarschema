@@ -53,6 +53,14 @@ entity SoD;
 // Grantra Login: its apps and sign-in policy.
 entity Login;
 
+// The credential vault.
+entity Vault;
+
+// One vault account: holders hold access to it right now.
+entity VaultAccount {
+  holders: Set<Identity>,
+};
+
 // Action groups.
 action "read";
 action "write";
@@ -187,5 +195,26 @@ action "login.read" in ["read"] appliesTo {
 action "login.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: Login,
+  context: {},
+};
+
+// manage adds vault accounts, sets and rotates their secrets and ends
+// check-outs; read sees them, their history and discovery, never a secret.
+action "vault.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Vault,
+  context: {},
+};
+
+action "vault.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Vault,
+  context: {},
+};
+
+// checkout reveals the secret.
+action "vault_account.checkout" in ["write"] appliesTo {
+  principal: Identity,
+  resource: VaultAccount,
   context: {},
 };

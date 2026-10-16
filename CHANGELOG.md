@@ -4,6 +4,13 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+### Privileged access (PAM)
+
+- **Credential vault**: passwords and SSH keys of privileged accounts, sealed with envelope encryption under a master key (`GRANTRA_VAULT_KEY`). People who hold an account's access check it out with a reason for a limited time; exclusive accounts go to one person at a time. Admins manage the vault but cannot read secrets without the access ([docs](docs/vault.md)).
+- **Password rotation** in Active Directory, OpenLDAP and Grantra Login, on a schedule and after each use, without ever losing a password the target accepted ([docs](docs/vault.md#rotation)).
+- **Discovery** of privileged, orphaned and service accounts that belong in the vault.
+- Helm: `vault.key` / `vault.existingSecret`.
+
 ## [0.2.0] - 2026-10-15
 
 Grantra Login becomes a full identity provider you manage from the Grantra console, and your own apps can ask Grantra for authorization decisions.
