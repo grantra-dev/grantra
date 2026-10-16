@@ -92,3 +92,7 @@ readOnlyRootFilesystem: true
 capabilities:
   drop: [ALL]
 {{- end -}}
+
+{{- define "grantra.gatewayHostKeySecret" -}}
+{{- .Values.gateway.hostKey.existingSecret | default (printf "%s-gateway-host-key" (include "grantra.fullname" .)) -}}
+{{- end -}}

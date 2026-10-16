@@ -23,6 +23,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
@@ -203,6 +204,19 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 	}
 	if _, err := access.MakeEligible(ctx, tx, tenantID, actor, people["luis.perez@example.com"],
 		access.Target{EntitlementID: ents["GitHub/Org admins"]}, nil, ""); err != nil {
+		return err
+	}
+
+	// Luis can also activate SSH to the production database server, through
+	// the gateway, which records the session.
+	target, err := sshaccess.Create(ctx, tx, tenantID, actor, sshaccess.Input{Name: "prod-db", Login: "postgres",
+		Settings: sshaccess.Settings{Address: "db.prod.example.com:22", MaxCertificateHours: 4,
+			Notes: "Production PostgreSQL server. Sessions are recorded."}})
+	if err != nil {
+		return err
+	}
+	if _, err := access.MakeEligible(ctx, tx, tenantID, actor, people["luis.perez@example.com"],
+		access.Target{EntitlementID: target.EntitlementID}, nil, ""); err != nil {
 		return err
 	}
 

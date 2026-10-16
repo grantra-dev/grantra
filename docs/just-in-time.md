@@ -31,6 +31,7 @@ Rules that keep standing privileges from coming back:
 - The database refuses an assignment with no end date to just-in-time access, whatever path it comes from.
 - An entitlement cannot become just in time only while a birthright rule gives it (directly or through a role); change the rule first.
 - [Vault](vault.md) entitlements are always just in time only.
+- [SSH](ssh.md) targets are created just in time only; admins may change that on the entitlement.
 
 ## Eligibility
 

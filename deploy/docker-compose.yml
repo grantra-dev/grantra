@@ -71,11 +71,35 @@ services:
       # The vault's master key. A fixed one is fine for the demo; generate
       # your own (openssl rand -base64 32) for anything real.
       GRANTRA_VAULT_KEY: Z3JhbnRyYS1kZW1vLXZhdWx0LWtleS0wMDAwMDAwMDA=
+      # Shown in the console with the command to connect through the gateway.
+      GRANTRA_SSH_GATEWAY_ADDRESS: localhost:2222
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # The SSH gateway: ssh -p 2222 <server>@localhost with a certificate from
+  # the console's Servers page. It records every session; see docs/ssh.md.
+  gateway:
+    build:
+      context: ..
+      dockerfile: core/Dockerfile
+    command: [gateway]
+    environment:
+      GRANTRA_DATABASE_URL: postgres://grantra_app:grantra@postgres:5432/grantra?sslmode=disable
+      GRANTRA_LOG_LEVEL: debug
+      GRANTRA_VAULT_KEY: Z3JhbnRyYS1kZW1vLXZhdWx0LWtleS0wMDAwMDAwMDA=
+      # Kept in a volume so the host key survives restarts.
+      GRANTRA_GATEWAY_HOST_KEY_FILE: /home/nonroot/gateway_host_key
+    volumes:
+      - gatewaykey:/home/nonroot
+    ports:
+      - "2222:2222"
+    restart: unless-stopped
+    depends_on:
+      grantra:
+        condition: service_started
 
   # Catches every email Grantra sends, so nothing reaches a real inbox.
   mailpit:
@@ -85,3 +109,4 @@ services:
 
 volumes:
   pgdata:
+  gatewaykey:

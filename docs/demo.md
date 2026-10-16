@@ -144,11 +144,19 @@ read it yet, not even the admin.
 6. As `admin`, open **Vault** → **Break glass** and mark Luis's use
    *Justified*, or flag it with a reason.
 
+7. SSH: still as `luis`, activate *Log in to prod-db as postgres* from
+   **My access**, open **Servers**, click **Get certificate** and paste a
+   public key. He gets a certificate that ends with the activation and the
+   command to connect through the gateway on `localhost:2222`. The demo
+   server does not exist, so to see a recording add a target of your own
+   that trusts Grantra (see [ssh.md](ssh.md#set-up-a-server)).
+
 As `admin`, click the account's name in **Vault** to see every check-out and
 its reason, and **Administration** → **Standing access** to see who holds
 high-risk access for good and turn it into eligibility. Once Grantra Login has been read, the **Discovery** tab lists its
-accounts that look privileged or belong to nobody. See [vault.md](vault.md)
-and [just-in-time.md](just-in-time.md).
+accounts that look privileged or belong to nobody, and **Servers** shows the
+key servers trust and every recorded session. See [vault.md](vault.md),
+[just-in-time.md](just-in-time.md) and [ssh.md](ssh.md).
 
 ## Everything is on record
 

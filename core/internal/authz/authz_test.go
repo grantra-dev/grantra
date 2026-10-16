@@ -179,6 +179,9 @@ func TestDecisions(t *testing.T) {
 
 		// Break-glass: only responders open it, admins included; nobody
 		// reviews their own use.
+		{"holder connects over SSH", Request{Principal: report, Action: ConnectSSH, Resource: SSHTargetResource("s1", []string{report.ID})}, true, []string{"ssh-connect-holders"}},
+		{"admin without access cannot connect over SSH", Request{Principal: admin, Action: ConnectSSH, Resource: SSHTargetResource("s1", []string{report.ID})}, false, []string{"ssh-connect-holders-only"}},
+		{"auditor cannot connect over SSH", Request{Principal: auditor, Action: ConnectSSH, Resource: SSHTargetResource("s1", nil)}, false, []string{"ssh-connect-holders-only"}},
 		{"responder breaks glass", Request{Principal: report, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{report.ID})}, true, []string{"vault-break-glass-responders"}},
 		{"admin responder breaks glass", Request{Principal: admin, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{admin.ID})}, true, nil},
 		{"admin not a responder cannot break glass", Request{Principal: admin, Action: BreakGlassVault, Resource: BreakGlassResource("v1", []string{report.ID})}, false, []string{"vault-break-glass-responders-only"}},

@@ -85,6 +85,7 @@ const (
 	CheckoutVault      Action = "vault_account.checkout"
 	BreakGlassVault    Action = "vault_account.break_glass"
 	ReviewBreakGlass   Action = "break_glass_use.review"
+	ConnectSSH         Action = "ssh_target.connect"
 	ManageAccess       Action = "access.manage"
 	ActivateAccess     Action = "access.activate"
 )
@@ -122,6 +123,7 @@ var actionGroup = map[Action]string{
 	CheckoutVault:      "write",
 	BreakGlassVault:    "write",
 	ReviewBreakGlass:   "write",
+	ConnectSSH:         "write",
 	ManageAccess:       "write",
 	ActivateAccess:     "write",
 }
@@ -257,6 +259,16 @@ func VaultAccountResource(id string, holders []string) Resource {
 	e := cedar.Entity{
 		UID:        cedar.NewEntityUID("VaultAccount", cedar.String(id)),
 		Attributes: cedar.NewRecord(cedar.RecordMap{"holders": cedar.NewSet(vals...)}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
+
+// SSHTargetResource is one SSH target and the identities who hold access to
+// it right now.
+func SSHTargetResource(id string, holders []string) Resource {
+	e := cedar.Entity{
+		UID:        cedar.NewEntityUID("SSHTarget", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{"holders": identitySet(holders)}),
 	}
 	return Resource{uid: e.UID, entity: &e}
 }

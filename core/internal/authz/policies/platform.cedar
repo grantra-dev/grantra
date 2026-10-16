@@ -93,6 +93,16 @@ when { resource.holders.contains(principal) };
 forbid (principal, action == Action::"vault_account.checkout", resource is VaultAccount)
 unless { resource.holders.contains(principal) };
 
+// People get SSH certificates for the targets they hold access to, and
+// nobody else does, not even an admin.
+@id("ssh-connect-holders")
+permit (principal, action == Action::"ssh_target.connect", resource is SSHTarget)
+when { resource.holders.contains(principal) };
+
+@id("ssh-connect-holders-only")
+forbid (principal, action == Action::"ssh_target.connect", resource is SSHTarget)
+unless { resource.holders.contains(principal) };
+
 // Break-glass accounts open without approval for their responders, and for
 // nobody else, admins included unless they are responders.
 @id("vault-break-glass-responders")

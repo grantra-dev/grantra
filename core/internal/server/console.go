@@ -9,7 +9,9 @@ import (
 
 // consoleCSP lets the console load its own scripts, styles and data and
 // nothing else. The Vite build emits no inline scripts or styles.
-const consoleCSP = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+// 'wasm-unsafe-eval' lets the session player compile its terminal emulator
+// (WebAssembly); it does not allow eval of JavaScript.
+const consoleCSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
 // consoleHandler serves the built React console. Files that exist are served
 // as they are; any other path without a file extension is a console route and

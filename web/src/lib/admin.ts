@@ -3,7 +3,7 @@
 
 import { api, ApiError, send, type IdentityStatus, type Requestable } from "./api";
 
-type Risk = NonNullable<Requestable["risk"]>;
+export type Risk = NonNullable<Requestable["risk"]>;
 
 const id = encodeURIComponent;
 

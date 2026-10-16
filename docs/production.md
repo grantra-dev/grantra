@@ -83,4 +83,8 @@ Grantra Login starts empty: create the `grantra` realm and the `grantra-console`
 
 The [credential vault](vault.md) needs a master key: `--set vault.existingSecret=grantra-vault` with a Secret holding `vault-key` (from `openssl rand -base64 32`), or `vault.key`. Back the key up apart from the database: secrets sealed with a lost key are gone.
 
+### SSH gateway
+
+The [SSH gateway](ssh.md) runs as its own Deployment with `--set gateway.enabled=true` (it needs the vault key). Expose it with the Service it gets (`gateway.service.type`, `LoadBalancer` by default, port 2222) and set `gateway.publicAddress` to how people reach it, such as `ssh.example.com:2222`, so the console shows the right command. Its host key is created once and kept in the Secret `<release>-grantra-gateway-host-key` across upgrades and uninstalls; bring your own with `gateway.hostKey.existingSecret` (key `host-key`). Do that when Argo CD, Flux or `helm template` render the chart: they cannot read the Secret back, so each render would make a new host key and every client would warn. Servers need to reach nothing; the gateway needs to reach them on SSH.
+
 Connector credentials (`GRANTRA_SECRET_*`, see [connectors](connectors.md)) go in a Secret listed under `envFromSecrets`. Every other setting is in [`values.yaml`](../deploy/helm/grantra/values.yaml).

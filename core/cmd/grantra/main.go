@@ -2,6 +2,7 @@
 //
 //	grantra          runs the server
 //	grantra migrate  applies database migrations and exits
+//	grantra gateway  runs the SSH gateway
 package main
 
 import (
@@ -41,6 +42,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/telemetry"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 	"github.com/grantra-dev/grantra/core/internal/webui"
@@ -86,10 +88,13 @@ func run() error {
 	}
 
 	if len(os.Args) > 1 {
-		if os.Args[1] != "migrate" || len(os.Args) > 2 {
-			return fmt.Errorf("unknown command %q: run grantra, or grantra migrate", strings.Join(os.Args[1:], " "))
+		switch {
+		case os.Args[1] == "migrate" && len(os.Args) == 2:
+			return migrate(ctx, log, cfg)
+		case os.Args[1] == "gateway" && len(os.Args) == 2:
+			return runGateway(ctx, log, cfg)
 		}
-		return migrate(ctx, log, cfg)
+		return fmt.Errorf("unknown command %q: run grantra, grantra migrate or grantra gateway", strings.Join(os.Args[1:], " "))
 	}
 
 	if cfg.MigrateOnStart {
@@ -141,13 +146,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var vlt *vault.Vault
+	var (
+		vlt    *vault.Vault
+		sshSvc *sshaccess.Service
+	)
 	if keys != nil {
 		vlt = vault.New(keys, connector.EnvSecrets)
+		sshSvc = sshaccess.New(keys)
 		log.Info("credential vault enabled", "key", keys.KeyID())
 	} else {
 		vlt = vault.New(nil, connector.EnvSecrets)
-		log.Warn("credential vault cannot store secrets: " + vault.KeyEnv + " is not set")
+		sshSvc = sshaccess.New(nil)
+		log.Warn("credential vault and SSH certificates are off: " + vault.KeyEnv + " is not set")
 	}
 
 	if cfg.Demo {
@@ -206,6 +216,8 @@ func run() error {
 		api = console.New(pool, tenantID, az, log)
 		api.EmailEnabled = cfg.SMTP.Enabled()
 		api.Vault = vlt
+		api.SSH = sshSvc
+		api.GatewayAddress = cfg.Gateway.PublicAddress
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
 	} else {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
@@ -406,6 +418,18 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 				} else {
 					log.WarnContext(ctx, "vault password rotation failed", "vault_account", r.VaultAccountID, "error", r.Error)
 				}
+			}
+			return err
+		}},
+		// Sessions whose gateway went away without saying so.
+		{"end lost SSH sessions", time.Minute, func(ctx context.Context) error {
+			var n int
+			err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) (err error) {
+				n, err = sshaccess.EndLostSessions(ctx, tx, tenantID)
+				return err
+			})
+			if n > 0 {
+				log.WarnContext(ctx, "ended SSH sessions their gateway stopped reporting on", "sessions", n)
 			}
 			return err
 		}},

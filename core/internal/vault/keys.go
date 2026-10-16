@@ -151,3 +151,13 @@ func open(kp KeyProvider, s sealed, aad []byte) ([]byte, error) {
 func versionAAD(tenantID, accountID string, version int) []byte {
 	return fmt.Appendf(nil, "grantra-vault:v1:%s:%s:%d", tenantID, accountID, version)
 }
+
+// Sealed is a value sealed with a key provider, for other packages that keep
+// secrets the same way the vault does, such as the SSH certificate authority.
+type Sealed = sealed
+
+// Seal encrypts plaintext under a new data key wrapped by kp, bound to aad.
+func Seal(kp KeyProvider, plaintext, aad []byte) (Sealed, error) { return seal(kp, plaintext, aad) }
+
+// Open decrypts what Seal produced with the same aad.
+func Open(kp KeyProvider, s Sealed, aad []byte) ([]byte, error) { return open(kp, s, aad) }

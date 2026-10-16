@@ -18,6 +18,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
@@ -35,12 +36,16 @@ type API struct {
 	// Vault keeps privileged credentials; it cannot store or reveal secrets
 	// until it has a key.
 	Vault *vault.Vault
+	// SSH signs certificates for SSH targets; GatewayAddress is where people
+	// reach the SSH gateway, shown with the command to connect.
+	SSH            *sshaccess.Service
+	GatewayAddress string
 }
 
 // New returns the console API for the given tenant.
 func New(pool *pgxpool.Pool, tenantID string, az *authz.Authorizer, log *slog.Logger) *API {
 	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, secrets: connector.EnvSecrets,
-		Vault: vault.New(nil, connector.EnvSecrets)}
+		Vault: vault.New(nil, connector.EnvSecrets), SSH: sshaccess.New(nil)}
 }
 
 // Register adds the console routes to mux. require must reject requests that
@@ -134,6 +139,17 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/vault/accounts/{id}/break-glass", a.breakGlass)
 	route("GET /api/v1/vault/break-glass", a.listBreakGlassUses)
 	route("POST /api/v1/vault/break-glass/{id}/review", a.reviewBreakGlass)
+	route("GET /api/v1/ssh", a.getSSH)
+	route("GET /api/v1/ssh/targets", a.listSSHTargets)
+	route("POST /api/v1/ssh/targets", a.createSSHTarget)
+	route("PUT /api/v1/ssh/targets/{id}", a.updateSSHTarget)
+	route("DELETE /api/v1/ssh/targets/{id}", a.deleteSSHTarget)
+	route("POST /api/v1/ssh/targets/{id}/certificates", a.issueSSHCertificate)
+	route("GET /api/v1/ssh/sessions", a.listSSHSessions)
+	route("GET /api/v1/ssh/sessions/{id}", a.getSSHSession)
+	route("GET /api/v1/ssh/sessions/{id}/recording", a.sshRecording)
+	route("POST /api/v1/ssh/sessions/{id}/terminate", a.terminateSSHSession)
+	route("GET /api/v1/ssh/commands", a.searchSSHCommands)
 	route("GET /api/v1/identities/{id}/eligibilities", a.identityEligibilities)
 	route("POST /api/v1/identities/{id}/eligibilities", a.makeEligible)
 	route("DELETE /api/v1/eligibilities/{id}", a.removeEligibility)
@@ -145,6 +161,9 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)
+	// Servers fetch the key they trust while being set up; it is public.
+	mux.HandleFunc("GET /api/v1/ssh/ca.pub", a.sshCAPublicKey(sshaccess.PeopleCA))
+	mux.HandleFunc("GET /api/v1/ssh/gateway_ca.pub", a.sshCAPublicKey(sshaccess.GatewayCA))
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming
