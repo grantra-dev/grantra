@@ -8,6 +8,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
@@ -31,15 +32,11 @@ func (a *API) createRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out requests.Request
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
+	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) (err error) {
 		if in.BeneficiaryID == "" {
 			in.BeneficiaryID = me.ID
 		}
-		target, err := authz.LoadSubject(r.Context(), tx, in.BeneficiaryID)
-		if err != nil {
-			return err
-		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.CreateRequest, Resource: authz.IdentityResource(target)}); err != nil {
+		if _, err := a.checkIdentity(r, tx, me, authz.CreateRequest, in.BeneficiaryID); err != nil {
 			return err
 		}
 		out, err = requests.Create(r.Context(), tx, a.tenantID, me.ID, in)
@@ -57,7 +54,7 @@ func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if (in.RoleID == "") == (in.EntitlementID == "") {
-		writeError(w, http.StatusBadRequest, "ask for exactly one of role_id and entitlement_id")
+		httpjson.Error(w, http.StatusBadRequest, "ask for exactly one of role_id and entitlement_id")
 		return
 	}
 	var conflicts []string
@@ -65,11 +62,8 @@ func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
 		if in.BeneficiaryID == "" {
 			in.BeneficiaryID = me.ID
 		}
-		target, err := authz.LoadSubject(r.Context(), tx, in.BeneficiaryID)
+		target, err := a.checkIdentity(r, tx, me, authz.CreateRequest, in.BeneficiaryID)
 		if err != nil {
-			return err
-		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.CreateRequest, Resource: authz.IdentityResource(target)}); err != nil {
 			return err
 		}
 		if in.RoleID != "" {
@@ -137,7 +131,7 @@ func (a *API) decideRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Decision != "approve" && body.Decision != "reject" {
-		writeError(w, http.StatusBadRequest, `decision must be "approve" or "reject"`)
+		httpjson.Error(w, http.StatusBadRequest, `decision must be "approve" or "reject"`)
 		return
 	}
 	var out requests.Request
@@ -148,7 +142,7 @@ func (a *API) decideRequest(w http.ResponseWriter, r *http.Request) {
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.DecideRequest, Resource: out.Resource()}); err != nil {
 			return err
 		}
-		out, err = requests.Decide(r.Context(), tx, a.tenantID, "identity:"+me.ID, out, requests.Decision{
+		out, err = requests.Decide(r.Context(), tx, a.tenantID, me.Actor(), out, requests.Decision{
 			Approve: body.Decision == "approve", Comment: body.Comment, ExceptionDays: body.ExceptionDays,
 		})
 		return err
@@ -166,7 +160,7 @@ func (a *API) cancelRequest(w http.ResponseWriter, r *http.Request) {
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.CancelRequest, Resource: out.Resource()}); err != nil {
 			return err
 		}
-		out, err = requests.Cancel(r.Context(), tx, a.tenantID, "identity:"+me.ID, out)
+		out, err = requests.Cancel(r.Context(), tx, a.tenantID, me.Actor(), out)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

@@ -7,9 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/login"
 )
 
@@ -32,18 +34,17 @@ func (a *API) openLogin(r *http.Request, action authz.Action) (login.App, *grant
 // loginFail answers errors from Grantra Login: Keycloak's refusals and
 // outages are 502s with a message an admin can act on.
 func (a *API) loginFail(w http.ResponseWriter, r *http.Request, err error) {
-	var bad *grantralogin.InvalidError
 	switch {
 	case errors.Is(err, login.ErrNotConnected):
-		writeError(w, http.StatusConflict, "Grantra Login is not connected: give an application the grantra-login connector first")
-	case errors.As(err, &bad):
-		writeError(w, http.StatusBadRequest, bad.Error())
+		httpjson.Error(w, http.StatusConflict, "Grantra Login is not connected: give an application the grantra-login connector first")
+	case errors.As(err, new(*apperr.Invalid)):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case grantralogin.IsForbidden(err):
-		writeError(w, http.StatusBadGateway, "Grantra Login refused the request: the grantra-connector service account needs the realm-management roles manage-clients, manage-realm and manage-identity-providers for this")
+		httpjson.Error(w, http.StatusBadGateway, "Grantra Login refused the request: the grantra-connector service account needs the realm-management roles manage-clients, manage-realm and manage-identity-providers for this")
 	case grantralogin.IsNotFound(err):
-		writeError(w, http.StatusNotFound, "not found in Grantra Login")
+		httpjson.Error(w, http.StatusNotFound, "not found in Grantra Login")
 	case grantralogin.IsRemote(err):
-		writeError(w, http.StatusBadGateway, "Grantra Login: "+err.Error())
+		httpjson.Error(w, http.StatusBadGateway, "Grantra Login: "+err.Error())
 	default:
 		a.fail(w, r, err)
 	}
@@ -67,7 +68,7 @@ type loginStatus struct {
 func (a *API) getLogin(w http.ResponseWriter, r *http.Request) {
 	app, c, _, err := a.openLogin(r, authz.ReadLogin)
 	if errors.Is(err, login.ErrNotConnected) {
-		writeJSON(w, http.StatusOK, loginStatus{})
+		httpjson.Write(w, http.StatusOK, loginStatus{})
 		return
 	}
 	if err != nil {
@@ -97,7 +98,7 @@ func (a *API) getLogin(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpjson.Write(w, http.StatusOK, out)
 }
 
 // createLoginApp registers an app that signs people in through Grantra Login.
@@ -171,7 +172,7 @@ func (a *API) setLoginPolicy(w http.ResponseWriter, r *http.Request) {
 			out["sync"] = sync
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpjson.Write(w, http.StatusOK, out)
 }
 
 // createIdentityProvider adds a provider people can sign in with. The client
@@ -231,11 +232,7 @@ func (a *API) deleteIdentityProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = a.loginAudit(r, me, "login.identity_provider_removed", alias, map[string]any{"application_id": app.ID})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.noContent(w, r, err)
 }
 
 // maxExportBytes bounds realm exports.
@@ -246,7 +243,7 @@ const maxExportBytes = 32 << 20
 func (a *API) importToLogin(w http.ResponseWriter, r *http.Request) {
 	dryRun, err := parseBool(r.URL.Query().Get("dry_run"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "dry_run must be true or false")
+		httpjson.Error(w, http.StatusBadRequest, "dry_run must be true or false")
 		return
 	}
 	// openLogin checks the permission before the upload is read.
@@ -259,10 +256,10 @@ func (a *API) importToLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			writeError(w, http.StatusRequestEntityTooLarge, "the file is larger than 32 MiB")
+			httpjson.Error(w, http.StatusRequestEntityTooLarge, "the file is larger than 32 MiB")
 			return
 		}
-		writeError(w, http.StatusBadRequest, "could not read the file")
+		httpjson.Error(w, http.StatusBadRequest, "could not read the file")
 		return
 	}
 	plan, err := c.Import(r.Context(), data, dryRun)
@@ -281,6 +278,6 @@ func (a *API) importToLogin(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) loginAudit(r *http.Request, me authz.Subject, action, target string, details map[string]any) error {
 	return db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) error {
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, action, "login", target, details)
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), action, "login", target, details)
 	})
 }

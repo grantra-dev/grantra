@@ -45,7 +45,7 @@ func (a *API) saveSoDPolicy(w http.ResponseWriter, r *http.Request) {
 		if out, err = sod.Save(r.Context(), tx, a.tenantID, id, in); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "sod.policy_saved", "sod_policy", out.ID, map[string]any{"policy": out})
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "sod.policy_saved", "sod_policy", out.ID, map[string]any{"policy": out})
 	})
 	a.respond(w, r, status, out, err)
 }
@@ -56,13 +56,9 @@ func (a *API) deleteSoDPolicy(w http.ResponseWriter, r *http.Request) {
 		if err := sod.Delete(r.Context(), tx, id); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "sod.policy_deleted", "sod_policy", id, nil)
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "sod.policy_deleted", "sod_policy", id, nil)
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.noContent(w, r, err)
 }
 
 // listSoDViolations pages through violations: ?status=open&policy_id=&limit=&after=.
@@ -82,8 +78,7 @@ func (a *API) listSoDViolations(w http.ResponseWriter, r *http.Request) {
 
 // scanSoD looks for violations now.
 func (a *API) scanSoD(w http.ResponseWriter, r *http.Request) {
-	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(pgx.Tx, authz.Subject) error { return nil })
-	if err != nil {
+	if _, err := a.allowed(r, authz.ManageSoD, authz.SoDResource()); err != nil {
 		a.fail(w, r, err)
 		return
 	}
@@ -102,7 +97,7 @@ func (a *API) exceptSoDViolation(w http.ResponseWriter, r *http.Request) {
 	}
 	var out sod.Violation
 	err := a.guardedOn(r, authz.ManageSoD, authz.SoDResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		out, err = sod.Except(r.Context(), tx, a.tenantID, "identity:"+me.ID, r.PathValue("id"), body.Reason, body.Days)
+		out, err = sod.Except(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), body.Reason, body.Days)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

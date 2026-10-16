@@ -1,7 +1,7 @@
 // Client for an application's authorization: its Cedar policies, the API
 // keys its backend asks with, and the policy playground.
 
-import { api } from "./api";
+import { api, send } from "./api";
 
 export interface APIKey {
   id: string;
@@ -44,13 +44,6 @@ export interface Answer {
   errors?: string[];
   reason?: string;
 }
-
-const send = <T>(method: string, path: string, body?: unknown) =>
-  api<T>(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
 
 const base = (appId: string) => `/api/v1/applications/${encodeURIComponent(appId)}/authz`;
 

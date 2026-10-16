@@ -1,7 +1,7 @@
 // Client for the Grantra Login endpoints: the apps that sign in through it,
 // its sign-in policy, federated identity providers and imports.
 
-import { api } from "./api";
+import { api, send } from "./api";
 
 export type MFAPolicy = "optional" | "required" | "sensitive";
 
@@ -36,13 +36,6 @@ export interface NewSSOApp {
   public: boolean;
   redirect_uris: string[];
 }
-
-const send = <T>(method: string, path: string, body?: unknown) =>
-  api<T>(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
 
 export const getLogin = () => api<LoginStatus>("/api/v1/login");
 

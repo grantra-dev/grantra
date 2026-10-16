@@ -170,13 +170,6 @@ func deref(s *string) string {
 	return *s
 }
 
-func nullable(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // Create records a request from requesterID and works out its approvals. The
 // caller has checked that the requester may ask for the beneficiary. A
 // request whose every step is approved at once (an admin asking, or a manager
@@ -236,7 +229,7 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	err = tx.QueryRow(ctx,
 		`INSERT INTO access_requests (tenant_id, requester_id, beneficiary_id, role_id, entitlement_id, justification, duration_days)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		tenantID, requesterID, in.BeneficiaryID, nullable(in.RoleID), nullable(in.EntitlementID), in.Justification, in.DurationDays).Scan(&id)
+		tenantID, requesterID, in.BeneficiaryID, db.Nullable(in.RoleID), db.Nullable(in.EntitlementID), in.Justification, in.DurationDays).Scan(&id)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return Request{}, apperr.Conflictf("there is already an open request for this access")
@@ -267,16 +260,16 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	for n, s := range steps {
 		st, decidedBy, comment := StepWaiting, "", ""
 		if s.approver != "" && s.approver == requesterID {
-			st, decidedBy, comment = StepApproved, "identity:"+requesterID, "asked for it"
+			st, decidedBy, comment = StepApproved, db.IdentityActor(requesterID), "asked for it"
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO access_request_steps (tenant_id, request_id, position, kind, approver_id, status, decided_by, decided_at, comment)
 			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), CASE WHEN $7 = '' THEN NULL ELSE now() END, nullif($8, ''))`,
-			tenantID, id, n+1, s.kind, nullable(s.approver), st, decidedBy, comment); err != nil {
+			tenantID, id, n+1, s.kind, db.Nullable(s.approver), st, decidedBy, comment); err != nil {
 			return Request{}, err
 		}
 	}
-	actor := "identity:" + requesterID
+	actor := db.IdentityActor(requesterID)
 	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.created", "access_request", id,
 		map[string]any{"beneficiary_id": in.BeneficiaryID, "role_id": in.RoleID, "entitlement_id": in.EntitlementID,
 			"duration_days": in.DurationDays, "sod_conflicts": conflicts}); err != nil {
@@ -464,7 +457,7 @@ func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, d
 	case step.Kind == KindRisk && d.Approve:
 		days = &d.ExceptionDays
 	}
-	if step.Kind == KindRisk && actor == "identity:"+r.BeneficiaryID {
+	if step.Kind == KindRisk && actor == db.IdentityActor(r.BeneficiaryID) {
 		return r, apperr.Conflictf("nobody accepts their own separation of duties risk")
 	}
 	st := StepRejected

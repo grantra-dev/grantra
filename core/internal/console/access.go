@@ -1,7 +1,6 @@
 package console
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -11,43 +10,6 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
-
-// decodeBody reads a small JSON body into v, refusing unknown fields. It
-// answers 400 itself and returns false when the body is unusable.
-func decodeBody(w http.ResponseWriter, r *http.Request, v any, example string) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "body must be JSON like "+example)
-		return false
-	}
-	return true
-}
-
-// guarded runs fn in a tenant transaction once the policies allow action on
-// the catalog.
-func (a *API) guarded(r *http.Request, action authz.Action, fn func(tx pgx.Tx, me authz.Subject) error) error {
-	return a.guardedOn(r, action, authz.CatalogResource(), fn)
-}
-
-// guardedOn runs fn in a tenant transaction once the policies allow action
-// on resource.
-func (a *API) guardedOn(r *http.Request, action authz.Action, resource authz.Resource, fn func(tx pgx.Tx, me authz.Subject) error) error {
-	return a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: action, Resource: resource}); err != nil {
-			return err
-		}
-		return fn(tx, me)
-	})
-}
-
-func (a *API) respond(w http.ResponseWriter, r *http.Request, status int, out any, err error) {
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, status, out)
-}
 
 func (a *API) listApplications(w http.ResponseWriter, r *http.Request) {
 	var out []catalog.Application
@@ -71,7 +33,7 @@ func (a *API) createApplication(w http.ResponseWriter, r *http.Request) {
 		if out, err = catalog.CreateApplication(r.Context(), tx, a.tenantID, body.Name, body.OwnerID); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "application.created", "application", out.ID,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "application.created", "application", out.ID,
 			map[string]any{"name": out.Name, "owner_id": out.OwnerID})
 	})
 	a.respond(w, r, http.StatusCreated, out, err)
@@ -96,7 +58,7 @@ func (a *API) createEntitlement(w http.ResponseWriter, r *http.Request) {
 		if out, err = catalog.CreateEntitlement(r.Context(), tx, a.tenantID, r.PathValue("id"), body); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "entitlement.created", "entitlement", out.ID,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "entitlement.created", "entitlement", out.ID,
 			map[string]any{"application_id": out.ApplicationID, "name": out.Name, "native_id": out.NativeID, "risk": out.Risk})
 	})
 	a.respond(w, r, http.StatusCreated, out, err)
@@ -141,7 +103,7 @@ func (a *API) saveRole(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, action, "role", out.ID,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), action, "role", out.ID,
 			map[string]any{"name": out.Name, "owner_id": out.OwnerID, "entitlement_ids": nonNil(body.EntitlementIDs)})
 	})
 	status := http.StatusOK
@@ -187,7 +149,7 @@ func (a *API) saveAccessRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var out ruleChange
 	err := a.guarded(r, authz.ManageAccessRules, func(tx pgx.Tx, me authz.Subject) (err error) {
-		actor := "identity:" + me.ID
+		actor := me.Actor()
 		action := "access_rule.created"
 		if id == "" {
 			out.Rule, err = access.CreateRule(r.Context(), tx, a.tenantID, body)
@@ -219,7 +181,7 @@ func (a *API) saveAccessRule(w http.ResponseWriter, r *http.Request) {
 func (a *API) deleteAccessRule(w http.ResponseWriter, r *http.Request) {
 	var out access.Changes
 	err := a.guarded(r, authz.ManageAccessRules, func(tx pgx.Tx, me authz.Subject) (err error) {
-		actor := "identity:" + me.ID
+		actor := me.Actor()
 		rule, err := access.GetRule(r.Context(), tx, r.PathValue("id"))
 		if err != nil {
 			return err
@@ -258,14 +220,7 @@ func (a *API) previewAccessRule(w http.ResponseWriter, r *http.Request) {
 // auditors and admins.
 func (a *API) identityAccess(w http.ResponseWriter, r *http.Request) {
 	var out []access.Assignment
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		target, err := authz.LoadSubject(r.Context(), tx, r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReadIdentity, Resource: authz.IdentityResource(target)}); err != nil {
-			return err
-		}
+	err := a.guardedOnIdentity(r, authz.ReadIdentity, func(tx pgx.Tx, _, target authz.Subject) (err error) {
 		out, err = access.IdentityAccess(r.Context(), tx, target.ID)
 		return err
 	})

@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 )
 
@@ -19,7 +20,7 @@ func (a *API) launchCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	var out reviews.Campaign
 	err := a.guardedOn(r, authz.ManageCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		out, err = reviews.Launch(r.Context(), tx, a.tenantID, "identity:"+me.ID, in)
+		out, err = reviews.Launch(r.Context(), tx, a.tenantID, me.Actor(), in)
 		return err
 	})
 	a.respond(w, r, http.StatusCreated, out, err)
@@ -48,7 +49,7 @@ func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
 func (a *API) closeCampaign(w http.ResponseWriter, r *http.Request) {
 	var out reviews.Campaign
 	err := a.guardedOn(r, authz.ManageCampaigns, authz.ReviewsResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		out, err = reviews.Close(r.Context(), tx, a.tenantID, "identity:"+me.ID, r.PathValue("id"))
+		out, err = reviews.Close(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"))
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
@@ -69,7 +70,7 @@ func (a *API) listReviewItems(w http.ResponseWriter, r *http.Request) {
 		f.Mine = true
 	case "all":
 	default:
-		writeError(w, http.StatusBadRequest, "scope must be mine or all")
+		httpjson.Error(w, http.StatusBadRequest, "scope must be mine or all")
 		return
 	}
 	var out []reviews.Item
@@ -104,7 +105,7 @@ func (a *API) decideReviewItem(w http.ResponseWriter, r *http.Request) {
 		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.DecideReview, Resource: out.Resource()}); err != nil {
 			return err
 		}
-		out, err = reviews.Decide(r.Context(), tx, a.tenantID, "identity:"+me.ID, out, body.Decision, body.Comment)
+		out, err = reviews.Decide(r.Context(), tx, a.tenantID, me.Actor(), out, body.Decision, body.Comment)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

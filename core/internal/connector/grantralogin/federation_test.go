@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 )
 
 func TestDiscovery(t *testing.T) {
@@ -28,7 +30,7 @@ func TestDiscovery(t *testing.T) {
 		{NewIdentityProvider{Kind: "ldap"}, ""},
 	} {
 		got, err := discovery(tc.in)
-		var bad *InvalidError
+		var bad *apperr.Invalid
 		if tc.want == "" && !errors.As(err, &bad) || got != tc.want {
 			t.Errorf("discovery(%+v) = %q, %v; want %q", tc.in, got, err, tc.want)
 		}
@@ -84,7 +86,7 @@ func TestParseExport(t *testing.T) {
 	}
 
 	for _, bad := range []string{`not json`, `[]`, `[{"realm": "a"}, {"realm": "b"}]`, `{"users": []}`} {
-		var inv *InvalidError
+		var inv *apperr.Invalid
 		if _, err := parseExport([]byte(bad), "grantra"); !errors.As(err, &inv) {
 			t.Errorf("parse %s = %v", bad, err)
 		}

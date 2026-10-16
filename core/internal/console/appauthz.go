@@ -1,7 +1,6 @@
 package console
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/appauthz"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
 type appAuthz struct {
@@ -41,7 +41,7 @@ func (a *API) setAppAuthzPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) error {
-		return appauthz.SetPolicies(r.Context(), tx, a.tenantID, r.PathValue("id"), in.Policies, "identity:"+me.ID)
+		return appauthz.SetPolicies(r.Context(), tx, a.tenantID, r.PathValue("id"), in.Policies, me.Actor())
 	})
 	a.respond(w, r, http.StatusOK, map[string]string{"policies": in.Policies}, err)
 }
@@ -58,7 +58,7 @@ func (a *API) createAppAPIKey(w http.ResponseWriter, r *http.Request) {
 		secret string
 	)
 	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
-		key, secret, err = appauthz.CreateKey(r.Context(), tx, a.tenantID, r.PathValue("id"), in.Name, "identity:"+me.ID)
+		key, secret, err = appauthz.CreateKey(r.Context(), tx, a.tenantID, r.PathValue("id"), in.Name, me.Actor())
 		return err
 	})
 	a.respond(w, r, http.StatusCreated, map[string]any{"key": key, "secret": secret}, err)
@@ -66,13 +66,9 @@ func (a *API) createAppAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) revokeAppAPIKey(w http.ResponseWriter, r *http.Request) {
 	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) error {
-		return appauthz.RevokeKey(r.Context(), tx, a.tenantID, r.PathValue("id"), r.PathValue("key"), "identity:"+me.ID)
+		return appauthz.RevokeKey(r.Context(), tx, a.tenantID, r.PathValue("id"), r.PathValue("key"), me.Actor())
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.noContent(w, r, err)
 }
 
 // testAppAuthz is the console's policy playground: it answers a question
@@ -127,14 +123,11 @@ func (a *API) authzCheck(w http.ResponseWriter, r *http.Request) {
 	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="grantra"`)
-		writeError(w, http.StatusUnauthorized, "send an application API key as Authorization: Bearer grantra_ak_...")
+		httpjson.Error(w, http.StatusUnauthorized, "send an application API key as Authorization: Bearer grantra_ak_...")
 		return
 	}
 	var q appauthz.Question
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&q); err != nil {
-		writeError(w, http.StatusBadRequest, `body must be JSON like {"principal": {"email": "ana@example.com"}, "action": "approve", "resource": {"type": "Invoice", "id": "42"}}`)
+	if !decodeBodyMax(w, r, &q, 64<<10, `{"principal": {"email": "ana@example.com"}, "action": "approve", "resource": {"type": "Invoice", "id": "42"}}`) {
 		return
 	}
 	var out appauthz.Answer
@@ -148,7 +141,7 @@ func (a *API) authzCheck(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, appauthz.ErrBadKey) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="grantra", error="invalid_token"`)
-		writeError(w, http.StatusUnauthorized, err.Error())
+		httpjson.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	a.respond(w, r, http.StatusOK, out, err)

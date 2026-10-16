@@ -7,6 +7,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 )
 
@@ -37,11 +38,7 @@ func (a *API) getNotifications(w http.ResponseWriter, r *http.Request) {
 		out, err = a.notificationSettings(tx, r, me)
 		return err
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	a.respond(w, r, http.StatusOK, out, err)
 }
 
 func (a *API) setNotification(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +49,7 @@ func (a *API) setNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "enabled is required")
+		httpjson.Error(w, http.StatusBadRequest, "enabled is required")
 		return
 	}
 	kind := notify.Kind(r.PathValue("kind"))
@@ -61,7 +58,7 @@ func (a *API) setNotification(w http.ResponseWriter, r *http.Request) {
 		if err := notify.SetEnabled(r.Context(), tx, a.tenantID, me.ID, kind, *body.Enabled); err != nil {
 			return err
 		}
-		if err := db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "notifications.updated", "identity", me.ID,
+		if err := db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "notifications.updated", "identity", me.ID,
 			map[string]any{"kind": kind, "enabled": *body.Enabled}); err != nil {
 			return err
 		}
@@ -69,9 +66,5 @@ func (a *API) setNotification(w http.ResponseWriter, r *http.Request) {
 		out, err = a.notificationSettings(tx, r, me)
 		return err
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	a.respond(w, r, http.StatusOK, out, err)
 }

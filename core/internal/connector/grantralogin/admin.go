@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 )
 
 // The connector reads and provisions people. The rest of this file manages
@@ -108,12 +110,8 @@ type NewSSOApp struct {
 	RedirectURIs []string `json:"redirect_uris"`
 }
 
-// InvalidError is a request the console should answer with 400.
-type InvalidError struct{ msg string }
-
-func (e *InvalidError) Error() string { return e.msg }
-
-func invalid(format string, args ...any) error { return &InvalidError{fmt.Sprintf(format, args...)} }
+// invalid is a request the console should answer with 400.
+func invalid(format string, args ...any) error { return apperr.Invalidf(format, args...) }
 
 // checkRedirectURI accepts https URLs, and http only on localhost for
 // development. Wildcards are refused: a redirect URI that matches more than

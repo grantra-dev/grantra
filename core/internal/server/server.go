@@ -3,7 +3,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/console"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
 // Pinger reports whether a dependency such as the database is reachable.
@@ -31,7 +31,7 @@ func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API, ui 
 
 	// Liveness: the process is up.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		httpjson.Write(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// Readiness: the process can serve traffic (database reachable).
@@ -40,14 +40,14 @@ func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API, ui 
 		defer cancel()
 		if err := db.Ping(ctx); err != nil {
 			log.WarnContext(ctx, "readiness check failed", "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+			httpjson.Write(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+		httpjson.Write(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"version": Version})
+		httpjson.Write(w, http.StatusOK, map[string]string{"version": Version})
 	})
 
 	if login != nil && api != nil {
@@ -55,11 +55,11 @@ func New(log *slog.Logger, db Pinger, login *auth.Service, api *console.API, ui 
 		api.Register(mux, login.Require)
 		// Unknown API paths answer JSON, not the console page.
 		mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			httpjson.Error(w, http.StatusNotFound, "not found")
 		})
 	} else {
 		mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "login is not configured"})
+			httpjson.Error(w, http.StatusServiceUnavailable, "login is not configured")
 		})
 	}
 
@@ -118,10 +118,4 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }

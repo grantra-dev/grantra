@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -16,7 +17,7 @@ import (
 const BuiltinConnector = "grantra"
 
 // ErrNotFound is returned when an identity or role does not exist.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = apperr.ErrNotFound
 
 // ErrLastAdmin is returned when a revoke would leave the tenant without an
 // active admin, and so without anyone able to grant roles again.

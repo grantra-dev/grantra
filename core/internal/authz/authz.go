@@ -17,6 +17,8 @@ import (
 	"slices"
 
 	"github.com/cedar-policy/cedar-go"
+
+	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
 // Platform role names, as stored in the built-in application's entitlements.
@@ -122,6 +124,9 @@ type Subject struct {
 	// Roles are the platform roles the identity holds right now.
 	Roles []string
 }
+
+// Actor is how the audit log names the subject when it acts.
+func (s Subject) Actor() string { return db.IdentityActor(s.ID) }
 
 func (s Subject) uid() cedar.EntityUID { return cedar.NewEntityUID("Identity", cedar.String(s.ID)) }
 

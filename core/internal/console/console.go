@@ -4,24 +4,20 @@
 package console
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/auth"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
-	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
 // API holds the console endpoints for one tenant.
@@ -134,82 +130,12 @@ func sameOrigin(next http.Handler) http.Handler {
 			switch r.Header.Get("Sec-Fetch-Site") {
 			case "", "same-origin", "none":
 			default:
-				writeError(w, http.StatusForbidden, "cross-site request refused")
+				httpjson.Error(w, http.StatusForbidden, "cross-site request refused")
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// errDenied ends a transaction whose request the policies refused.
-var errDenied = errors.New("denied")
-
-// inTenant runs fn in a tenant transaction with the signed-in person loaded
-// as a policy subject.
-func (a *API) inTenant(r *http.Request, fn func(tx pgx.Tx, me authz.Subject) error) error {
-	p, ok := auth.PrincipalFrom(r.Context())
-	if !ok {
-		return errors.New("console handler reached without a signed-in person")
-	}
-	return db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) error {
-		me, err := authz.LoadSubject(r.Context(), tx, p.IdentityID)
-		if err != nil {
-			return err
-		}
-		return fn(tx, me)
-	})
-}
-
-// check asks the policies about req. Refused writes are recorded in the audit
-// log, from their own transaction so that they survive the refusal.
-func (a *API) check(ctx context.Context, req authz.Request) error {
-	d := a.authz.Authorize(req)
-	if len(d.Errors) > 0 {
-		a.log.ErrorContext(ctx, "policy evaluation errors", "action", req.Action, "errors", d.Errors)
-	}
-	if d.Allowed {
-		return nil
-	}
-	a.log.InfoContext(ctx, "request denied", "identity", req.Principal.ID, "action", req.Action, "policies", d.Policies)
-	if req.Action.Writes() {
-		details := map[string]any{"action": string(req.Action), "policies": d.Policies}
-		target := ""
-		if req.Target != nil {
-			target = req.Target.ID
-		}
-		actx := context.WithoutCancel(ctx)
-		err := db.InTenant(actx, a.pool, a.tenantID, func(tx pgx.Tx) error {
-			return db.Audit(actx, tx, a.tenantID, "identity:"+req.Principal.ID, "authz.denied", "identity", target, details)
-		})
-		if err != nil {
-			a.log.ErrorContext(ctx, "audit denial", "err", err)
-		}
-	}
-	return errDenied
-}
-
-// fail turns an error from a handler into a response.
-func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, errDenied):
-		writeError(w, http.StatusForbidden, "you do not have permission to do this")
-	case errors.Is(err, authz.ErrNotFound), errors.Is(err, lifecycle.ErrNotFound), errors.Is(err, apperr.ErrNotFound):
-		writeError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, authz.ErrLastAdmin):
-		writeError(w, http.StatusConflict, "this is the last active admin; grant the role to someone else first")
-	case errors.Is(err, authz.ErrInactive):
-		writeError(w, http.StatusConflict, "platform roles can only be granted to active identities")
-	case errors.Is(err, lifecycle.ErrNameTaken):
-		writeError(w, http.StatusConflict, err.Error())
-	case errors.As(err, new(*lifecycle.InvalidError)), errors.As(err, new(*apperr.Invalid)):
-		writeError(w, http.StatusBadRequest, err.Error())
-	case errors.As(err, new(*apperr.Conflict)):
-		writeError(w, http.StatusConflict, err.Error())
-	default:
-		a.log.ErrorContext(r.Context(), "console request failed", "path", r.URL.Path, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-	}
 }
 
 type me struct {
@@ -231,11 +157,7 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 			        EXISTS (SELECT 1 FROM applications WHERE owner_id = $1)`, s.ID).
 			Scan(&out.ManagesPeople, &out.OwnsApplications)
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	a.respond(w, r, http.StatusOK, out, err)
 }
 
 type identity struct {
@@ -268,14 +190,7 @@ func scanIdentity(row pgx.CollectableRow) (identity, error) {
 
 func (a *API) getIdentity(w http.ResponseWriter, r *http.Request) {
 	var out identity
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		target, err := authz.LoadSubject(r.Context(), tx, r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReadIdentity, Resource: authz.IdentityResource(target)}); err != nil {
-			return err
-		}
+	err := a.guardedOnIdentity(r, authz.ReadIdentity, func(tx pgx.Tx, _, target authz.Subject) error {
 		rows, err := tx.Query(r.Context(), `SELECT `+identityColumns+` FROM identities WHERE id = $1`, target.ID)
 		if err != nil {
 			return err
@@ -283,11 +198,7 @@ func (a *API) getIdentity(w http.ResponseWriter, r *http.Request) {
 		out, err = pgx.CollectExactlyOneRow(rows, scanIdentity)
 		return err
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	a.respond(w, r, http.StatusOK, out, err)
 }
 
 // identityStatuses are the values identities.status allows.
@@ -304,24 +215,21 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	after := q.Get("after")
 	if after != "" && !authz.ValidID(after) {
-		writeError(w, http.StatusBadRequest, "after must be an identity id")
+		httpjson.Error(w, http.StatusBadRequest, "after must be an identity id")
 		return
 	}
 	search := strings.TrimSpace(q.Get("q"))
 	if len(search) > 200 {
-		writeError(w, http.StatusBadRequest, "q must be at most 200 characters")
+		httpjson.Error(w, http.StatusBadRequest, "q must be at most 200 characters")
 		return
 	}
 	status := q.Get("status")
 	if status != "" && !identityStatuses[status] {
-		writeError(w, http.StatusBadRequest, "status must be pending, active, suspended or terminated")
+		httpjson.Error(w, http.StatusBadRequest, "status must be pending, active, suspended or terminated")
 		return
 	}
 	var out []identity
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ListIdentities, Resource: authz.DirectoryResource()}); err != nil {
-			return err
-		}
+	err := a.guardedOn(r, authz.ListIdentities, authz.DirectoryResource(), func(tx pgx.Tx, _ authz.Subject) error {
 		rows, err := tx.Query(r.Context(),
 			`SELECT `+identityColumns+` FROM identities
 			 WHERE ($1 = '' OR id > $1::uuid)
@@ -334,11 +242,7 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 		out, err = pgx.CollectRows(rows, scanIdentity)
 		return err
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"identities": nonNil(out)})
+	a.respond(w, r, http.StatusOK, map[string]any{"identities": nonNil(out)}, err)
 }
 
 type auditEvent struct {
@@ -362,25 +266,16 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var before int64
-	if v := r.URL.Query().Get("before"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 {
-			writeError(w, http.StatusBadRequest, "before must be a positive event id")
-			return
-		}
-		before = n
+	before, ok := beforeCursor(w, r)
+	if !ok {
+		return
 	}
-	identityID := r.URL.Query().Get("identity")
-	if identityID != "" && !db.ValidUUID(identityID) {
-		writeError(w, http.StatusBadRequest, "identity must be an identity id")
+	identityID, ok := identityParam(w, r)
+	if !ok {
 		return
 	}
 	var out []auditEvent
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReadAuditLog, Resource: authz.AuditLogResource()}); err != nil {
-			return err
-		}
+	err := a.guardedOn(r, authz.ReadAuditLog, authz.AuditLogResource(), func(tx pgx.Tx, _ authz.Subject) error {
 		rows, err := tx.Query(r.Context(),
 			`SELECT e.id, e.occurred_at, e.actor, e.action, coalesce(e.target_type, ''), coalesce(e.target_id, ''),
 			        coalesce(ai.display_name, ''), coalesce(ti.display_name, ''), e.details
@@ -400,11 +295,7 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		})
 		return err
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": nonNil(out)})
+	a.respond(w, r, http.StatusOK, map[string]any{"events": nonNil(out)}, err)
 }
 
 type platformRole struct {
@@ -436,11 +327,7 @@ func (a *API) listPlatformRoles(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"roles": out})
+	a.respond(w, r, http.StatusOK, map[string]any{"roles": out}, err)
 }
 
 // grantPlatformRole gives a platform role, optionally until a given time:
@@ -449,16 +336,11 @@ func (a *API) grantPlatformRole(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ExpiresAt *time.Time `json:"expires_at"`
 	}
-	if r.ContentLength != 0 {
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "body must be JSON like {\"expires_at\": \"2026-12-31T00:00:00Z\"}")
-			return
-		}
+	if r.ContentLength != 0 && !decodeBodyMax(w, r, &body, 4096, `{"expires_at": "2026-12-31T00:00:00Z"}`) {
+		return
 	}
 	if body.ExpiresAt != nil && !body.ExpiresAt.After(time.Now()) {
-		writeError(w, http.StatusBadRequest, "expires_at must be in the future")
+		httpjson.Error(w, http.StatusBadRequest, "expires_at must be in the future")
 		return
 	}
 	role := r.PathValue("role")
@@ -481,13 +363,9 @@ func (a *API) grantPlatformRole(w http.ResponseWriter, r *http.Request) {
 		if body.ExpiresAt != nil {
 			details["expires_at"] = body.ExpiresAt.UTC()
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "platform_role.granted", "identity", target.ID, details)
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "platform_role.granted", "identity", target.ID, details)
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.noContent(w, r, err)
 }
 
 func (a *API) revokePlatformRole(w http.ResponseWriter, r *http.Request) {
@@ -507,41 +385,7 @@ func (a *API) revokePlatformRole(w http.ResponseWriter, r *http.Request) {
 		if err := authz.Revoke(r.Context(), tx, role, target.ID); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "platform_role.revoked", "identity", target.ID, map[string]any{"role": role})
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "platform_role.revoked", "identity", target.ID, map[string]any{"role": role})
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func pageLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
-	v := r.URL.Query().Get("limit")
-	if v == "" {
-		return 50, true
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > 200 {
-		writeError(w, http.StatusBadRequest, "limit must be between 1 and 200")
-		return 0, false
-	}
-	return n, true
-}
-
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	a.noContent(w, r, err)
 }

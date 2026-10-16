@@ -1,16 +1,9 @@
 // Client for the administration endpoints: HR sources, the catalog,
 // connectors and provisioning, and separation of duties.
 
-import { api, ApiError, type IdentityStatus, type Requestable } from "./api";
+import { api, ApiError, send, type IdentityStatus, type Requestable } from "./api";
 
 type Risk = NonNullable<Requestable["risk"]>;
-
-const send = <T>(method: string, path: string, body?: unknown) =>
-  api<T>(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
 
 const id = encodeURIComponent;
 
