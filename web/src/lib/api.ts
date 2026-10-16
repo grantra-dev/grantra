@@ -31,6 +31,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Calls an endpoint with a JSON body, when there is one. */
+export const send = <T>(method: string, path: string, body?: unknown) =>
+  api<T>(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
 export const PlatformRole = {
   Admin: "grantra-admin",
   Helpdesk: "grantra-helpdesk",
@@ -123,12 +131,7 @@ export interface NewRequest {
   duration_days?: number;
 }
 
-const post = <T>(path: string, body?: unknown) =>
-  api<T>(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 
 /** The fields that name what is asked for. */
 export const targetOf = (r: Pick<Requestable, "type" | "id">) =>
@@ -369,11 +372,7 @@ const memberPath = (role: string, identityId: string) =>
   `/api/v1/platform-roles/${encodeURIComponent(role)}/members/${encodeURIComponent(identityId)}`;
 
 export const grantPlatformRole = (role: string, identityId: string, expiresAt?: string) =>
-  api<void>(memberPath(role, identityId), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(expiresAt ? { expires_at: expiresAt } : {}),
-  });
+  send<void>("PUT", memberPath(role, identityId), expiresAt ? { expires_at: expiresAt } : {});
 
 export const revokePlatformRole = (role: string, identityId: string) =>
   api<void>(memberPath(role, identityId), { method: "DELETE" });
@@ -398,8 +397,6 @@ export interface NotificationSettings {
 export const getNotificationSettings = () => api<NotificationSettings>("/api/v1/me/notifications");
 
 export const setNotification = (kind: string, enabled: boolean) =>
-  api<NotificationSettings>(`/api/v1/me/notifications/${encodeURIComponent(kind)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
+  send<NotificationSettings>("PUT", `/api/v1/me/notifications/${encodeURIComponent(kind)}`, {
+    enabled,
   });

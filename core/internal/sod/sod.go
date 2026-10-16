@@ -126,13 +126,6 @@ func (in *Input) check(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-func nullable(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // Save creates a policy (id empty) or replaces one. Violations follow at
 // the next scan.
 func Save(ctx context.Context, tx pgx.Tx, tenantID, id string, in Input) (Policy, error) {
@@ -173,7 +166,7 @@ func Save(ctx context.Context, tx pgx.Tx, tenantID, id string, in Input) (Policy
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO sod_policy_sides (tenant_id, policy_id, side, role_id, entitlement_id)
 				 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-				tenantID, id, side, nullable(r.RoleID), nullable(r.EntitlementID)); err != nil {
+				tenantID, id, side, db.Nullable(r.RoleID), db.Nullable(r.EntitlementID)); err != nil {
 				return Policy{}, err
 			}
 		}
@@ -327,7 +320,7 @@ func conflicting(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlement
 		  AND EXISTS (SELECT 1 FROM sod_policy_sides s JOIN added ad ON ad.role_id = s.role_id OR ad.entitlement_id = s.entitlement_id
 		              WHERE s.policy_id = p.id)
 		  AND NOT EXISTS (SELECT 1 FROM sod_violations v WHERE v.policy_id = p.id AND v.identity_id = $1 AND v.status = 'excepted')
-		ORDER BY 2`, identityID, nullable(roleID), nullable(entitlementID))
+		ORDER BY 2`, identityID, db.Nullable(roleID), db.Nullable(entitlementID))
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +336,7 @@ func conflicting(ctx context.Context, tx pgx.Tx, identityID, roleID, entitlement
 // with reason, until the given time. Violations already open become
 // exceptions too. It returns the names of the policies.
 func AcceptOnRequest(ctx context.Context, tx pgx.Tx, tenantID, actor, requestID, identityID, roleID, entitlementID, reason string, until time.Time) ([]string, error) {
-	if "identity:"+identityID == actor {
+	if db.IdentityActor(identityID) == actor {
 		return nil, apperr.Conflictf("nobody accepts their own violation")
 	}
 	list, err := conflicting(ctx, tx, identityID, roleID, entitlementID)
@@ -569,7 +562,7 @@ func Except(ctx context.Context, tx pgx.Tx, tenantID, actor, id, reason string, 
 	if err != nil {
 		return Violation{}, err
 	}
-	if "identity:"+identity == actor {
+	if db.IdentityActor(identity) == actor {
 		return Violation{}, apperr.Conflictf("nobody accepts their own violation")
 	}
 	if status != Open {

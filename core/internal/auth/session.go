@@ -63,7 +63,7 @@ func (s *Service) openSession(ctx context.Context, l login, token string) (outco
 			s.tenantID, hash(token), identityID, l.idToken, s.cfg.SessionMax.Seconds()); err != nil {
 			return err
 		}
-		return audit(ctx, tx, s.tenantID, "identity:"+identityID, "auth.login", identityID, map[string]any{"issuer": l.issuer})
+		return audit(ctx, tx, s.tenantID, db.IdentityActor(identityID), "auth.login", identityID, map[string]any{"issuer": l.issuer})
 	})
 	return res, err
 }
@@ -168,7 +168,7 @@ func (s *Service) closeSession(ctx context.Context, token string) (string, error
 		if err != nil {
 			return err
 		}
-		return audit(ctx, tx, s.tenantID, "identity:"+identityID, "auth.logout", identityID, nil)
+		return audit(ctx, tx, s.tenantID, db.IdentityActor(identityID), "auth.logout", identityID, nil)
 	})
 	return idToken, err
 }

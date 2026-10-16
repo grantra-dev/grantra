@@ -12,19 +12,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
 // ErrNotFound is returned for a source that does not exist.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = apperr.ErrNotFound
 
 // ErrNameTaken is returned when creating a source with a name in use.
-var ErrNameTaken = errors.New("a source with this name already exists")
-
-// InvalidError is a source definition that cannot be accepted.
-type InvalidError struct{ Msg string }
-
-func (e *InvalidError) Error() string { return e.Msg }
+var ErrNameTaken error = &apperr.Conflict{Msg: "a source with this name already exists"}
 
 // Kinds of source Grantra can read.
 const KindCSV = "csv"
@@ -64,13 +60,13 @@ const (
 func CreateSource(ctx context.Context, tx pgx.Tx, tenantID, name, kind string, cfg Config) (Source, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 200 {
-		return Source{}, &InvalidError{"name must be between 1 and 200 characters"}
+		return Source{}, &apperr.Invalid{Msg: "name must be between 1 and 200 characters"}
 	}
 	if kind != KindCSV {
-		return Source{}, &InvalidError{`kind must be "csv"`}
+		return Source{}, &apperr.Invalid{Msg: `kind must be "csv"`}
 	}
 	if err := cfg.Validate(); err != nil {
-		return Source{}, &InvalidError{err.Error()}
+		return Source{}, &apperr.Invalid{Msg: err.Error()}
 	}
 	s := Source{Name: name, Kind: kind, Config: cfg}
 	err := tx.QueryRow(ctx,

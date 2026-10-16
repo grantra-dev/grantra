@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -261,5 +262,37 @@ func TestAggregateDue(t *testing.T) {
 	runs, err = AggregateDue(context.Background(), e.pool, e.tenant, time.Hour, noSecrets)
 	if err != nil || len(runs) != 0 {
 		t.Errorf("second pass within the hour = %v, %v", runs, err)
+	}
+}
+
+// TestAggregateLargeApplication stores more accounts and entitlements than
+// fit in one batch, then drops some, so every batch boundary is crossed.
+func TestAggregateLargeApplication(t *testing.T) {
+	e := newEnv(t)
+	n := batchSize*2 + 7
+	snap := connector.Snapshot{}
+	for i := range n {
+		snap.Entitlements = append(snap.Entitlements, connector.Entitlement{NativeID: fmt.Sprintf("g%d", i), Name: fmt.Sprintf("Group %d", i)})
+		snap.Accounts = append(snap.Accounts, connector.Account{
+			NativeID: fmt.Sprintf("u%d", i), Username: fmt.Sprintf("user%d", i), Active: true,
+			Entitlements: []string{fmt.Sprintf("g%d", i), fmt.Sprintf("g%d", (i+1)%n)},
+		})
+	}
+	e.set(snap, nil)
+	run := e.aggregate()
+	if run.Status != RunSucceeded || run.Counts["accounts_new"] != n || run.Counts["entitlements_new"] != n || run.Counts["memberships_added"] != 2*n {
+		t.Fatalf("first run = %s %v", run.Status, run.Counts)
+	}
+
+	// Every account drops its second group, and the last ten accounts go.
+	for i := range snap.Accounts {
+		snap.Accounts[i].Entitlements = snap.Accounts[i].Entitlements[:1]
+	}
+	snap.Accounts = snap.Accounts[:n-10]
+	e.set(snap, nil)
+	run = e.aggregate()
+	if run.Status != RunSucceeded || run.Counts["accounts_new"] != 0 || run.Counts["accounts_deleted"] != 10 ||
+		run.Counts["memberships_added"] != 0 || run.Counts["memberships_removed"] != (n-10)+20 {
+		t.Fatalf("second run = %s %v", run.Status, run.Counts)
 	}
 }

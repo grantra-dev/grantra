@@ -53,6 +53,19 @@ func BootstrapIdentity(ctx context.Context, pool *pgxpool.Pool, tenantID, email 
 	return created, nil
 }
 
+// IdentityActor is how the audit log names an identity acting: the actor of
+// an event done by a person rather than by Grantra itself.
+func IdentityActor(identityID string) string { return "identity:" + identityID }
+
+// Nullable turns an empty string into SQL NULL, for optional id and text
+// columns.
+func Nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // Audit appends an event to the tenant's audit log. targetType and targetID
 // may be empty when the event has no target.
 func Audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, targetType, targetID string, details map[string]any) error {

@@ -9,6 +9,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
 )
 
@@ -28,29 +29,21 @@ func (a *API) setConnector(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		// The config holds secret references, never secrets, so it is safe to log.
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "application.connector_set", "application", id,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "application.connector_set", "application", id,
 			map[string]any{"kind": body.Kind, "config": body.Config})
 	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.noContent(w, r, err)
 }
 
 // aggregate reads an application now. 200 when the read succeeded, 502 when
 // the application could not be read (nothing is changed then).
 func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
-	var me authz.Subject
-	err := a.guarded(r, authz.ManageCatalog, func(_ pgx.Tx, s authz.Subject) error {
-		me = s
-		return nil
-	})
+	me, err := a.allowed(r, authz.ManageCatalog, authz.CatalogResource())
 	if err != nil {
 		a.fail(w, r, err)
 		return
 	}
-	run, err := accounts.Aggregate(r.Context(), a.pool, a.tenantID, r.PathValue("id"), "identity:"+me.ID, a.secrets)
+	run, err := accounts.Aggregate(r.Context(), a.pool, a.tenantID, r.PathValue("id"), me.Actor(), a.secrets)
 	status := http.StatusOK
 	if run.Status == accounts.RunFailed {
 		status = http.StatusBadGateway
@@ -81,12 +74,12 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	orphans, err := parseBool(q.Get("orphans"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "orphans must be true or false")
+		httpjson.Error(w, http.StatusBadRequest, "orphans must be true or false")
 		return
 	}
 	after := q.Get("after")
 	if after != "" && !db.ValidUUID(after) {
-		writeError(w, http.StatusBadRequest, "after must be an account id")
+		httpjson.Error(w, http.StatusBadRequest, "after must be an account id")
 		return
 	}
 	var out []accounts.Account
@@ -115,7 +108,7 @@ func (a *API) linkAccount(w http.ResponseWriter, r *http.Request) {
 		if out, err = accounts.Link(r.Context(), tx, r.PathValue("id"), identity); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "account.linked", "account", out.ID,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "account.linked", "account", out.ID,
 			map[string]any{"application_id": out.ApplicationID, "native_id": out.NativeID, "identity_id": out.IdentityID})
 	})
 	a.respond(w, r, http.StatusOK, out, err)
@@ -125,14 +118,7 @@ func (a *API) linkAccount(w http.ResponseWriter, r *http.Request) {
 // for whoever may see the identity.
 func (a *API) identityAccounts(w http.ResponseWriter, r *http.Request) {
 	var out []accounts.Account
-	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		target, err := authz.LoadSubject(r.Context(), tx, r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ReadIdentity, Resource: authz.IdentityResource(target)}); err != nil {
-			return err
-		}
+	err := a.guardedOnIdentity(r, authz.ReadIdentity, func(tx pgx.Tx, _, target authz.Subject) (err error) {
 		out, err = accounts.ForIdentity(r.Context(), tx, target.ID)
 		return err
 	})
@@ -151,7 +137,7 @@ func (a *API) setProvisioning(w http.ResponseWriter, r *http.Request) {
 		if body, err = provisioning.SetSettings(r.Context(), tx, id, body, a.secrets); err != nil {
 			return err
 		}
-		return db.Audit(r.Context(), tx, a.tenantID, "identity:"+me.ID, "application.provisioning_set", "application", id,
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "application.provisioning_set", "application", id,
 			map[string]any{"settings": body})
 	})
 	a.respond(w, r, http.StatusOK, body, err)
@@ -165,24 +151,20 @@ func (a *API) provision(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	dryRun, err := parseBool(q.Get("dry_run"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "dry_run must be true or false")
+		httpjson.Error(w, http.StatusBadRequest, "dry_run must be true or false")
 		return
 	}
 	force, err := parseBool(q.Get("force"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "force must be true or false")
+		httpjson.Error(w, http.StatusBadRequest, "force must be true or false")
 		return
 	}
-	var me authz.Subject
-	err = a.guarded(r, authz.ManageCatalog, func(_ pgx.Tx, s authz.Subject) error {
-		me = s
-		return nil
-	})
+	me, err := a.allowed(r, authz.ManageCatalog, authz.CatalogResource())
 	if err != nil {
 		a.fail(w, r, err)
 		return
 	}
-	run, err := provisioning.Provision(r.Context(), a.pool, a.tenantID, r.PathValue("id"), "identity:"+me.ID,
+	run, err := provisioning.Provision(r.Context(), a.pool, a.tenantID, r.PathValue("id"), me.Actor(),
 		provisioning.Options{DryRun: dryRun, Force: force}, a.secrets)
 	status := http.StatusOK
 	switch run.Status {

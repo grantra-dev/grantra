@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
 )
@@ -276,7 +277,7 @@ func TestCreateSource(t *testing.T) {
 		if _, err := CreateSource(ctx, tx, e.tenant, "HR", KindCSV, Config{}); !errors.Is(err, ErrNameTaken) {
 			t.Errorf("duplicate name = %v", err)
 		}
-		var inv *InvalidError
+		var inv *apperr.Invalid
 		if _, err := CreateSource(ctx, tx, e.tenant, "W", "workday", Config{}); !errors.As(err, &inv) {
 			t.Errorf("unknown kind = %v", err)
 		}
