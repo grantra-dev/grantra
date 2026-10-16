@@ -183,6 +183,43 @@ type existing struct {
 	id, identity, correlatedBy, status string
 }
 
+// pendingAccount is an account read from the application, ready to store.
+type pendingAccount struct {
+	connector.Account
+	prev         existing
+	known        bool
+	identity, by string
+	status       string
+	attrs        map[string]string
+	want         []string
+}
+
+// batchSize caps how many statements go to Postgres in one batch.
+const batchSize = 1000
+
+// sendBatch queues a statement per item and reads the results back in
+// order, batchSize at a time.
+func sendBatch[T any](ctx context.Context, tx pgx.Tx, items []T, queue func(*pgx.Batch, T), read func(pgx.BatchResults, T) error) error {
+	for start := 0; start < len(items); start += batchSize {
+		chunk := items[start:min(start+batchSize, len(items))]
+		b := &pgx.Batch{}
+		for _, it := range chunk {
+			queue(b, it)
+		}
+		br := tx.SendBatch(ctx, b)
+		for _, it := range chunk {
+			if err := read(br, it); err != nil {
+				br.Close() //nolint:errcheck
+				return err
+			}
+		}
+		if err := br.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type candidate struct {
 	byExternal map[string]string
 	byEmail    map[string][]string
@@ -232,25 +269,31 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		return &refused{fmt.Sprintf("the application returned no accounts, but %d were there last time; nothing was changed", active)}
 	}
 
-	// Entitlements.
+	// Entitlements, sent as one batch: a round trip per entitlement adds up
+	// on applications with thousands of groups.
 	entID := map[string]string{}
-	for _, e := range snap.Entitlements {
+	err := sendBatch(ctx, tx, snap.Entitlements, func(b *pgx.Batch, e connector.Entitlement) {
+		b.Queue(`INSERT INTO entitlements (tenant_id, application_id, native_id, name, description)
+			 VALUES ($1, $2, $3, $4, nullif($5, ''))
+			 ON CONFLICT (application_id, native_id)
+			   DO UPDATE SET name = EXCLUDED.name, description = coalesce(EXCLUDED.description, entitlements.description), missing_since = NULL
+			 RETURNING id, xmax = 0`, tenantID, appID, e.NativeID, e.Name, e.Description)
+	}, func(br pgx.BatchResults, e connector.Entitlement) error {
 		var (
 			id      string
 			created bool
 		)
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO entitlements (tenant_id, application_id, native_id, name, description)
-			 VALUES ($1, $2, $3, $4, nullif($5, ''))
-			 ON CONFLICT (application_id, native_id)
-			   DO UPDATE SET name = EXCLUDED.name, description = coalesce(EXCLUDED.description, entitlements.description), missing_since = NULL
-			 RETURNING id, xmax = 0`, tenantID, appID, e.NativeID, e.Name, e.Description).Scan(&id, &created); err != nil {
+		if err := br.QueryRow().Scan(&id, &created); err != nil {
 			return fmt.Errorf("store entitlement %s: %w", e.NativeID, err)
 		}
 		entID[e.NativeID] = id
 		if created {
 			counts["entitlements_new"]++
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	counts["entitlements"] = len(snap.Entitlements)
 	natives := make([]string, 0, len(entID))
@@ -308,6 +351,10 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		return err
 	}
 
+	// Work out every account first, then store them in batches: one
+	// statement per account (the account and its memberships together)
+	// instead of three round trips each.
+	var pending []pendingAccount
 	seen := map[string]bool{}
 	for _, a := range snap.Accounts {
 		if a.NativeID == "" || seen[a.NativeID] {
@@ -315,90 +362,99 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 			continue
 		}
 		seen[a.NativeID] = true
-		prev, known := old[a.NativeID]
-		identity, by := prev.identity, prev.correlatedBy
+		p := pendingAccount{Account: a}
+		p.prev, p.known = old[a.NativeID]
+		p.identity, p.by = p.prev.identity, p.prev.correlatedBy
 		// Links made by hand or by provisioning are decisions, not guesses.
-		if by != ByHand && by != ByProvisioning {
-			identity, by = cand.match(a)
+		if p.by != ByHand && p.by != ByProvisioning {
+			p.identity, p.by = cand.match(a)
 		}
-		var ident, corr *string
-		if identity != "" {
-			ident = &identity
-		}
-		if by != "" {
-			corr = &by
-		}
-		status := "disabled"
+		p.status = "disabled"
 		if a.Active {
-			status = "active"
+			p.status = "active"
 		}
-		attrs := map[string]string{}
+		p.attrs = map[string]string{}
 		for k, v := range a.Attributes {
-			attrs[k] = v
+			p.attrs[k] = v
 		}
 		for k, v := range map[string]string{"display_name": a.DisplayName, "email": a.Email, "external_id": a.ExternalID} {
 			if v != "" {
-				attrs[k] = v
+				p.attrs[k] = v
 			}
 		}
-		var accountID string
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by)
-			 VALUES ($1, $2, $3, $4, nullif($5, ''), $6, $7, now(), $8)
-			 ON CONFLICT (application_id, native_id) DO UPDATE SET
-			   identity_id = EXCLUDED.identity_id, username = EXCLUDED.username, status = EXCLUDED.status,
-			   attributes = EXCLUDED.attributes, last_seen_at = now(), correlated_by = EXCLUDED.correlated_by
-			 RETURNING id`, tenantID, appID, ident, a.NativeID, a.Username, status, attrs, corr).Scan(&accountID); err != nil {
-			return fmt.Errorf("store account %s: %w", a.NativeID, err)
-		}
-		switch {
-		case !known:
-			counts["accounts_new"]++
-		case prev.status != status:
-			counts["accounts_"+status]++
-		}
-		if identity == "" {
-			counts["orphans"]++
-		} else if prev.identity != identity {
-			counts["correlated"]++
-		}
-
-		want := []string{}
+		p.want = []string{}
 		for _, n := range a.Entitlements {
 			if id, ok := entID[n]; ok {
-				want = append(want, id)
+				p.want = append(p.want, id)
 			} else {
 				counts["unknown_memberships"]++
 			}
 		}
-		tag, err := tx.Exec(ctx,
-			`DELETE FROM account_entitlements WHERE account_id = $1 AND NOT (entitlement_id = ANY($2::uuid[]))`, accountID, want)
-		if err != nil {
-			return err
+		pending = append(pending, p)
+	}
+	err = sendBatch(ctx, tx, pending, func(b *pgx.Batch, p pendingAccount) {
+		// The memberships the account should no longer hold are deleted and
+		// the missing ones added in the same statement as the account. The
+		// two touch different rows, so they cannot step on each other.
+		b.Queue(`WITH acc AS (
+			   INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by)
+			   VALUES ($1, $2, $3, $4, nullif($5, ''), $6, $7, now(), $8)
+			   ON CONFLICT (application_id, native_id) DO UPDATE SET
+			     identity_id = EXCLUDED.identity_id, username = EXCLUDED.username, status = EXCLUDED.status,
+			     attributes = EXCLUDED.attributes, last_seen_at = now(), correlated_by = EXCLUDED.correlated_by
+			   RETURNING id
+			 ), removed AS (
+			   DELETE FROM account_entitlements ae USING acc
+			   WHERE ae.account_id = acc.id AND NOT (ae.entitlement_id = ANY($9::uuid[]))
+			   RETURNING 1
+			 ), added AS (
+			   INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id)
+			   SELECT $1, acc.id, unnest($9::uuid[]) FROM acc
+			   ON CONFLICT DO NOTHING
+			   RETURNING 1
+			 )
+			 SELECT (SELECT count(*) FROM removed), (SELECT count(*) FROM added)`,
+			tenantID, appID, db.Nullable(p.identity), p.NativeID, p.Username, p.status, p.attrs, db.Nullable(p.by), p.want)
+	}, func(br pgx.BatchResults, p pendingAccount) error {
+		var removed, added int
+		if err := br.QueryRow().Scan(&removed, &added); err != nil {
+			return fmt.Errorf("store account %s: %w", p.NativeID, err)
 		}
-		counts["memberships_removed"] += int(tag.RowsAffected())
-		tag, err = tx.Exec(ctx,
-			`INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id)
-			 SELECT $1, $2, unnest($3::uuid[]) ON CONFLICT DO NOTHING`, tenantID, accountID, want)
-		if err != nil {
-			return err
+		switch {
+		case !p.known:
+			counts["accounts_new"]++
+		case p.prev.status != p.status:
+			counts["accounts_"+p.status]++
 		}
-		counts["memberships_added"] += int(tag.RowsAffected())
+		if p.identity == "" {
+			counts["orphans"]++
+		} else if p.prev.identity != p.identity {
+			counts["correlated"]++
+		}
+		counts["memberships_removed"] += removed
+		counts["memberships_added"] += added
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	counts["accounts"] = len(seen)
 
+	var gone []string
 	for native, e := range old {
-		if seen[native] || e.status == "deleted" {
-			continue
+		if !seen[native] && e.status != "deleted" {
+			gone = append(gone, e.id)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE accounts SET status = 'deleted' WHERE id = $1`, e.id); err != nil {
+	}
+	if len(gone) > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE accounts SET status = 'deleted' WHERE id = ANY($1::uuid[])`, gone); err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `DELETE FROM account_entitlements WHERE account_id = $1`, e.id)
+		tag, err := tx.Exec(ctx, `DELETE FROM account_entitlements WHERE account_id = ANY($1::uuid[])`, gone)
 		if err != nil {
 			return err
 		}
-		counts["accounts_deleted"]++
+		counts["accounts_deleted"] += len(gone)
 		counts["memberships_removed"] += int(tag.RowsAffected())
 	}
 	_, err = tx.Exec(ctx, `RELEASE SAVEPOINT aggregation`)
