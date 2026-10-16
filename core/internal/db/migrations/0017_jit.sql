@@ -11,8 +11,14 @@ ALTER TABLE entitlements
     ADD COLUMN max_activation_hours integer NOT NULL DEFAULT 4 CHECK (max_activation_hours BETWEEN 1 AND 24),
     ADD COLUMN activation_approval boolean NOT NULL DEFAULT false;
 
--- Vault access is just-in-time only from now on.
+-- Vault access is just-in-time only from now on. Migrations run as the
+-- table owner, which row-level security still filters (FORCE) when no
+-- tenant is set: lift it for this one update across every tenant.
+ALTER TABLE entitlements NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE vault_accounts NO FORCE ROW LEVEL SECURITY;
 UPDATE entitlements SET jit_only = true WHERE id IN (SELECT entitlement_id FROM vault_accounts);
+ALTER TABLE entitlements FORCE ROW LEVEL SECURITY;
+ALTER TABLE vault_accounts FORCE ROW LEVEL SECURITY;
 
 -- Who may activate what. expires_at ends the eligibility itself.
 CREATE TABLE access_eligibilities (
@@ -90,7 +96,11 @@ CREATE TABLE jit_provisioning_queue (
 
 -- Break-glass: a vault account opened in an emergency without approval. The
 -- responders may open it; with none listed, the platform admins may.
-ALTER TABLE vault_accounts ADD COLUMN break_glass boolean NOT NULL DEFAULT false;
+ALTER TABLE vault_accounts
+    ADD COLUMN break_glass boolean NOT NULL DEFAULT false,
+    -- Who last turned break-glass on or changed its responders: they may
+    -- not open it themselves, so nobody arms an account for their own use.
+    ADD COLUMN break_glass_set_by text;
 
 CREATE TABLE vault_break_glass_responders (
     tenant_id        uuid NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,

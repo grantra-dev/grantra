@@ -150,6 +150,10 @@ func TestBreakGlassAPI(t *testing.T) {
 	if rec := e.do(admin2, http.MethodPost, glass, `{"reason": "curious"}`); rec.Code != http.StatusForbidden {
 		t.Errorf("admin not a responder breaks glass = %d", rec.Code)
 	}
+	// Admin set it up, so admin is no responder despite the list.
+	if rec := e.do(admin, http.MethodPost, glass, `{"reason": "mine now"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("admin who armed it breaks glass = %d", rec.Code)
+	}
 	if rec := e.do(ana, http.MethodPost, glass, `{"reason": ""}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("no reason = %d", rec.Code)
 	}
@@ -179,8 +183,16 @@ func TestBreakGlassAPI(t *testing.T) {
 		t.Errorf("review = %d %s", rec.Code, rec.Body)
 	}
 
-	// An admin who used it does not review their own use.
+	// Once another admin sets the responders, admin may open it, but does
+	// not review their own use.
+	settings := `{"checkout_minutes": 60, "break_glass": true, "break_glass_responders": ["` + admin + `"]}`
+	if rec := e.do(admin2, http.MethodPut, "/api/v1/vault/accounts/"+acct.ID, settings); rec.Code != http.StatusOK {
+		t.Fatalf("admin2 sets responders = %d %s", rec.Code, rec.Body)
+	}
 	rec = e.do(admin, http.MethodPost, glass, `{"reason": "INC-10"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("admin breaks glass = %d %s", rec.Code, rec.Body)
+	}
 	own := decode[vault.Lease](t, rec)
 	if rec := e.do(admin, http.MethodPost, "/api/v1/vault/break-glass/"+own.ID+"/review", `{"justified": true}`); rec.Code != http.StatusForbidden {
 		t.Errorf("self review = %d", rec.Code)

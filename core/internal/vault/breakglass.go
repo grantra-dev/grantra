@@ -65,25 +65,20 @@ func loadResponders(ctx context.Context, tx pgx.Tx, list []Account) error {
 
 // Responders returns who may open a vault account in an emergency right
 // now: its listed responders who are still active, or the platform admins
-// when none are listed. breakGlass says whether it is a break-glass
-// account at all.
+// when none is, except whoever last armed it (see break_glass_set_by).
+// breakGlass says whether it is a break-glass account at all.
 func Responders(ctx context.Context, tx pgx.Tx, id string) (ids []string, breakGlass bool, err error) {
 	if !db.ValidUUID(id) {
 		return nil, false, apperr.ErrNotFound
 	}
-	var listed bool
+	var setBy string
 	err = tx.QueryRow(ctx,
-		`SELECT break_glass, EXISTS (SELECT 1 FROM vault_break_glass_responders WHERE vault_account_id = $1)
-		 FROM vault_accounts WHERE id = $1`, id).Scan(&breakGlass, &listed)
+		`SELECT break_glass, coalesce(break_glass_set_by, '') FROM vault_accounts WHERE id = $1`, id).Scan(&breakGlass, &setBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, apperr.ErrNotFound
 	}
 	if err != nil || !breakGlass {
 		return nil, breakGlass, err
-	}
-	if !listed {
-		ids, err = notify.Admins(ctx, tx)
-		return ids, true, err
 	}
 	rows, err := tx.Query(ctx,
 		`SELECT r.identity_id::text FROM vault_break_glass_responders r JOIN identities i ON i.id = r.identity_id
@@ -91,8 +86,15 @@ func Responders(ctx context.Context, tx pgx.Tx, id string) (ids []string, breakG
 	if err != nil {
 		return nil, true, err
 	}
-	ids, err = pgx.CollectRows(rows, pgx.RowTo[string])
-	return ids, true, err
+	if ids, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
+		return nil, true, err
+	}
+	if len(ids) == 0 {
+		if ids, err = notify.Admins(ctx, tx); err != nil {
+			return nil, true, err
+		}
+	}
+	return slices.DeleteFunc(ids, func(i string) bool { return db.IdentityActor(i) == setBy }), true, nil
 }
 
 // BreakGlassUse returns one break-glass check-out.

@@ -34,22 +34,23 @@ type Standing struct {
 	Convertible bool `json:"convertible"`
 }
 
-// StandingAccess lists standing access to high and critical risk
-// entitlements of active people, just-in-time only access first, then
-// critical before high.
+// StandingAccess lists standing access of active people to high and
+// critical risk entitlements, or to just-in-time only ones (held from before
+// they became so), just-in-time only access first, then riskiest first.
 func StandingAccess(ctx context.Context, tx pgx.Tx, limit int) ([]Standing, error) {
 	rows, err := tx.Query(ctx, `
 		WITH risky AS (
-			SELECT x.id, max(CASE e.risk WHEN 'critical' THEN 2 ELSE 1 END) AS level, bool_or(e.jit_only) AS jit
+			SELECT x.id, max(CASE e.risk WHEN 'critical' THEN 3 WHEN 'high' THEN 2 WHEN 'medium' THEN 1 ELSE 0 END) AS level,
+			       bool_or(e.jit_only) AS jit
 			FROM access_assignments x
 			JOIN entitlements e ON e.id = x.entitlement_id
 			   OR e.id IN (SELECT entitlement_id FROM role_entitlements WHERE role_id = x.role_id)
-			WHERE x.expires_at IS NULL AND e.risk IN ('high', 'critical')
+			WHERE x.expires_at IS NULL AND (e.risk IN ('high', 'critical') OR e.jit_only)
 			GROUP BY x.id
 		)
 		SELECT x.id, x.identity_id, i.display_name, CASE WHEN x.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 		       coalesce(x.role_id, x.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''),
-		       CASE r.level WHEN 2 THEN 'critical' ELSE 'high' END, r.jit, x.origin, coalesce(ru.name, ''),
+		       (ARRAY['low', 'medium', 'high', 'critical'])[r.level + 1], r.jit, x.origin, coalesce(ru.name, ''),
 		       x.granted_by, x.granted_at, x.origin <> 'birthright'
 		FROM risky r
 		JOIN access_assignments x ON x.id = r.id
@@ -105,6 +106,9 @@ func ConvertToEligibility(ctx context.Context, tx pgx.Tx, tenantID, actor, assig
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM access_assignments WHERE id = $1`, assignmentID); err != nil {
+		return "", err
+	}
+	if err := adopt(ctx, tx, identity, t); err != nil {
 		return "", err
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "access.removed", "identity", identity,

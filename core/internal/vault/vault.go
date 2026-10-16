@@ -300,8 +300,9 @@ func (v *Vault) Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, i
 	var id string
 	err = tx.QueryRow(ctx,
 		`INSERT INTO vault_accounts (tenant_id, name, username, address, notes, kind, account_id, entitlement_id,
-		                             checkout_minutes, exclusive, rotate_every_days, rotate_after_checkin, break_glass, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, 0), $12, $13, $14)
+		                             checkout_minutes, exclusive, rotate_every_days, rotate_after_checkin, break_glass, created_by,
+		                             break_glass_set_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, 0), $12, $13, $14, CASE WHEN $13 THEN $14 END)
 		 ON CONFLICT DO NOTHING RETURNING id`,
 		tenantID, name, username, db.Nullable(in.Settings.Address), db.Nullable(in.Settings.Notes), in.Kind, db.Nullable(in.AccountID), ent.ID,
 		in.Settings.CheckoutMinutes, in.Settings.Exclusive, in.Settings.RotateEveryDays, in.Settings.RotateAfterCheckin,
@@ -381,18 +382,33 @@ func (v *Vault) Update(ctx context.Context, tx pgx.Tx, tenantID, actor, id strin
 	if err := s.check(kind, canRotate); err != nil {
 		return Account{}, err
 	}
+	// Turning break-glass on or changing who responds re-arms it: whoever
+	// does that may not open it themselves.
+	var (
+		wasGlass bool
+		before   []string
+	)
+	if err := tx.QueryRow(ctx,
+		`SELECT va.break_glass, coalesce(array_agg(r.identity_id::text ORDER BY r.identity_id::text COLLATE "C") FILTER (WHERE r.identity_id IS NOT NULL), '{}')
+		 FROM vault_accounts va LEFT JOIN vault_break_glass_responders r ON r.vault_account_id = va.id
+		 WHERE va.id = $1 GROUP BY va.break_glass`, id).Scan(&wasGlass, &before); err != nil {
+		return Account{}, err
+	}
+	rearmed := s.BreakGlass && (!wasGlass || !slices.Equal(before, s.Responders))
 	// A new schedule counts from the current secret; turning it off clears
 	// the next date unless a rotation is already owed for another reason.
 	_, err = tx.Exec(ctx,
 		`UPDATE vault_accounts SET address = $2, notes = $3, checkout_minutes = $4, exclusive = $5,
 		        rotate_every_days = nullif($6, 0), rotate_after_checkin = $7, break_glass = $8, updated_at = now(),
+		        break_glass_set_by = CASE WHEN NOT $8 THEN NULL WHEN $9 THEN $10 ELSE break_glass_set_by END,
 		        rotate_at = CASE
 		            WHEN rotation_failures > 0 OR rotate_at <= now() THEN rotate_at
 		            WHEN $6 = 0 THEN NULL
 		            ELSE (SELECT created_at FROM vault_secret_versions s WHERE s.vault_account_id = $1 AND s.status = 'current') + make_interval(days => $6)
 		        END
 		 WHERE id = $1`,
-		id, db.Nullable(s.Address), db.Nullable(s.Notes), s.CheckoutMinutes, s.Exclusive, s.RotateEveryDays, s.RotateAfterCheckin, s.BreakGlass)
+		id, db.Nullable(s.Address), db.Nullable(s.Notes), s.CheckoutMinutes, s.Exclusive, s.RotateEveryDays, s.RotateAfterCheckin, s.BreakGlass,
+		rearmed, actor)
 	if err != nil {
 		return Account{}, err
 	}
@@ -502,6 +518,14 @@ func (v *Vault) openVersion(ctx context.Context, tx pgx.Tx, tenantID, id string,
 	return string(out), nil
 }
 
+// holds is true when c.identity_id, active, holds va's access right now:
+// an unexpired assignment of its entitlement, directly or through a role.
+const holds = `EXISTS (
+	SELECT 1 FROM access_assignments x JOIN identities i ON i.id = x.identity_id
+	WHERE x.identity_id = c.identity_id AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
+	  AND (x.entitlement_id = va.entitlement_id
+	       OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = va.entitlement_id)))`
+
 // Holders returns the active identities who hold access to a vault account
 // right now: an unexpired assignment of its entitlement, directly or through
 // a business role.
@@ -568,19 +592,22 @@ func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, 
 	if reason == "" || len(reason) > 1000 {
 		return Lease{}, apperr.Invalidf("reason must be between 1 and 1000 characters")
 	}
-	if _, _, _, err := lock(ctx, tx, id); err != nil {
+	kind, _, canRotate, err := lock(ctx, tx, id)
+	if err != nil {
 		return Lease{}, err
 	}
+	canRotate = canRotate && kind == KindPassword
 	var (
-		minutes, version     int
-		exclusive, glass     bool
-		name, username, link string
+		failures         int
+		minutes, version int
+		exclusive, glass bool
+		name, username   string
 	)
-	err := tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT va.checkout_minutes, va.exclusive, va.break_glass, coalesce(s.version, 0), va.name, va.username,
-		        coalesce(va.account_id::text, '')
+		        va.rotation_failures
 		 FROM vault_accounts va LEFT JOIN vault_secret_versions s ON s.vault_account_id = va.id AND s.status = 'current'
-		 WHERE va.id = $1`, id).Scan(&minutes, &exclusive, &glass, &version, &name, &username, &link)
+		 WHERE va.id = $1`, id).Scan(&minutes, &exclusive, &glass, &version, &name, &username, &failures)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -620,9 +647,15 @@ func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, 
 		return Lease{}, err
 	}
 	l := Lease{Secret: secret}
+	// A check-out ends no later than the access it comes from, such as a
+	// just-in-time activation.
 	err = tx.QueryRow(ctx,
 		`INSERT INTO vault_checkouts (tenant_id, vault_account_id, identity_id, version, reason, expires_at, break_glass, review_status)
-		 VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7, CASE WHEN $7 THEN 'pending' END)
+		 VALUES ($1, $2, $3, $4, $5, least(now() + make_interval(mins => $6), CASE WHEN NOT $7 THEN (
+		           SELECT max(coalesce(x.expires_at, 'infinity')) FROM access_assignments x, vault_accounts va
+		           WHERE va.id = $2 AND x.identity_id = $3 AND (x.entitlement_id = va.entitlement_id
+		                 OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = va.entitlement_id)))
+		         END), $7, CASE WHEN $7 THEN 'pending' END)
 		 RETURNING id, vault_account_id, identity_id, version, reason, checked_out_at, expires_at,
 		           (SELECT display_name FROM identities WHERE id = $3), break_glass, coalesce(review_status, '')`,
 		tenantID, id, identityID, version, reason, minutes, breakGlass).
@@ -651,7 +684,7 @@ func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, 
 	return l, notify.Enqueue(ctx, tx, tenantID, notify.BreakGlassUsed, to, map[string]any{
 		"account": name, "username": username, "person": l.IdentityName, "reason": reason,
 		"checked_out_at": l.CheckedOutAt.UTC().Format(time.RFC3339), "expires_at": l.ExpiresAt.UTC().Format(time.RFC3339),
-		"rotates": link != ""})
+		"rotates": canRotate && failures == 0})
 }
 
 // CheckoutOwner returns whose check-out id is, and its vault account.
@@ -694,33 +727,46 @@ func Checkin(ctx context.Context, tx pgx.Tx, tenantID, actor, checkoutID, endedB
 
 // afterUse makes the rotation of a locked account due once its last open
 // check-out ended, when it rotates after use or when a break-glass
-// check-out revealed its current secret. A break-glass account that is not
-// linked to an account cannot rotate, so nothing is due.
+// check-out revealed its current secret. A break-glass account whose
+// application cannot set passwords cannot rotate, so nothing is due.
 func afterUse(ctx context.Context, tx pgx.Tx, id string) error {
-	_, err := tx.Exec(ctx,
+	kind, _, canRotate, err := lock(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	canRotate = canRotate && kind == KindPassword
+	_, err = tx.Exec(ctx,
 		`UPDATE vault_accounts va SET rotate_at = now()
 		 WHERE va.id = $1 AND va.rotation_failures = 0
 		   AND NOT EXISTS (SELECT 1 FROM vault_checkouts c WHERE c.vault_account_id = $1 AND c.ended_at IS NULL)
-		   AND (va.rotate_after_checkin OR (va.account_id IS NOT NULL AND EXISTS (
+		   AND (va.rotate_after_checkin OR ($2 AND EXISTS (
 		         SELECT 1 FROM vault_checkouts c JOIN vault_secret_versions s ON s.vault_account_id = c.vault_account_id
-		         WHERE c.vault_account_id = $1 AND c.break_glass AND s.status = 'current' AND c.version = s.version)))`, id)
+		         WHERE c.vault_account_id = $1 AND c.break_glass AND s.status = 'current' AND c.version = s.version)))`, id, canRotate)
 	return err
 }
 
 // ExpireCheckouts ends the check-outs whose time ran out.
 func ExpireCheckouts(ctx context.Context, tx pgx.Tx, tenantID string) (int, error) {
+	// A check-out also ends once its holder no longer holds the access (an
+	// activation ran out or was ended, a review revoked it, they left);
+	// break-glass check-outs never needed it.
 	rows, err := tx.Query(ctx,
-		`UPDATE vault_checkouts SET ended_at = now(), ended_by = 'expired'
-		 WHERE ended_at IS NULL AND expires_at <= now()
-		 RETURNING id, vault_account_id, identity_id`)
+		`UPDATE vault_checkouts c SET ended_at = now(), ended_by = 'expired'
+		 FROM vault_accounts va
+		 WHERE va.id = c.vault_account_id AND c.ended_at IS NULL
+		   AND (c.expires_at <= now() OR (NOT c.break_glass AND NOT `+holds+`))
+		 RETURNING c.id, c.vault_account_id, c.identity_id, c.expires_at > now()`)
 	if err != nil {
 		return 0, err
 	}
-	type ended struct{ id, account, identity string }
+	type ended struct {
+		id, account, identity string
+		unheld                bool
+	}
 	var list []ended
 	for rows.Next() {
 		var e ended
-		if err := rows.Scan(&e.id, &e.account, &e.identity); err != nil {
+		if err := rows.Scan(&e.id, &e.account, &e.identity, &e.unheld); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -732,8 +778,11 @@ func ExpireCheckouts(ctx context.Context, tx pgx.Tx, tenantID string) (int, erro
 	}
 	var accounts []string
 	for _, e := range list {
-		if err := db.Audit(ctx, tx, tenantID, "system:vault", "vault.checkout_expired", "vault_account", e.account,
-			map[string]any{"checkout_id": e.id, "identity_id": e.identity}); err != nil {
+		details := map[string]any{"checkout_id": e.id, "identity_id": e.identity}
+		if e.unheld {
+			details["reason"] = "access ended"
+		}
+		if err := db.Audit(ctx, tx, tenantID, "system:vault", "vault.checkout_expired", "vault_account", e.account, details); err != nil {
 			return 0, err
 		}
 		if !slices.Contains(accounts, e.account) {

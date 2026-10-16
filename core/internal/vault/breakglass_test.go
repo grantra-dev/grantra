@@ -204,3 +204,73 @@ func TestBreakGlassReminders(t *testing.T) {
 		t.Errorf("reminded again within a day: %d", n)
 	}
 }
+
+// A check-out never outlives the access it comes from.
+func TestCheckoutFollowsAccess(t *testing.T) {
+	e := newEnv(t)
+	ana, luis := e.identity("Ana", "human"), e.identity("Luis", "human")
+	a := e.create(Input{Name: "db", Username: "root", Secret: "pw", Settings: Settings{CheckoutMinutes: 480}})
+	soon := time.Now().Add(30 * time.Minute)
+	e.grant(ana, a.EntitlementID, &soon)
+	l, err := e.checkout(ana, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := l.ExpiresAt.Sub(soon); d > time.Second || d < -time.Second {
+		t.Errorf("check-out ends %v, want with the access at %v", l.ExpiresAt, soon)
+	}
+
+	// The access goes early: the next pass ends the check-out.
+	e.grant(luis, a.EntitlementID, nil)
+	if _, err := e.checkout(luis, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(`DELETE FROM access_assignments WHERE identity_id = $1`, ana)
+	var n int
+	e.must(func(tx pgx.Tx) (err error) { n, err = ExpireCheckouts(e.ctx, tx, e.tenant); return err })
+	if n != 1 {
+		t.Errorf("ended %d check-outs, want ana's only", n)
+	}
+	if got := e.one(`SELECT string_agg(identity_id::text, ',') FROM vault_checkouts WHERE ended_at IS NULL`); got != luis {
+		t.Errorf("open check-outs = %s, want luis's", got)
+	}
+	if n := e.one(`SELECT count(*)::text FROM audit_events WHERE action = 'vault.checkout_expired' AND details->>'reason' = 'access ended'`); n != "1" {
+		t.Errorf("audited = %s", n)
+	}
+}
+
+func TestBreakGlassResponders(t *testing.T) {
+	e := newEnv(t)
+	if err := authz.EnsureBuiltinApp(e.ctx, e.pool, e.tenant); err != nil {
+		t.Fatal(err)
+	}
+	admin, other, ana := e.identity("Admin", "human"), e.identity("Other admin", "human"), e.identity("Ana", "human")
+	e.platformRole(authz.RoleAdmin, admin)
+	e.platformRole(authz.RoleAdmin, other)
+	a := e.create(Input{Name: "emergency", Username: "root", Secret: "pw", Settings: Settings{BreakGlass: true, Responders: []string{ana}}})
+
+	// Every listed responder left: the admins answer.
+	e.exec(`UPDATE identities SET status = 'terminated' WHERE id = $1`, ana)
+	if ids, _ := e.responders(a.ID); len(ids) != 2 {
+		t.Errorf("responders after ana left = %v, want the admins", ids)
+	}
+	// Whoever arms it is no responder; changing anything else keeps that.
+	update := func(actor string, s Settings) {
+		e.must(func(tx pgx.Tx) error {
+			_, err := e.v.Update(e.ctx, tx, e.tenant, db.IdentityActor(actor), a.ID, s)
+			return err
+		})
+	}
+	update(admin, Settings{CheckoutMinutes: 60, BreakGlass: true})
+	if ids, _ := e.responders(a.ID); len(ids) != 1 || ids[0] != other {
+		t.Errorf("responders after admin armed it = %v, want the other admin", ids)
+	}
+	update(other, Settings{CheckoutMinutes: 90, BreakGlass: true})
+	if ids, _ := e.responders(a.ID); len(ids) != 1 || ids[0] != other {
+		t.Errorf("responders after an unrelated change = %v, want still the other admin", ids)
+	}
+	update(other, Settings{CheckoutMinutes: 90, BreakGlass: true, Responders: []string{admin}})
+	if ids, _ := e.responders(a.ID); len(ids) != 1 || ids[0] != admin {
+		t.Errorf("responders after the other admin listed admin = %v", ids)
+	}
+}

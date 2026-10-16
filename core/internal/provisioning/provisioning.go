@@ -800,7 +800,19 @@ func provisionDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secr
 	for _, id := range due {
 		run, err := provision(ctx, pool, tenantID, id, "system:provisioning", Options{}, secrets, false)
 		if errors.Is(err, ErrRunning) {
-			continue // someone started one from the console; it covers this pass
+			// Someone started one from the console. It may have read the
+			// access before the change that queued this pass: try again on
+			// the next one.
+			if queued {
+				if err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
+					_, err := tx.Exec(ctx,
+						`INSERT INTO jit_provisioning_queue (tenant_id, application_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, tenantID, id)
+					return err
+				}); err != nil {
+					errs = append(errs, fmt.Errorf("queue %s again: %w", id, err))
+				}
+			}
+			continue
 		}
 		if err != nil {
 			if ctx.Err() != nil {

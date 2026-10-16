@@ -51,7 +51,7 @@ export interface Standing {
   target_id: string;
   name: string;
   application?: string;
-  risk: "high" | "critical";
+  risk: "low" | "medium" | "high" | "critical";
   jit_only: boolean;
   origin: string;
   rule_name?: string;

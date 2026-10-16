@@ -299,11 +299,11 @@ func Activate(ctx context.Context, tx pgx.Tx, tenantID, actor string, el Eligibi
 	err = tx.QueryRow(ctx,
 		`INSERT INTO access_assignments (tenant_id, identity_id, role_id, entitlement_id, origin, granted_by, expires_at,
 		                                 eligibility_id, justification, request_id)
-		 VALUES ($1, $2, $3, $4, 'activation', $5, now() + make_interval(hours => $6), $7, $8, $9)
+		 VALUES ($1, $2, $3, $4, 'activation', $5, least(now() + make_interval(hours => $6), $10::timestamptz), $7, $8, $9)
 		 ON CONFLICT DO NOTHING
 		 RETURNING id, granted_at, expires_at`,
 		tenantID, el.IdentityID, db.Nullable(t.RoleID), db.Nullable(t.EntitlementID), actor, hours, el.ID, justification,
-		db.Nullable(requestID)).Scan(&a.AssignmentID, &a.GrantedAt, &a.ExpiresAt)
+		db.Nullable(requestID), el.ExpiresAt).Scan(&a.AssignmentID, &a.GrantedAt, &a.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Activation{}, apperr.Conflictf("%s is already active", el.Name)
 	}
@@ -318,7 +318,25 @@ func Activate(ctx context.Context, tx pgx.Tx, tenantID, actor string, el Eligibi
 	if err := db.Audit(ctx, tx, tenantID, actor, "access.activated", "identity", el.IdentityID, details); err != nil {
 		return Activation{}, err
 	}
+	if err := adopt(ctx, tx, el.IdentityID, t); err != nil {
+		return Activation{}, err
+	}
 	return a, queueProvisioning(ctx, tx, tenantID, t)
+}
+
+// adopt marks the memberships someone already has in applications for t as
+// granted by Grantra, so provisioning removes them when the access ends.
+// Memberships found by reading an application are otherwise left alone
+// unless the application removes everything unassigned, and just-in-time
+// access would stay in the application for good.
+func adopt(ctx context.Context, tx pgx.Tx, identityID string, t Target) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE account_entitlements ae SET provisioned_at = now()
+		 FROM accounts a
+		 WHERE a.id = ae.account_id AND a.identity_id = $1 AND ae.provisioned_at IS NULL
+		   AND (ae.entitlement_id = $3 OR ae.entitlement_id IN (SELECT entitlement_id FROM role_entitlements WHERE role_id = $2))`,
+		identityID, db.Nullable(t.RoleID), db.Nullable(t.EntitlementID))
+	return err
 }
 
 // Deactivate ends a running activation before its time.

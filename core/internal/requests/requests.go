@@ -441,6 +441,21 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		if el.Active != nil {
 			return closeRequest(ctx, tx, tenantID, actor, id, Cancelled, "the access is already active")
 		}
+		// The maximum may have been lowered since it was asked for.
+		*hours = min(*hours, el.MaxActivationHours)
+	default:
+		// The access may have become just-in-time only since it was asked
+		// for with no end date.
+		if days == nil && hours == nil {
+			jit, err := access.JITOnly(ctx, tx, target)
+			if err != nil {
+				return err
+			}
+			if jit {
+				return closeRequest(ctx, tx, tenantID, actor, id, Cancelled,
+					"nobody holds this access for good any more: ask for it for a time, or to be made eligible")
+			}
+		}
 	}
 	// Separation of duties may have changed since the request was made: a
 	// risk an admin accepted becomes exceptions, and a conflict nobody

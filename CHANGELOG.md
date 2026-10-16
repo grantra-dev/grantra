@@ -12,9 +12,11 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - Helm: `vault.key` / `vault.existingSecret`.
 - **Just-in-time access** (zero standing privileges): mark an entitlement *just in time only* with a maximum of hours per activation and optional approval. People are made eligible by an admin or ask to be eligible, then activate it for a few hours with a reason from **My access**; it ends on its own and provisioning takes it back within seconds. The database refuses standing assignments to such access, and birthright rules cannot give it ([docs](docs/just-in-time.md)).
 - **Standing access report**: high and critical risk access held with no end date, converted into eligibility in one click.
-- **Break glass**: responders open an emergency vault account without holding its access, for up to an hour, ignoring exclusivity. Every admin and auditor is emailed at once (an email nobody can turn off), the password rotates afterwards, and another admin reviews each use, with daily reminders ([docs](docs/vault.md#break-glass)).
+- **Break glass**: responders open an emergency vault account without holding its access, for up to an hour, ignoring exclusivity. Whoever arms an account (turns break glass on or changes its responders) cannot open it. Every admin and auditor is emailed at once (an email nobody can turn off), the password rotates afterwards, and another admin reviews each use, with daily reminders ([docs](docs/vault.md#break-glass)).
 - Access requests take `kind` (`access` or `eligibility`) and `duration_hours`.
 - Leavers lose their eligibilities along with their access.
+- Vault check-outs end no later than the access they come from, and within a minute once it is gone.
+- Revoking a just-in-time activation in an access review also removes the eligibility behind it.
 
 ### Changed
 

@@ -30,9 +30,10 @@ export function StandingAccess() {
     <div className="flex flex-col gap-4">
       <Card>
         <CardContent className="pt-5 text-sm text-slate-600">
-          High and critical risk access held with no end date. Converting it removes the access and
-          makes the person eligible instead: they activate it for a few hours when they need it.
-          Birthright access comes from a rule; change the rule instead.
+          High and critical risk access held with no end date, and just-in-time only access held
+          from before it became so. Converting it removes the access and makes the person eligible
+          instead: they activate it for a few hours when they need it. Birthright access comes from
+          a rule; change the rule instead.
         </CardContent>
       </Card>
       <Loaded

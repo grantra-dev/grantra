@@ -50,8 +50,11 @@ curl -b cookies -X POST localhost:8080/api/v1/vault/accounts/$ID/checkouts -d '{
 ## Break glass
 
 For emergencies, an account can be marked **break glass**. Its
-**responders** (people you list, or the Grantra admins when you list nobody)
-can open it without holding its access:
+**responders** (people you list, or the Grantra admins when you list nobody
+or every listed responder has left) can open it without holding its access.
+Whoever last turned break glass on or changed its responders is never one of
+them, so nobody arms an account for their own use: with a single admin, list
+someone else.
 
 ```sh
 curl -b cookies -X POST localhost:8080/api/v1/vault/accounts/$ID/break-glass -d '{"reason": "INC-9: production is down"}'
@@ -61,6 +64,7 @@ curl -b cookies -X POST localhost:8080/api/v1/vault/accounts/$ID/break-glass -d 
 - Every admin and auditor gets an email at once (`break_glass_used`), which nobody can turn off (`vault.break_glass_opened` in the audit log).
 - When the last check-out of the exposed password ends, Grantra rotates it if it can (the account is linked to an application whose connector sets passwords), even when the account does not rotate after each use.
 - Every use waits for review in **Vault → Break glass**: an admin other than the person who used it marks it *justified* or *flags* it with a reason (`vault.break_glass_reviewed`). Admins get a reminder email every day until then (job **remind break-glass reviews**, every 15 minutes).
+- Like any check-out, an ordinary one ends no later than the access it comes from, such as a [just-in-time](just-in-time.md) activation, and ends within a minute once that access is gone.
 
 In the console, admins tick *Break glass* in the account's settings and add
 responders; responders see a **Break glass** button next to the account.

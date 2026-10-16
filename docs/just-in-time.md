@@ -40,15 +40,17 @@ Someone becomes eligible in one of two ways:
 - They ask for it in **Request access**: for just-in-time access the form offers *To be eligible* (the default) or *The access itself, once, for a set time*. An eligibility request goes through the same approvals as any request.
 
 Eligibilities show in **My access** and on the person's page, and end on
-their own when their days run out. Access reviews and leaver processing
-cover the access that activations give.
+their own when their days run out. Leavers lose them. Access reviews list
+running activations; revoking one also removes the eligibility behind it.
+Eligibilities with no activation running are not in reviews yet.
 
 ## Activating
 
 In **My access**, click **Activate**, choose the hours (up to the maximum)
 and say why. Only the person can activate their own eligibility.
 
-- With no approval needed, the access starts at once (`access.activated`). Provisioning carries it to the application within about 30 seconds.
+- With no approval needed, the access starts at once (`access.activated`). Provisioning carries it to the application within about 30 seconds. An activation never lasts past the eligibility's own end.
+- Memberships the person already had in the application, found by reading it, become Grantra's when they activate or their standing access is converted, so provisioning takes them away when the activation ends even if the application keeps memberships Grantra did not grant.
 - When the entitlement asks for approval, or the access would break a [separation of duties](separation-of-duties.md) policy, it becomes an *activation* request; the access starts for the chosen hours once it is approved.
 - **Done, end it now** ends it early; admins can end anyone's.
 - The job **apply just-in-time access** runs every 30 seconds: it removes activations whose hours have run out (`access.removed` with reason `expired`) and eligibilities whose days have, and provisions those changes.
@@ -56,7 +58,8 @@ and say why. Only the person can activate their own eligibility.
 ## Standing access report
 
 **Administration → Standing access** lists high and critical risk access held
-with no end date. **Make it just in time** removes the access and makes the
+with no end date, and any just-in-time only access still held from before it
+became so. **Make it just in time** removes the access and makes the
 person eligible instead, keeping the entitlement's settings. Birthright
 access cannot be converted there (change the rule), and admins cannot
 convert their own.

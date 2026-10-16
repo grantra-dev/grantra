@@ -445,3 +445,39 @@ func TestStandingAccess(t *testing.T) {
 		t.Errorf("converting birthright access = %v", err)
 	}
 }
+
+// Requests made before the rules changed close cleanly when approved.
+func TestStaleRequests(t *testing.T) {
+	e := newEnv(t)
+	boss := e.identity("Boss", "")
+	ana := e.identity("Ana", boss)
+	owner := e.identity("Owner", "")
+	ent := e.entitlement("ERP", owner)
+
+	// Asked for with no end date, then the access became just in time only.
+	r, err := e.create(ana, Input{EntitlementID: ent, Justification: "month end"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.setJIT(ent, catalog.JIT{JITOnly: true, MaxActivationHours: 4, ActivationApproval: true})
+	e.decide(boss, r.ID, true)
+	r = e.decide(owner, r.ID, true)
+	if r.Status != Cancelled || e.assignments(ana) != 0 {
+		t.Errorf("standing request after just-in-time = %s %q", r.Status, r.Reason)
+	}
+
+	// An activation asked for 4 hours, then the maximum went down to 2.
+	el := e.eligible(ana, access.Target{EntitlementID: ent}, nil)
+	res, err := e.activate(ana, el, 4, "deploy")
+	if err != nil || res.Request == nil {
+		t.Fatal(res, err)
+	}
+	e.setJIT(ent, catalog.JIT{JITOnly: true, MaxActivationHours: 2, ActivationApproval: true})
+	e.decide(boss, res.Request.ID, true)
+	if r := e.decide(owner, res.Request.ID, true); r.Status != Approved {
+		t.Fatalf("activation after the maximum went down = %s %q", r.Status, r.Reason)
+	}
+	if got := e.eligibility(el); got.Active == nil || time.Until(got.Active.ExpiresAt) > 121*time.Minute {
+		t.Errorf("activation = %+v, want at most 2 hours", got.Active)
+	}
+}
