@@ -66,6 +66,7 @@ const originLabels = {
   manual: "Granted by an admin",
   birthright: "Birthright",
   activation: "Activated just in time",
+  eligibility: "Eligible to activate",
 };
 
 function ToReview() {
@@ -244,7 +245,11 @@ function ToReview() {
                         </TableCell>
                         <TableCell>
                           {originLabels[it.origin]}
-                          <div className="text-slate-500">since {formatDate(it.granted_at)}</div>
+                          <div className="text-slate-500">
+                            {it.origin === "eligibility"
+                              ? `may turn it on for a few hours, since ${formatDate(it.granted_at)}`
+                              : `since ${formatDate(it.granted_at)}`}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           <Button

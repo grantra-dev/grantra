@@ -59,6 +59,22 @@ function decisions(sent: { id: string; body: unknown }[]): Record<string, Handle
 }
 
 describe("Access reviews", () => {
+  it("tells eligibilities apart from access held now", async () => {
+    serve({
+      "GET /api/v1/me": ok(manager),
+      [itemsRoute]: ok({
+        items: [
+          item("i1", "Laura", "Approve payments"),
+          { ...item("i2", "Pedro", "Production admins"), origin: "eligibility" },
+        ],
+      }),
+    });
+    renderAt("/reviews");
+    expect(await screen.findByText("Eligible to activate")).toBeInTheDocument();
+    expect(screen.getByText(/may turn it on for a few hours/)).toBeInTheDocument();
+    expect(screen.getByText("Requested")).toBeInTheDocument();
+  });
+
   it("keeps the selected items in bulk with one comment", async () => {
     const sent: { id: string; body: unknown }[] = [];
     serve({

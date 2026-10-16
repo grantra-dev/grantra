@@ -19,7 +19,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - Access requests take `kind` (`access` or `eligibility`) and `duration_hours`.
 - Leavers lose their eligibilities along with their access.
 - Vault check-outs end no later than the access they come from, and within a minute once it is gone.
-- Revoking a just-in-time activation in an access review also removes the eligibility behind it.
+- Access reviews certify eligibilities as their own items (*Eligible to activate*), with the same reviewers; revoking one removes it and ends any activation running with it. Activations themselves, which last hours, are no longer review items.
 
 ### Changed
 
