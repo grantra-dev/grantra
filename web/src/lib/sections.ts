@@ -9,6 +9,7 @@ import {
   type LucideIcon,
   Settings,
   ShoppingBag,
+  SquareTerminal,
   Users,
 } from "lucide-react";
 import { PlatformRole, type Me } from "./api";
@@ -69,6 +70,13 @@ export const sections: Section[] = [
     title: "Vault",
     description: "Check out the privileged accounts you hold access to.",
     icon: LockKeyhole,
+    visible: everyone,
+  },
+  {
+    path: "/servers",
+    title: "Servers",
+    description: "Log in to servers over SSH with a short-lived certificate.",
+    icon: SquareTerminal,
     visible: everyone,
   },
   {

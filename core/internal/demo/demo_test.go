@@ -42,8 +42,8 @@ func TestSeed(t *testing.T) {
 	if n := count(`SELECT count(*) FROM identities WHERE status = 'active'`); n != 8 {
 		t.Errorf("active people = %d, want 8", n)
 	}
-	if n := count(`SELECT count(*) FROM applications WHERE connector IS DISTINCT FROM $1`, authz.BuiltinConnector); n != 4 {
-		t.Errorf("applications = %d, want 4", n)
+	if n := count(`SELECT count(*) FROM applications WHERE connector IS DISTINCT FROM $1`, authz.BuiltinConnector); n != 5 {
+		t.Errorf("applications = %d, want 5 (4 and SSH servers)", n)
 	}
 	if n := count(`SELECT count(*) FROM access_rules`); n != 3 {
 		t.Errorf("rules = %d, want 3", n)
@@ -125,14 +125,19 @@ func TestSeedWithVault(t *testing.T) {
 	if version != 1 || entitlement != "Use Production database root" {
 		t.Fatalf("version %d, entitlement %q", version, entitlement)
 	}
-	// Luis may activate GitHub org admin, which nobody holds for good.
+	// Luis may activate GitHub org admin and SSH to the production database
+	// server, which nobody holds for good.
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
 		var luis string
 		if err := tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis); err != nil {
 			return err
 		}
 		list, err := access.Eligibilities(ctx, tx, luis)
-		if err != nil || len(list) != 1 || list[0].Name != "Org admins" || list[0].MaxActivationHours != 2 {
+		names := map[string]int{}
+		for _, el := range list {
+			names[el.Name] = el.MaxActivationHours
+		}
+		if err != nil || len(list) != 2 || names["Org admins"] != 2 || names["Log in to prod-db as postgres"] == 0 {
 			t.Fatalf("luis's eligibilities = %+v, %v", list, err)
 		}
 		return nil

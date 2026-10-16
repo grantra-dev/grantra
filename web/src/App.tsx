@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router";
 import { Layout } from "@/components/Layout";
 import { ApiError, getMe } from "@/lib/api";
@@ -19,6 +20,12 @@ import { Person } from "@/pages/Person";
 import { RequestAccess } from "@/pages/RequestAccess";
 import { Centered, LoginNotConfigured, SignIn } from "@/pages/SignIn";
 import { Vault } from "@/pages/Vault";
+
+// Pages few people open load when first visited.
+const Servers = lazy(() => import("@/pages/Servers").then((m) => ({ default: m.Servers })));
+const SessionPlayback = lazy(() =>
+  import("@/pages/SessionPlayback").then((m) => ({ default: m.SessionPlayback })),
+);
 
 export function App() {
   const { data: me, error, isPending } = useQuery({ queryKey: ["me"], queryFn: getMe });
@@ -44,6 +51,11 @@ export function App() {
     "/request": <RequestAccess me={me} />,
     "/requests": <MyRequests me={me} />,
     "/vault": <Vault me={me} />,
+    "/servers": (
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <Servers me={me} />
+      </Suspense>
+    ),
     "/approvals": <Approvals me={me} />,
     "/reviews": <AccessReviews me={me} />,
     "/people": <People />,
@@ -54,6 +66,12 @@ export function App() {
   const subpages: Record<string, [string, React.ReactNode]> = {
     "/people": ["/people/:id", <Person me={me} />],
     "/admin": ["/admin/applications/:id", <Application />],
+    "/servers": [
+      "/servers/sessions/:id",
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <SessionPlayback />
+      </Suspense>,
+    ],
   };
   return (
     <Routes>

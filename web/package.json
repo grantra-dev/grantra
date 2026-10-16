@@ -12,6 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@tanstack/react-query": "^5.104.2",
+    "asciinema-player": "^3.17.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.56.0",
