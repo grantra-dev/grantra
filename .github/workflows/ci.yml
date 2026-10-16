@@ -81,7 +81,7 @@ jobs:
           helm template t deploy/helm/grantra --set database.existingSecret=grantra-db > /dev/null
           helm template t deploy/helm/grantra \
             --set postgresql.enabled=true,postgresql.auth.superuserPassword=s,postgresql.auth.ownerPassword=o,postgresql.auth.appPassword=a \
-            --set postgresql.auth.loginPassword=l,login.enabled=true,login.admin.password=p,login.ingress.enabled=true,ingress.enabled=true,vault.key=k > /dev/null
+            --set postgresql.auth.loginPassword=l,login.enabled=true,login.admin.password=p,login.ingress.enabled=true,ingress.enabled=true,vault.key=k,gateway.enabled=true > /dev/null
 
   docker:
     runs-on: ubuntu-latest

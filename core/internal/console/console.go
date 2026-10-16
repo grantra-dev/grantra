@@ -161,6 +161,8 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)
+	// Servers fetch the key they trust while being set up; it is public.
+	mux.HandleFunc("GET /api/v1/ssh/ca.pub", a.sshCAPublicKey)
 }
 
 // sameOrigin refuses state-changing requests that a browser marks as coming

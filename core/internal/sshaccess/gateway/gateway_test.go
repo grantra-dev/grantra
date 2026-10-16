@@ -446,7 +446,10 @@ func TestShellIsRecorded(t *testing.T) {
 		t.Errorf("exec session = %+v", exec)
 	}
 	var found []sshaccess.Command
-	e.must(func(tx pgx.Tx) (err error) { found, err = sshaccess.SearchCommands(e.ctx, tx, "/ETC/host", "", 10); return err })
+	e.must(func(tx pgx.Tx) (err error) {
+		found, err = sshaccess.SearchCommands(e.ctx, tx, "/ETC/host", "", 10)
+		return err
+	})
 	if len(found) != 1 || found[0].SessionID != exec.ID {
 		t.Errorf("search = %+v", found)
 	}

@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -47,6 +48,13 @@ func TestSSHAPI(t *testing.T) {
 	}
 	e.api.SSH = sshaccess.New(key)
 	e.api.GatewayAddress = "ssh.example.com:2222"
+
+	// The CA public key is public: servers fetch it without signing in.
+	pub := httptest.NewRecorder()
+	e.mux.ServeHTTP(pub, httptest.NewRequest(http.MethodGet, "/api/v1/ssh/ca.pub", nil))
+	if pub.Code != http.StatusOK || !strings.HasPrefix(pub.Body.String(), "ssh-ed25519 ") || pub.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Errorf("ca.pub = %d %q", pub.Code, pub.Body)
+	}
 
 	// Only holders get certificates: not an admin, not an auditor.
 	for _, who := range []string{admin, auditor, luis} {

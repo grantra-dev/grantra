@@ -112,6 +112,10 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if and .Values.gateway.enabled .Values.gateway.publicAddress }}
+            - name: GRANTRA_SSH_GATEWAY_ADDRESS
+              value: {{ .Values.gateway.publicAddress | quote }}
+            {{- end }}
             {{- if or .Values.vault.existingSecret .Values.vault.key }}
             - name: GRANTRA_VAULT_KEY
               valueFrom:

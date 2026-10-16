@@ -1,12 +1,16 @@
 package console
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 // SSH targets, sessions and recordings sit with the vault: vault.manage
@@ -26,6 +30,27 @@ func (a *API) getSSH(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
+}
+
+// sshCAPublicKey serves the CA public key as a TrustedUserCAKeys file,
+// without signing in, so servers can fetch it while they are set up:
+// curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/ca.pub
+func (a *API) sshCAPublicKey(w http.ResponseWriter, r *http.Request) {
+	if !a.SSH.Enabled() {
+		httpjson.Error(w, http.StatusNotFound, "SSH certificates are off: "+vault.KeyEnv+" is not set")
+		return
+	}
+	var ca string
+	err := db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
+		ca, err = a.SSH.PublicCA(r.Context(), tx, a.tenantID)
+		return err
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	io.WriteString(w, ca+"\n") //nolint:errcheck
 }
 
 // listSSHTargets shows admins and auditors every target, and everyone else

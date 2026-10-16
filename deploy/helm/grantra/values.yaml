@@ -64,6 +64,33 @@ vault:
   # An existing Secret with the key vault-key.
   existingSecret: ""
 
+# The SSH gateway (grantra gateway): people SSH through it to the servers
+# they hold access to, and it records every session. It needs vault.key (or
+# vault.existingSecret): it signs its own short-lived certificates with the
+# SSH certificate authority, which that key seals. See docs/ssh.md.
+gateway:
+  enabled: false
+  replicaCount: 1
+  # How people reach the gateway (host or host:port), shown in the console
+  # with the command to connect, such as ssh.example.com:2222.
+  publicAddress: ""
+  service:
+    # SSH is not HTTP: expose it with a LoadBalancer or NodePort.
+    type: LoadBalancer
+    port: 2222
+    annotations: {}
+  # The gateway's own host key, which people's known_hosts remembers. An
+  # existing Secret with the key host-key (an OpenSSH or PKCS#8 private key),
+  # or leave empty and the chart creates one and keeps it across upgrades.
+  hostKey:
+    existingSecret: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 # Extra environment variables for the core, such as connector credentials
 # (GRANTRA_SECRET_*). Prefer envFromSecrets for anything sensitive.
 extraEnv: []
