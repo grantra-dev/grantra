@@ -53,6 +53,20 @@ type Config struct {
 	// DemoLoginURL, when set, connects the demo's Grantra Login application
 	// to the Keycloak at this URL.
 	DemoLoginURL string
+
+	Gateway Gateway
+}
+
+// Gateway configures the SSH gateway (grantra gateway).
+type Gateway struct {
+	// Addr is where the gateway listens.
+	Addr string
+	// HostKeyFile holds the gateway's own SSH host key. It is created the
+	// first time; keep it, or people see a host key warning.
+	HostKeyFile string
+	// PublicAddress is how people reach the gateway (host or host:port),
+	// shown in the console with the command to connect. Optional.
+	PublicAddress string
 }
 
 // SMTP configures the server Grantra sends notification emails through.
@@ -104,6 +118,11 @@ func FromEnv() (Config, error) {
 			DiscoveryURL: os.Getenv("GRANTRA_OIDC_DISCOVERY_URL"),
 			ClientID:     getenv("GRANTRA_OIDC_CLIENT_ID", "grantra-console"),
 			ClientSecret: os.Getenv("GRANTRA_OIDC_CLIENT_SECRET"),
+		},
+		Gateway: Gateway{
+			Addr:          getenv("GRANTRA_GATEWAY_ADDR", ":2222"),
+			HostKeyFile:   getenv("GRANTRA_GATEWAY_HOST_KEY_FILE", "gateway_host_key"),
+			PublicAddress: os.Getenv("GRANTRA_SSH_GATEWAY_ADDRESS"),
 		},
 		SessionIdle: 30 * time.Minute,
 		SessionMax:  8 * time.Hour,
