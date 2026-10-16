@@ -64,7 +64,7 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 | **Web console and emails** | One app for employees, managers, owners and admins, plus email notifications. [Docs](docs/console.md), [emails](docs/notifications.md) |
 | **Grantra Login** | Single sign-on for your apps, MFA and passkeys (required only for people with sensitive access, if you like), sign-in with Entra ID, Okta, OIDC or SAML, and migration one email domain at a time. [Docs](docs/grantra-login.md) |
 | **Authorization for your apps** | Your apps ask Grantra "may this person do this?" through an API, answered by Cedar policies with the person's department, roles and access filled in. [Docs](docs/app-authorization.md) |
-| **Credential vault** | Passwords and SSH keys of privileged accounts, encrypted, checked out with a reason by the people who hold access to them, and rotated in Active Directory, LDAP and Grantra Login after use or on a schedule. Finds privileged and service accounts that belong in it. Break glass for emergencies, always alerted and reviewed. [Docs](docs/vault.md) |
+| **Credential vault** | Passwords and SSH keys of privileged accounts, encrypted, checked out with a reason by the people who hold access to them, and rotated in Active Directory, LDAP and Grantra Login after use or on a schedule. Finds privileged and service accounts that belong in it. Break glass for emergencies, always alerted and reviewed. The master key can stay in a cloud KMS, OpenBao/Vault Transit or an HSM. [Docs](docs/vault.md) |
 | **SSH access** | Short-lived SSH certificates for the servers people hold access to, valid only while that access lasts: no personal keys on servers. A gateway records every session for playback and indexes the commands typed, so you can search who ran `DROP TABLE` where. [Docs](docs/ssh.md) |
 | **Just-in-time access** | Zero standing privileges: people are eligible for privileged access and activate it for a few hours with a reason, with or without approval; it ends on its own. A report finds standing privileged access and converts it. [Docs](docs/just-in-time.md) |
 | **Audit log** | Every change and decision, searchable. |
@@ -91,7 +91,7 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 
 1. **Foundations and identity governance** *(done in v0.1)*.
 2. **Integrated IAM** *(done in v0.2)*: Grantra Login managed from the console, single sign-on and MFA policies, gradual migration from another identity provider, and authorization for your apps.
-3. **Privileged access (PAM)** *(in progress)*: credential vault, just-in-time access, break glass, SSH certificates and session recording.
+3. **Privileged access (PAM)** *(in progress)*: credential vault, just-in-time access, break glass, SSH certificates and session recording, KMS/HSM keys.
 4. **Identity threat detection** and AI-assisted recommendations.
 
 The plan lives in the [GitHub milestones](https://github.com/grantra-dev/grantra/milestones).

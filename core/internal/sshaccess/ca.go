@@ -149,3 +149,33 @@ func ParseCA(line string) (ssh.PublicKey, error) {
 	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
 	return k, err
 }
+
+// Rewrap re-wraps the data keys of the CAs that the current key did not
+// wrap. It returns how many it re-wrapped.
+func Rewrap(ctx context.Context, tx pgx.Tx, tenantID string, kp vault.KeyProvider) (int, error) {
+	rows, err := tx.Query(ctx, `SELECT purpose, key_id, wrapped_key FROM ssh_cas WHERE key_id <> $1 FOR UPDATE`, kp.KeyID())
+	if err != nil {
+		return 0, err
+	}
+	type ca struct {
+		purpose, keyID string
+		wrapped        []byte
+	}
+	todo, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ca, error) {
+		var c ca
+		return c, row.Scan(&c.purpose, &c.keyID, &c.wrapped)
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, c := range todo {
+		wrapped, err := vault.RewrapKey(kp, c.keyID, c.wrapped, caAAD(tenantID, c.purpose))
+		if err != nil {
+			return 0, fmt.Errorf("SSH %s CA: %w", c.purpose, err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ssh_cas SET key_id = $2, wrapped_key = $3 WHERE purpose = $1`, c.purpose, kp.KeyID(), wrapped); err != nil {
+			return 0, err
+		}
+	}
+	return len(todo), nil
+}

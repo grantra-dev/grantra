@@ -81,7 +81,7 @@ helm install grantra deploy/helm/grantra \
 
 Grantra Login starts empty: create the `grantra` realm and the `grantra-console` client (redirect URI `https://grantra.example.com/auth/callback`), or import [`deploy/keycloak/grantra-realm.json`](../deploy/keycloak/grantra-realm.json) after replacing its development secrets.
 
-The [credential vault](vault.md) needs a master key: `--set vault.existingSecret=grantra-vault` with a Secret holding `vault-key` (from `openssl rand -base64 32`), or `vault.key`. Back the key up apart from the database: secrets sealed with a lost key are gone.
+The [credential vault](vault.md) needs a master key: `--set vault.existingSecret=grantra-vault` with a Secret holding `vault-key` (from `openssl rand -base64 32`), or `vault.key`. Back the key up apart from the database: secrets sealed with a lost key are gone. To keep the master key in AWS KMS, Google Cloud KMS, Azure Key Vault, OpenBao or HashiCorp Vault Transit, or an HSM instead, set `vault.provider` and `vault.kmsKey`, give the pods their cloud identity with `serviceAccount.annotations` (or pass credentials in `vault.env`), and see [Key providers](vault.md#key-providers), including how to move an existing vault with `grantra vault rewrap`.
 
 ### SSH gateway
 

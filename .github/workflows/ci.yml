@@ -40,6 +40,13 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race -count=1 ./...
+      - name: Test HSM keys (SoftHSM)
+        env:
+          GRANTRA_TEST_PKCS11_MODULE: /usr/lib/softhsm/libsofthsm2.so
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q softhsm2
+          CGO_ENABLED=1 go vet -tags pkcs11 ./internal/vault/kms/
+          CGO_ENABLED=1 go test -tags pkcs11 -count=1 -v -run PKCS11 ./internal/vault/kms/
       - name: Build
         run: go build ./cmd/grantra
       - name: govulncheck
@@ -82,6 +89,8 @@ jobs:
           helm template t deploy/helm/grantra \
             --set postgresql.enabled=true,postgresql.auth.superuserPassword=s,postgresql.auth.ownerPassword=o,postgresql.auth.appPassword=a \
             --set postgresql.auth.loginPassword=l,login.enabled=true,login.admin.password=p,login.ingress.enabled=true,ingress.enabled=true,vault.key=k,gateway.enabled=true > /dev/null
+          helm template t deploy/helm/grantra --set database.existingSecret=grantra-db \
+            --set vault.provider=transit,vault.kmsKey=grantra,gateway.enabled=true > /dev/null
 
   docker:
     runs-on: ubuntu-latest

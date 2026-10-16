@@ -1,6 +1,6 @@
 {{- if .Values.gateway.enabled }}
-{{- if not (or .Values.vault.existingSecret .Values.vault.key) }}
-{{- fail "gateway.enabled needs vault.key or vault.existingSecret: the gateway signs with the SSH certificate authority that key seals" }}
+{{- if not (or .Values.vault.existingSecret .Values.vault.key .Values.vault.provider) }}
+{{- fail "gateway.enabled needs vault.key, vault.existingSecret or vault.provider: the gateway signs with the SSH certificate authority that key seals" }}
 {{- end }}
 {{- $name := printf "%s-gateway" (include "grantra.fullname" .) }}
 {{- if not .Values.gateway.hostKey.existingSecret }}
@@ -80,11 +80,7 @@ spec:
               value: ":2222"
             - name: GRANTRA_GATEWAY_HOST_KEY_FILE
               value: /etc/grantra-gateway/host-key
-            - name: GRANTRA_VAULT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "grantra.vaultSecret" . }}
-                  key: vault-key
+            {{- include "grantra.vaultEnv" . | nindent 12 }}
           livenessProbe:
             tcpSocket:
               port: ssh

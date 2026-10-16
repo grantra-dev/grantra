@@ -26,12 +26,12 @@ import (
 // servers), and runs apart from the server so it can sit where SSH is
 // allowed in.
 func runGateway(ctx context.Context, log *slog.Logger, cfg config.Config) error {
-	keys, err := vault.LocalKeyFromEnv()
+	keys, err := vault.KeysFromEnv(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("vault key: %w", err)
 	}
 	if keys == nil {
-		return errors.New("the SSH gateway needs " + vault.KeyEnv + ", the same key the Grantra server uses")
+		return errors.New("the SSH gateway needs the vault key the Grantra server uses (" + vault.KeyEnv + " or " + vault.ProviderEnv + ")")
 	}
 	hostKey, err := loadHostKey(cfg.Gateway.HostKeyFile, log)
 	if err != nil {
