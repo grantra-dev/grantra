@@ -89,6 +89,7 @@ func roundTrip(t *testing.T, p Provider) {
 
 func TestTransit(t *testing.T) {
 	keys := map[string]sealer{"grantra": newSealer(t), "other": newSealer(t)}
+	ignoreAAD := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Vault-Token") != "s.token" || r.Header.Get("X-Vault-Namespace") != "team" {
 			http.Error(w, `{"errors":["permission denied"]}`, http.StatusForbidden)
@@ -103,6 +104,9 @@ func TestTransit(t *testing.T) {
 			return
 		}
 		aad := unb64(in["associated_data"])
+		if ignoreAAD {
+			aad = nil // an old server: associated_data is ignored, with a warning
+		}
 		switch op {
 		case "keys":
 			json.NewEncoder(w).Encode(map[string]any{"data": map[string]string{"type": map[string]string{"grantra": "aes256-gcm96", "other": "rsa-2048"}[name]}}) //nolint:errcheck
@@ -137,6 +141,12 @@ func TestTransit(t *testing.T) {
 	if _, err := NewTransit(context.Background(), conf); err == nil || !strings.Contains(err.Error(), "aes256-gcm96") {
 		t.Errorf("rsa key = %v", err)
 	}
+	// A server that ignores associated data is refused.
+	conf.Key, ignoreAAD = "grantra", true
+	if _, err := NewTransit(context.Background(), conf); err == nil || !strings.Contains(err.Error(), "ignores associated_data") {
+		t.Errorf("server ignoring associated data = %v", err)
+	}
+	ignoreAAD = false
 	conf.Key, conf.Token = "grantra", "wrong"
 	if _, err := NewTransit(context.Background(), conf); err == nil {
 		t.Error("a wrong token passed")

@@ -83,6 +83,15 @@ func NewTransit(ctx context.Context, conf TransitConfig) (*TransitKey, error) {
 	default:
 		return nil, fmt.Errorf("transit key %s must be aes256-gcm96, aes128-gcm96 or chacha20-poly1305, not %s", conf.Key, key.Data.Type)
 	}
+	// A server that predates associated_data accepts it with only a warning
+	// and ignores it, which would leave data keys unbound: check it binds.
+	probe, err := k.Wrap(make([]byte, 32), []byte("grantra-transit-check:a"))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := k.Unwrap(k.KeyID(), probe, []byte("grantra-transit-check:b")); err == nil {
+		return nil, fmt.Errorf("transit at %s ignores associated_data, which Grantra needs: use OpenBao or a newer HashiCorp Vault", conf.Address)
+	}
 	return k, nil
 }
 

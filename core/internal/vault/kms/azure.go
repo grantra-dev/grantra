@@ -53,10 +53,11 @@ func NewAzure(ctx context.Context, keyURL string) (*AzureKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Azure credentials: %w", err)
 	}
-	scope := "https://vault.azure.net/.default"
-	if u, _ := url.Parse(keyURL); strings.HasSuffix(u.Hostname(), ".managedhsm.azure.net") {
-		scope = "https://managedhsm.azure.net/.default"
-	}
+	// The token's audience is the vault's cloud: vault.azure.net,
+	// managedhsm.azure.net, vault.azure.cn or vault.usgovcloudapi.net.
+	u, _ := url.Parse(keyURL)
+	_, cloud, _ := strings.Cut(u.Hostname(), ".")
+	scope := "https://" + cloud + "/.default"
 	token := func(ctx context.Context) (string, error) {
 		t, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{scope}})
 		return t.Token, err

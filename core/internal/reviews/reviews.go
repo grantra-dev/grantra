@@ -413,6 +413,9 @@ func decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, it Item, dec
 		return err
 	}
 	details := map[string]any{"campaign_id": it.CampaignID, "identity_id": it.IdentityID, it.Type + "_id": it.TargetID, "decision": decision}
+	if it.eligibilityID != "" {
+		details["eligibility_id"] = it.eligibilityID
+	}
 	if comment != "" {
 		details["comment"] = comment
 	}

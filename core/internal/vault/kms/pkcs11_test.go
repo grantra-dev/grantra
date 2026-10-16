@@ -92,12 +92,13 @@ func TestPKCS11(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if old.KeyID() != "pkcs11:grantra-old" {
+	if old.KeyID() != "pkcs11:grantra/grantra-old" {
 		t.Fatalf("key id %s", old.KeyID())
 	}
 	roundTrip(t, old)
 
-	// A key rotated in the HSM: the new key still opens what the old wrapped.
+	// Another key of the same HSM opens only what it wrapped itself: moving
+	// to it names the old one (GRANTRA_VAULT_OLD_KMS_KEY) until rewrap.
 	dataKey := bytes.Repeat([]byte{7}, 32)
 	wrapped, err := old.Wrap(dataKey, []byte("aad"))
 	if err != nil {
@@ -107,11 +108,16 @@ func TestPKCS11(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := cur.Unwrap(old.KeyID(), wrapped, []byte("aad"))
-	if err != nil || !bytes.Equal(got, dataKey) {
-		t.Fatalf("old key through new provider: %v", err)
+	if cur.Owns(old.KeyID()) {
+		t.Fatal("a key owns another key of its HSM")
+	}
+	if _, err := cur.Unwrap(old.KeyID(), wrapped, []byte("aad")); err == nil {
+		t.Fatal("unwrapped with a key it was not configured for")
 	}
 	if _, err := cur.Unwrap(cur.KeyID(), wrapped, []byte("aad")); err == nil {
 		t.Fatal("wrong key opened the data key")
+	}
+	if got, err := old.Unwrap(old.KeyID(), wrapped, []byte("aad")); err != nil || !bytes.Equal(got, dataKey) {
+		t.Fatalf("old key, opened again from the same module: %v", err)
 	}
 }

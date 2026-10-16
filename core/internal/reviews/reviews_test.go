@@ -356,6 +356,14 @@ func TestReviewEligibilities(t *testing.T) {
 	if len(left) != 1 || left[0] != luisEl || e.holds(ana, ent) {
 		t.Errorf("after the review: eligibilities %v (want Luis's), Ana holds = %v", left, e.holds(ana, ent))
 	}
+	// The audit log ties the removal to the review decision.
+	var linked int
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action = 'review_item.decided' AND target_id = $1 AND details->>'eligibility_id' IS NOT NULL`, who[ana].ID).Scan(&linked)
+	})
+	if linked != 1 {
+		t.Errorf("%d review decisions name the eligibility they removed", linked)
+	}
 }
 
 // Revoking a just-in-time activation also takes away the eligibility behind

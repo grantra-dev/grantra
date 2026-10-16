@@ -73,6 +73,10 @@ vault:
   # Extra environment for the key provider, for the server and the gateway,
   # such as GRANTRA_VAULT_TRANSIT_ADDR or a token from a Secret.
   env: []
+  # Volumes for the key provider's files (a transit token or CA, an HSM PIN
+  # or PKCS#11 module), mounted in the server and the gateway.
+  volumes: []
+  volumeMounts: []
 
 # The SSH gateway (grantra gateway): people SSH through it to the servers
 # they hold access to, and it records every session. It needs the vault's
@@ -130,6 +134,9 @@ resources:
     memory: 512Mi
 
 podAnnotations: {}
+# Labels for the server's and gateway's pods, such as
+# azure.workload.identity/use: "true" for Azure workload identity.
+podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}

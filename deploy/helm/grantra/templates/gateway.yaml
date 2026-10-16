@@ -41,6 +41,9 @@ spec:
       labels:
         app.kubernetes.io/name: grantra-gateway
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
     spec:
@@ -95,6 +98,9 @@ spec:
             - name: host-key
               mountPath: /etc/grantra-gateway
               readOnly: true
+            {{- with .Values.vault.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           securityContext:
             {{- include "grantra.containerSecurity" . | nindent 12 }}
       volumes:
@@ -102,6 +108,9 @@ spec:
           secret:
             secretName: {{ include "grantra.gatewayHostKeySecret" . }}
             defaultMode: 0440
+        {{- with .Values.vault.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

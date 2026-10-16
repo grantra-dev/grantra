@@ -61,15 +61,6 @@ func KeysFromEnv(ctx context.Context) (KeyProvider, error) {
 		return nil, err
 	}
 	provider := strings.TrimSpace(os.Getenv(ProviderEnv))
-	if provider == "" || provider == "local" {
-		if local == nil {
-			if provider == "local" {
-				return nil, fmt.Errorf("%s=local needs %s", ProviderEnv, KeyEnv)
-			}
-			return nil, nil
-		}
-		return local, nil
-	}
 	r := &keyring{}
 	if old := strings.TrimSpace(os.Getenv(OldProviderEnv)); old != "" {
 		o, err := providerFromEnv(ctx, OldProviderEnv, old, OldKMSKeyEnv)
@@ -77,6 +68,19 @@ func KeysFromEnv(ctx context.Context) (KeyProvider, error) {
 			return nil, fmt.Errorf("old vault key: %w", err)
 		}
 		r.others = append(r.others, o)
+	}
+	if provider == "" || provider == "local" {
+		switch {
+		case local == nil && (provider == "local" || len(r.others) > 0):
+			return nil, fmt.Errorf("%s=local needs %s", ProviderEnv, KeyEnv)
+		case local == nil:
+			return nil, nil
+		case len(r.others) == 0:
+			return local, nil
+		}
+		// Moving back from a key service to the local key.
+		r.current = local
+		return r, nil
 	}
 	if r.current, err = providerFromEnv(ctx, ProviderEnv, provider, KMSKeyEnv); err != nil {
 		return nil, err
