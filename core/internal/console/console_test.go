@@ -38,6 +38,7 @@ type env struct {
 	pool   *pgxpool.Pool
 	tenant string
 	mux    *http.ServeMux
+	api    *API
 }
 
 func newEnv(t *testing.T) *env {
@@ -52,8 +53,9 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(pool, tenant, az, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux, signedIn)
-	return &env{t: t, pool: pool, tenant: tenant, mux: mux}
+	api := New(pool, tenant, az, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.Register(mux, signedIn)
+	return &env{t: t, pool: pool, tenant: tenant, mux: mux, api: api}
 }
 
 func (e *env) identity(name, managerID string, roles ...string) string {

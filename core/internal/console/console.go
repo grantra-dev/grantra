@@ -18,6 +18,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 // API holds the console endpoints for one tenant.
@@ -31,11 +32,15 @@ type API struct {
 	// EmailEnabled says whether notification email is set up, so the
 	// console can tell people when their settings have no effect.
 	EmailEnabled bool
+	// Vault keeps privileged credentials; it cannot store or reveal secrets
+	// until it has a key.
+	Vault *vault.Vault
 }
 
 // New returns the console API for the given tenant.
 func New(pool *pgxpool.Pool, tenantID string, az *authz.Authorizer, log *slog.Logger) *API {
-	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, secrets: connector.EnvSecrets}
+	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, secrets: connector.EnvSecrets,
+		Vault: vault.New(nil, connector.EnvSecrets)}
 }
 
 // Register adds the console routes to mux. require must reject requests that
@@ -116,6 +121,16 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/applications/{id}/authz/keys", a.createAppAPIKey)
 	route("DELETE /api/v1/applications/{id}/authz/keys/{key}", a.revokeAppAPIKey)
 	route("POST /api/v1/applications/{id}/authz/test", a.testAppAuthz)
+	route("GET /api/v1/vault/accounts", a.listVaultAccounts)
+	route("POST /api/v1/vault/accounts", a.createVaultAccount)
+	route("GET /api/v1/vault/accounts/{id}", a.getVaultAccount)
+	route("PUT /api/v1/vault/accounts/{id}", a.updateVaultAccount)
+	route("DELETE /api/v1/vault/accounts/{id}", a.deleteVaultAccount)
+	route("PUT /api/v1/vault/accounts/{id}/secret", a.setVaultSecret)
+	route("POST /api/v1/vault/accounts/{id}/rotations", a.rotateVaultAccount)
+	route("POST /api/v1/vault/accounts/{id}/checkouts", a.checkoutVaultAccount)
+	route("POST /api/v1/vault/checkouts/{id}/checkin", a.checkinVault)
+	route("GET /api/v1/vault/discovery", a.discoverVaultAccounts)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)

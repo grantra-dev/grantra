@@ -164,6 +164,19 @@ func TestDecisions(t *testing.T) {
 		{"auditor cannot grant exceptions", Request{Principal: auditor, Action: ManageSoD, Resource: SoDResource()}, false, nil},
 		{"employee cannot read SoD", Request{Principal: report, Action: ReadSoD, Resource: SoDResource()}, false, nil},
 
+		// The vault: admins manage it and auditors read it, but only people
+		// holding a vault account's access check it out.
+		{"admin manages the vault", Request{Principal: admin, Action: ManageVault, Resource: VaultResource()}, true, []string{"admin-all"}},
+		{"auditor reads the vault", Request{Principal: auditor, Action: ReadVault, Resource: VaultResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot manage the vault", Request{Principal: auditor, Action: ManageVault, Resource: VaultResource()}, false, nil},
+		{"employee cannot read the vault", Request{Principal: report, Action: ReadVault, Resource: VaultResource()}, false, nil},
+		{"holder checks out", Request{Principal: report, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{report.ID})}, true, []string{"vault-checkout-holders"}},
+		{"non-holder cannot check out", Request{Principal: peer, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{report.ID})}, false, nil},
+		{"admin without access cannot check out", Request{Principal: admin, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{report.ID})}, false, []string{"vault-checkout-holders-only"}},
+		{"admin holding access checks out", Request{Principal: admin, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{admin.ID})}, true, nil},
+		{"auditor cannot check out", Request{Principal: auditor, Action: CheckoutVault, Resource: VaultAccountResource("v1", nil)}, false, []string{"vault-checkout-holders-only"}},
+		{"suspended holder cannot check out", Request{Principal: suspendedAdmin, Action: CheckoutVault, Resource: VaultAccountResource("v1", []string{suspendedAdmin.ID})}, false, []string{"only-active-identities"}},
+
 		// Inactive identities.
 		{"suspended admin does nothing", Request{Principal: suspendedAdmin, Action: ListIdentities, Resource: DirectoryResource()}, false, []string{"only-active-identities"}},
 		{"suspended person cannot read self", Request{Principal: suspendedAdmin, Action: ReadIdentity, Resource: IdentityResource(suspendedAdmin)}, false, nil},

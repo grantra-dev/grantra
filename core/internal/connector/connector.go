@@ -86,6 +86,16 @@ type AccountCreator interface {
 	CreateAccount(ctx context.Context, a NewAccount) (string, error)
 }
 
+// PasswordSetter is a connector that can set an account's password, which
+// the vault uses to rotate the passwords of privileged accounts. Kinds that
+// implement it also call RegisterPasswordSetter, so Grantra can tell which
+// applications support rotation without connecting to them.
+type PasswordSetter interface {
+	// SetPassword replaces the account's password. Setting the same password
+	// again is not an error.
+	SetPassword(ctx context.Context, accountID, password string) error
+}
+
 // SecretResolver turns a secret reference from a connector config into its
 // value.
 type SecretResolver func(ref string) (string, error)
@@ -122,7 +132,23 @@ type Factory func(config json.RawMessage, secrets SecretResolver) (Reader, error
 var (
 	mu        sync.RWMutex
 	factories = map[string]Factory{}
+	passwords = map[string]bool{}
 )
+
+// RegisterPasswordSetter records that connectors of kind implement
+// PasswordSetter.
+func RegisterPasswordSetter(kind string) {
+	mu.Lock()
+	defer mu.Unlock()
+	passwords[kind] = true
+}
+
+// SetsPasswords reports whether connectors of kind can set passwords.
+func SetsPasswords(kind string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return passwords[kind]
+}
 
 // Register makes a connector kind available. It panics on a duplicate name.
 func Register(kind string, f Factory) {

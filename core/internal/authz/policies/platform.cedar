@@ -82,6 +82,17 @@ when { resource.reviewers.contains(principal) };
 forbid (principal, action == Action::"review_item.decide", resource is ReviewItem)
 when { resource.identity == principal };
 
+// People check out the vault accounts they hold access to.
+@id("vault-checkout-holders")
+permit (principal, action == Action::"vault_account.checkout", resource is VaultAccount)
+when { resource.holders.contains(principal) };
+
+// Nobody reads a vault secret without holding access to it, not even an
+// admin: admins request it like anyone else.
+@id("vault-checkout-holders-only")
+forbid (principal, action == Action::"vault_account.checkout", resource is VaultAccount)
+unless { resource.holders.contains(principal) };
+
 // Only active identities act. Sessions already end when an identity stops
 // being active; this keeps that true for any future way in.
 @id("only-active-identities")

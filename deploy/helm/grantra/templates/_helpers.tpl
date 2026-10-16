@@ -72,6 +72,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (include "grantra.fullname" .) .Values.smtp.existingSecret -}}
 {{- end -}}
 
+{{- define "grantra.vaultSecret" -}}
+{{- default (include "grantra.fullname" .) .Values.vault.existingSecret -}}
+{{- end -}}
+
 {{- define "grantra.loginSecret" -}}
 {{- default (printf "%s-login" (include "grantra.fullname" .)) .Values.login.existingSecret -}}
 {{- end -}}

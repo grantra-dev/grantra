@@ -81,4 +81,6 @@ helm install grantra deploy/helm/grantra \
 
 Grantra Login starts empty: create the `grantra` realm and the `grantra-console` client (redirect URI `https://grantra.example.com/auth/callback`), or import [`deploy/keycloak/grantra-realm.json`](../deploy/keycloak/grantra-realm.json) after replacing its development secrets.
 
+The [credential vault](vault.md) needs a master key: `--set vault.existingSecret=grantra-vault` with a Secret holding `vault-key` (from `openssl rand -base64 32`), or `vault.key`. Back the key up apart from the database: secrets sealed with a lost key are gone.
+
 Connector credentials (`GRANTRA_SECRET_*`, see [connectors](connectors.md)) go in a Secret listed under `envFromSecrets`. Every other setting is in [`values.yaml`](../deploy/helm/grantra/values.yaml).

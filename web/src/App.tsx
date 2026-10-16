@@ -18,6 +18,7 @@ import { People } from "@/pages/People";
 import { Person } from "@/pages/Person";
 import { RequestAccess } from "@/pages/RequestAccess";
 import { Centered, LoginNotConfigured, SignIn } from "@/pages/SignIn";
+import { Vault } from "@/pages/Vault";
 
 export function App() {
   const { data: me, error, isPending } = useQuery({ queryKey: ["me"], queryFn: getMe });
@@ -42,6 +43,7 @@ export function App() {
     "/my-access": <MyAccess me={me} />,
     "/request": <RequestAccess me={me} />,
     "/requests": <MyRequests me={me} />,
+    "/vault": <Vault me={me} />,
     "/approvals": <Approvals me={me} />,
     "/reviews": <AccessReviews me={me} />,
     "/people": <People />,

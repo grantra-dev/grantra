@@ -80,6 +80,9 @@ const (
 	ManageSoD          Action = "sod.manage"
 	ReadLogin          Action = "login.read"
 	ManageLogin        Action = "login.manage"
+	ReadVault          Action = "vault.read"
+	ManageVault        Action = "vault.manage"
+	CheckoutVault      Action = "vault_account.checkout"
 )
 
 var actionGroup = map[Action]string{
@@ -110,6 +113,9 @@ var actionGroup = map[Action]string{
 	ManageSoD:          "write",
 	ReadLogin:          "read",
 	ManageLogin:        "write",
+	ReadVault:          "read",
+	ManageVault:        "write",
+	CheckoutVault:      "write",
 }
 
 // Writes reports whether the action changes something.
@@ -228,6 +234,24 @@ func SoDResource() Resource { return Resource{uid: cedar.NewEntityUID("SoD", "te
 
 // LoginResource is Grantra Login.
 func LoginResource() Resource { return Resource{uid: cedar.NewEntityUID("Login", "tenant")} }
+
+// VaultResource is the credential vault: its accounts, their history and
+// the discovery of accounts that belong in it.
+func VaultResource() Resource { return Resource{uid: cedar.NewEntityUID("Vault", "tenant")} }
+
+// VaultAccountResource is one vault account and the identities who hold
+// access to it right now.
+func VaultAccountResource(id string, holders []string) Resource {
+	vals := make([]cedar.Value, 0, len(holders))
+	for _, h := range holders {
+		vals = append(vals, cedar.NewEntityUID("Identity", cedar.String(h)))
+	}
+	e := cedar.Entity{
+		UID:        cedar.NewEntityUID("VaultAccount", cedar.String(id)),
+		Attributes: cedar.NewRecord(cedar.RecordMap{"holders": cedar.NewSet(vals...)}),
+	}
+	return Resource{uid: e.UID, entity: &e}
+}
 
 // RoleResource is a platform role.
 func RoleResource(name string) Resource {

@@ -26,6 +26,8 @@ type fakeKeycloak struct {
 	emails   []string // users sent the setup email
 	logouts  []string
 	failMail bool
+	// passwords are the passwords set per user id.
+	passwords map[string]string
 }
 
 func (f *fakeKeycloak) handler(t *testing.T) http.Handler {
@@ -110,6 +112,21 @@ func (f *fakeKeycloak) handler(t *testing.T) http.Handler {
 				}
 			}
 			http.NotFound(w, r)
+		case r.Method == http.MethodPut && len(parts) == 3 && parts[2] == "reset-password":
+			var cred map[string]any
+			json.NewDecoder(r.Body).Decode(&cred) //nolint:errcheck
+			if cred["type"] != "password" || cred["temporary"] != false {
+				t.Errorf("reset-password body = %v", cred)
+			}
+			if !slices.ContainsFunc(f.users, func(u map[string]any) bool { return u["id"] == parts[1] }) {
+				http.NotFound(w, r)
+				return
+			}
+			if f.passwords == nil {
+				f.passwords = map[string]string{}
+			}
+			f.passwords[parts[1]], _ = cred["value"].(string)
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "logout":
 			f.logouts = append(f.logouts, parts[1])
 			w.WriteHeader(http.StatusNoContent)
@@ -361,5 +378,22 @@ func TestConfig(t *testing.T) {
 	}
 	if _, ok := r.(connector.AccountCreator); !ok {
 		t.Error("the connector cannot provision")
+	}
+}
+
+func TestSetPassword(t *testing.T) {
+	f := newFake()
+	c := newClient(t, f, "")
+	if !connector.SetsPasswords(Kind) {
+		t.Fatal("the grantra-login connector must say it sets passwords")
+	}
+	if err := c.SetPassword(context.Background(), "u1", "n3w-Secret"); err != nil {
+		t.Fatal(err)
+	}
+	if f.passwords["u1"] != "n3w-Secret" || !slices.Equal(f.logouts, []string{"u1"}) {
+		t.Fatalf("passwords %v, logouts %v: want the password set and the sessions ended", f.passwords, f.logouts)
+	}
+	if err := c.SetPassword(context.Background(), "missing", "x"); !hasStatus(err, http.StatusNotFound) {
+		t.Fatalf("missing user: %v", err)
 	}
 }

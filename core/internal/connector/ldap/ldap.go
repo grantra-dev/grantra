@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/go-ldap/ldap/v3"
 
@@ -29,7 +30,10 @@ import (
 // Kind is the connector name applications use.
 const Kind = "ldap"
 
-func init() { connector.Register(Kind, New) }
+func init() {
+	connector.Register(Kind, New)
+	connector.RegisterPasswordSetter(Kind)
+}
 
 // Directory flavors, which set the defaults for filters and attributes.
 const (
@@ -604,6 +608,41 @@ func (c *Client) membership(ctx context.Context, groupID, userID string, add boo
 		}
 		return fmt.Errorf("modify %s: %w", g.DN, err)
 	})
+}
+
+// SetPassword sets a user's password: unicodePwd in Active Directory, which
+// takes it only over an encrypted connection, and the Password Modify
+// extended operation in OpenLDAP, which lets the server hash it.
+func (c *Client) SetPassword(ctx context.Context, accountID, password string) error {
+	return c.session(ctx, func(conn *ldap.Conn) error {
+		u, err := c.find(conn, c.userBase, accountID)
+		if err != nil {
+			return err
+		}
+		if c.directory == ActiveDirectory {
+			m := ldap.NewModifyRequest(u.DN, nil)
+			m.Replace("unicodePwd", []string{adPassword(password)})
+			if err := conn.Modify(m); err != nil {
+				return fmt.Errorf("set the password of %s: %w", u.DN, err)
+			}
+			return nil
+		}
+		if _, err := conn.PasswordModify(ldap.NewPasswordModifyRequest(u.DN, "", password)); err != nil {
+			return fmt.Errorf("set the password of %s: %w", u.DN, err)
+		}
+		return nil
+	})
+}
+
+// adPassword encodes a password the way Active Directory's unicodePwd wants
+// it: in double quotes, as UTF-16 little endian.
+func adPassword(password string) string {
+	units := utf16.Encode([]rune(`"` + password + `"`))
+	b := make([]byte, 0, 2*len(units))
+	for _, u := range units {
+		b = append(b, byte(u), byte(u>>8))
+	}
+	return string(b)
 }
 
 // normDN makes DNs comparable: "CN=Ana García, OU=People,DC=example,DC=com"

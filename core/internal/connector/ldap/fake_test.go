@@ -137,6 +137,8 @@ func (d *fakeDir) serve(c net.Conn) {
 			out = d.search(id, op, controls)
 		case ldap.ApplicationModifyRequest:
 			out = append(out, message(id, result(ldap.ApplicationModifyResponse, d.modify(op), "")))
+		case ldap.ApplicationExtendedRequest:
+			out = append(out, message(id, result(ldap.ApplicationExtendedResponse, d.extended(op), "")))
 		default:
 			out = append(out, message(id, result(ldap.ApplicationExtendedResponse, ldap.LDAPResultProtocolError, "unsupported")))
 		}
@@ -337,6 +339,34 @@ func (d *fakeDir) modify(op *ber.Packet) uint16 {
 		}
 		d.modifies = append(d.modifies, strings.Join([]string{dn, name, strconv.FormatInt(kind, 10), strings.Join(vals, "|")}, " "))
 	}
+	return ldap.LDAPResultSuccess
+}
+
+// extended runs the Password Modify extended operation (RFC 3062), storing
+// the new password as userPassword in the clear: enough to check it arrived.
+func (d *fakeDir) extended(op *ber.Packet) uint16 {
+	if len(op.Children) < 2 || op.Children[0].Data.String() != "1.3.6.1.4.1.4203.1.11.1" {
+		return ldap.LDAPResultProtocolError
+	}
+	val, err := ber.DecodePacketErr(op.Children[1].Data.Bytes())
+	if err != nil {
+		return ldap.LDAPResultProtocolError
+	}
+	var dn, password string
+	for _, ch := range val.Children {
+		switch ch.Tag {
+		case 0:
+			dn = ch.Data.String()
+		case 2:
+			password = ch.Data.String()
+		}
+	}
+	e := d.entry(dn)
+	if e == nil {
+		return ldap.LDAPResultNoSuchObject
+	}
+	e.set("userPassword", password)
+	d.modifies = append(d.modifies, dn+" userPassword passwd-modify")
 	return ldap.LDAPResultSuccess
 }
 

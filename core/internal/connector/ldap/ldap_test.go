@@ -309,3 +309,40 @@ func TestGUID(t *testing.T) {
 		t.Error("a GUID without dashes must fail")
 	}
 }
+
+func TestSetPasswordActiveDirectory(t *testing.T) {
+	d := adDir(t)
+	c := newClient(t, adConfig(d))
+	if !connector.SetsPasswords(Kind) {
+		t.Fatal("the ldap connector must say it sets passwords")
+	}
+	if err := c.SetPassword(context.Background(), guidText(1), "Nü-pass1"); err != nil {
+		t.Fatal(err)
+	}
+	got := d.entry("CN=Ana García,OU=People," + base).get("unicodePwd").Values
+	// "Nü-pass1" in quotes, UTF-16 little endian.
+	want := string([]byte{'"', 0, 'N', 0, 0xfc, 0, '-', 0, 'p', 0, 'a', 0, 's', 0, 's', 0, '1', 0, '"', 0})
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("unicodePwd = %q, want %q", got, want)
+	}
+	if err := c.SetPassword(context.Background(), guidText(77), "x"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unknown account: err = %v", err)
+	}
+}
+
+func TestSetPasswordOpenLDAP(t *testing.T) {
+	const base = "dc=example,dc=org"
+	d := &fakeDir{bindDN: "cn=admin," + base, password: "s3cret"}
+	d.add("uid=ana,ou=people,"+base, map[string][]string{"objectClass": {"inetOrgPerson"}, "entryUUID": {"u-ana"}, "uid": {"ana"}, "cn": {"Ana"}})
+	d.start(t)
+	c := newClient(t, map[string]any{"url": d.url, "allow_insecure": true, "directory": "openldap", "bind_dn": d.bindDN, "password": "env:GRANTRA_SECRET_AD", "base_dn": base})
+	if err := c.SetPassword(context.Background(), "u-ana", "n3w-Secret"); err != nil {
+		t.Fatal(err)
+	}
+	if v := d.entry("uid=ana,ou=people," + base).get("userPassword"); v == nil || v.Values[0] != "n3w-Secret" {
+		t.Fatalf("userPassword = %v, want it set through the Password Modify operation", v)
+	}
+	if !slices.Contains(d.modifies, "uid=ana,ou=people,"+base+" userPassword passwd-modify") {
+		t.Fatalf("modifies = %v, want a Password Modify extended operation", d.modifies)
+	}
+}

@@ -68,6 +68,9 @@ services:
       GRANTRA_SMTP_PORT: "1025"
       GRANTRA_SMTP_TLS: none
       GRANTRA_SMTP_FROM: Grantra <grantra@grantra.local>
+      # The vault's master key. A fixed one is fine for the demo; generate
+      # your own (openssl rand -base64 32) for anything real.
+      GRANTRA_VAULT_KEY: Z3JhbnRyYS1kZW1vLXZhdWx0LWtleS0wMDAwMDAwMDA=
     ports:
       - "8080:8080"
     depends_on:

@@ -23,6 +23,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/sod"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 //go:embed hr.csv
@@ -82,6 +83,9 @@ type Options struct {
 	// adds Grantra Login as an application read through its connector, with
 	// the client secret in GRANTRA_SECRET_GRANTRA_LOGIN.
 	LoginURL string
+	// Vault, when it can store secrets, gets a sample privileged account
+	// that people request and check out.
+	Vault *vault.Vault
 }
 
 // Seed loads the sample company into a tenant that has no HR source yet. It
@@ -207,6 +211,17 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 		}
 		if err := accounts.SetConnector(ctx, tx, app.ID, grantralogin.Kind, cfg, connector.EnvSecrets); err != nil {
 			return fmt.Errorf("connect Grantra Login: %w", err)
+		}
+	}
+
+	if opts.Vault.Enabled() {
+		// Luis's team can ask for the production database's root password.
+		if _, err := opts.Vault.Create(ctx, tx, tenantID, actor, vault.Input{
+			Name: "Production database root", Username: "postgres", Secret: "demo-root-password",
+			Settings: vault.Settings{Address: "db.prod.example.com:5432", CheckoutMinutes: 30, Exclusive: true,
+				Notes: "For incidents only. Say which in the reason."},
+		}); err != nil {
+			return err
 		}
 	}
 
