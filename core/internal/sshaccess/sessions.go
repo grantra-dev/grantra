@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/ssh"
@@ -22,6 +23,9 @@ const (
 	EndTerminated  = "terminated"
 	EndLost        = "lost"
 	EndFailed      = "failed"
+	// EndRecordingFull ends a session that outgrew the recording limit, so
+	// nothing runs unrecorded.
+	EndRecordingFull = "recording_full"
 )
 
 // Session is one shell or command someone ran through the gateway.
@@ -55,6 +59,7 @@ type Session struct {
 // target.
 type Grant struct {
 	CertificateID string
+	Serial        uint64
 	IdentityID    string
 	IdentityName  string
 	TargetID      string
@@ -91,6 +96,7 @@ func Authorize(ctx context.Context, tx pgx.Tx, certID string, serial uint64, use
 	if hostKey != nil {
 		g.HostKey = *hostKey
 	}
+	g.Serial = serial
 	if g.TargetName != user {
 		return Grant{}, fmt.Errorf("certificate is for %s, not %s", g.TargetName, user)
 	}
@@ -123,7 +129,7 @@ const gatewayCertMinutes = 2
 // GatewayCertificate signs key for the gateway to log in to a target as
 // login, for one session.
 func (s *Service) GatewayCertificate(ctx context.Context, tx pgx.Tx, tenantID, sessionID, login string, key ssh.PublicKey) (*ssh.Certificate, error) {
-	signer, err := s.signer(ctx, tx, tenantID)
+	signer, err := s.signer(ctx, tx, tenantID, GatewayCA)
 	if err != nil {
 		return nil, err
 	}
@@ -204,13 +210,24 @@ type Command struct {
 // maxCommand bounds one indexed command.
 const maxCommand = 4000
 
+// cleanCommand makes a command storable: valid UTF-8 without NUL (which
+// Postgres text refuses), at most maxCommand bytes, cut between characters.
+func cleanCommand(cmd string) string {
+	text := strings.ToValidUTF8(strings.ReplaceAll(cmd, "\x00", ""), "")
+	if len(text) > maxCommand {
+		cut := maxCommand
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut]
+	}
+	return text
+}
+
 // AddCommands indexes commands typed in a session.
 func AddCommands(ctx context.Context, tx pgx.Tx, tenantID, sessionID string, cmds []Command) error {
 	for _, c := range cmds {
-		text := strings.ToValidUTF8(c.Command, "")
-		if len(text) > maxCommand {
-			text = text[:maxCommand]
-		}
+		text := cleanCommand(c.Command)
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO ssh_commands (tenant_id, session_id, at, offset_seconds, command) VALUES ($1, $2, $3, $4, $5)`,
 			tenantID, sessionID, c.At, c.Offset, text); err != nil {

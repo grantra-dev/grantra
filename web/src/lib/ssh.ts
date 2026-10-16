@@ -9,8 +9,10 @@ export interface SSHInfo {
   enabled: boolean;
   /** host or host:port of the SSH gateway, when the operator set it. */
   gateway_address: string;
-  /** The line servers put in their TrustedUserCAKeys file. */
+  /** The CA servers reached directly trust (TrustedUserCAKeys). */
   ca_public_key: string;
+  /** The CA servers behind the gateway trust, and only it. */
+  gateway_ca_public_key: string;
 }
 
 export interface SSHTarget {
@@ -59,7 +61,8 @@ export interface SSHCertificate {
   certificate: string;
 }
 
-export type SessionEnd = "closed" | "access_ended" | "terminated" | "lost" | "failed";
+export type SessionEnd =
+  "closed" | "access_ended" | "terminated" | "lost" | "failed" | "recording_full";
 
 export interface SSHSession {
   id: string;
@@ -158,4 +161,5 @@ export const endReasonText: Record<SessionEnd, string> = {
   terminated: "Ended by an admin",
   lost: "Lost",
   failed: "Failed",
+  recording_full: "Recording limit reached",
 };

@@ -26,6 +26,8 @@ type recorder struct {
 	carry     []byte
 	lines     lineTracker
 	commands  []sshaccess.Command
+	// full is called once, when the recording reaches its limit.
+	full func()
 }
 
 func newRecorder(now func() time.Time, max int64, width, height int, term, title string) *recorder {
@@ -49,12 +51,29 @@ func newRecorder(now func() time.Time, max int64, width, height int, term, title
 // add appends one line unless the recording is full: then it stops, so a
 // recording is always the start of the session.
 func (r *recorder) add(line []byte) {
-	if r.truncated || r.written+int64(len(line)) > r.max {
+	if r.truncated {
+		return
+	}
+	if r.written+int64(len(line)) > r.max {
 		r.truncated = true
+		if r.full != nil {
+			r.full()
+		}
 		return
 	}
 	r.buf.Write(line)
 	r.written += int64(len(line))
+}
+
+// setFull sets what to do when the recording reaches its limit; f runs with
+// the recorder locked, so it must not call back into it.
+func (r *recorder) setFull(f func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.full = f
+	if r.truncated {
+		f()
+	}
 }
 
 func (r *recorder) offset() float64 {

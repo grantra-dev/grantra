@@ -40,6 +40,7 @@ const info = {
   enabled: true,
   gateway_address: "ssh.example.com:2222",
   ca_public_key: "ssh-ed25519 AAAACA grantra",
+  gateway_ca_public_key: "ssh-ed25519 AAAAGW grantra",
 };
 const session: SSHSession = {
   id: "s1",
@@ -130,8 +131,9 @@ describe("Servers", () => {
       },
     });
     renderAt("/servers");
-    expect(await screen.findByLabelText("Certificate authority public key")).toHaveValue(
-      info.ca_public_key,
+    expect(await screen.findByLabelText("Reached directly")).toHaveValue(info.ca_public_key);
+    expect(screen.getByLabelText("Through the gateway (recorded)")).toHaveValue(
+      info.gateway_ca_public_key,
     );
     expect(screen.queryByRole("button", { name: "Get certificate" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Add server" }));

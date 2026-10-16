@@ -1,8 +1,8 @@
 // Package gateway is the SSH gateway people reach their servers through:
 // ssh <target>@gateway with a certificate Grantra signed. It checks access
-// when they connect and every 30 seconds after, logs in to the target with
-// a one-off certificate of its own, records the session in asciicast v2 and
-// indexes the commands typed.
+// when they connect, for every session they open and every 30 seconds
+// after, logs in to the target with a one-off certificate of the gateway CA,
+// records the session in asciicast v2 and indexes the commands typed.
 package gateway
 
 import (
@@ -75,7 +75,7 @@ func (s *Server) defaults() {
 func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	s.defaults()
 	err := db.InTenant(ctx, s.Pool, s.TenantID, func(tx pgx.Tx) error {
-		line, err := s.SSH.PublicCA(ctx, tx, s.TenantID)
+		line, err := s.SSH.PublicCA(ctx, tx, s.TenantID, sshaccess.PeopleCA)
 		if err != nil {
 			return err
 		}
@@ -109,31 +109,35 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	}
 }
 
-const grantKey = "grantra-grant"
+const (
+	grantKey       = "grantra-grant"
+	validBeforeKey = "grantra-valid-before"
+)
 
 func (s *Server) config(ctx context.Context) *ssh.ServerConfig {
-	checker := &ssh.CertChecker{
-		IsUserAuthority: func(auth ssh.PublicKey) bool { return bytes.Equal(auth.Marshal(), s.ca.Marshal()) },
-	}
+	checker := &ssh.CertChecker{}
 	conf := &ssh.ServerConfig{
 		ServerVersion: "SSH-2.0-Grantra",
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			cert, ok := key.(*ssh.Certificate)
-			if !ok {
+			if !ok || cert.CertType != ssh.UserCert {
 				return nil, errors.New("not a certificate: log in with the certificate Grantra signed for you")
 			}
-			// Signed by this tenant's CA, for this user (the target name),
-			// within its validity.
-			perms, err := checker.Authenticate(conn, key)
-			if err != nil {
+			// Signed by this tenant's people CA, for this target, within
+			// its validity.
+			if !bytes.Equal(cert.SignatureKey.Marshal(), s.ca.Marshal()) {
+				return nil, errors.New("certificate was not signed by this Grantra")
+			}
+			if err := checker.CheckCert(sshaccess.Principal(conn.User()), cert); err != nil {
 				return nil, err
 			}
+			perms := &ssh.Permissions{}
 			id, ok := strings.CutPrefix(cert.KeyId, sshaccess.KeyIDPrefix)
 			if !ok {
 				return nil, errors.New("certificate was not signed for a person")
 			}
 			var g sshaccess.Grant
-			err = db.InTenant(ctx, s.Pool, s.TenantID, func(tx pgx.Tx) (err error) {
+			err := db.InTenant(ctx, s.Pool, s.TenantID, func(tx pgx.Tx) (err error) {
 				g, err = sshaccess.Authorize(ctx, tx, id, cert.Serial, conn.User())
 				return err
 			})
@@ -142,7 +146,7 @@ func (s *Server) config(ctx context.Context) *ssh.ServerConfig {
 					"client", conn.RemoteAddr().String(), "reason", err.Error())
 				return nil, err
 			}
-			perms.ExtraData = map[any]any{grantKey: g}
+			perms.ExtraData = map[any]any{grantKey: g, validBeforeKey: cert.ValidBefore}
 			return perms, nil
 		},
 	}
@@ -160,8 +164,21 @@ func (s *Server) handle(ctx context.Context, nc net.Conn) {
 	}
 	nc.SetDeadline(time.Time{}) //nolint:errcheck
 	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	// When the gateway stops, sessions tell people why; the connection
+	// closes a moment later.
+	stop := context.AfterFunc(ctx, func() { time.AfterFunc(time.Second, func() { conn.Close() }) })
 	defer stop()
+	// The connection ends with the certificate (Grantra never signs one
+	// without an end).
+	if vb := conn.Permissions.ExtraData[validBeforeKey].(uint64); vb < ssh.CertTimeInfinity {
+		expiry := time.AfterFunc(time.Until(time.Unix(int64(vb), 0)), func() { conn.Close() })
+		defer expiry.Stop()
+	}
+	closed := make(chan struct{})
+	go func() {
+		conn.Wait() //nolint:errcheck
+		close(closed)
+	}()
 	// No port forwarding or other global requests.
 	go ssh.DiscardRequests(reqs)
 	g := conn.Permissions.ExtraData[grantKey].(sshaccess.Grant)
@@ -178,7 +195,7 @@ func (s *Server) handle(ctx context.Context, nc net.Conn) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.session(ctx, conn, g, ch, creqs)
+			s.session(ctx, conn, closed, g, ch, creqs)
 		}()
 	}
 	wg.Wait()
@@ -198,7 +215,8 @@ type windowChange struct {
 
 // session runs one session channel: it waits for a shell or exec request,
 // then bridges it to the target.
-func (s *Server) session(ctx context.Context, conn *ssh.ServerConn, g sshaccess.Grant, ch ssh.Channel, reqs <-chan *ssh.Request) {
+func (s *Server) session(ctx context.Context, conn *ssh.ServerConn, closed <-chan struct{}, g sshaccess.Grant, ch ssh.Channel,
+	reqs <-chan *ssh.Request) {
 	defer ch.Close()
 	var pty *ptyRequest
 	for req := range reqs {
@@ -221,8 +239,20 @@ func (s *Server) session(ctx context.Context, conn *ssh.ServerConn, g sshaccess.
 				}
 				command = e.Command
 			}
+			// Access is checked again for every session: one connection
+			// can open many.
+			err := db.InTenant(ctx, s.Pool, s.TenantID, func(tx pgx.Tx) (err error) {
+				g, err = sshaccess.Authorize(ctx, tx, g.CertificateID, g.Serial, g.TargetName)
+				return err
+			})
+			if err != nil {
+				req.Reply(false, nil) //nolint:errcheck
+				fmt.Fprintf(ch.Stderr(), "Grantra: %v\r\n", err)
+				conn.Close()
+				return
+			}
 			req.Reply(true, nil) //nolint:errcheck
-			s.bridge(ctx, conn, g, ch, reqs, pty, command, req.Type == "exec")
+			s.bridge(ctx, conn, closed, g, ch, reqs, pty, command, req.Type == "exec")
 			return
 		default:
 			// No sftp or other subsystems, agent or X11 forwarding: what
@@ -234,8 +264,8 @@ func (s *Server) session(ctx context.Context, conn *ssh.ServerConn, g sshaccess.
 	}
 }
 
-func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.Grant, ch ssh.Channel, reqs <-chan *ssh.Request,
-	pty *ptyRequest, command string, exec bool) {
+func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, closed <-chan struct{}, g sshaccess.Grant, ch ssh.Channel,
+	reqs <-chan *ssh.Request, pty *ptyRequest, command string, exec bool) {
 	info := sshaccess.Session{TargetID: g.TargetID, TargetName: g.TargetName, Login: g.Login, IdentityID: g.IdentityID,
 		CertificateID: g.CertificateID, ClientAddress: conn.RemoteAddr().String(), Gateway: s.Name, Kind: "shell",
 		Command: command, Width: 80, Height: 24}
@@ -263,28 +293,34 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 		rec.command(command)
 	}
 
-	// Store the recording as it goes, so a crash loses seconds of it.
-	flushCtx, stopFlush := context.WithCancel(context.WithoutCancel(ctx))
-	flushed := make(chan struct{})
+	// Store the recording as it goes, so a crash loses seconds of it. A
+	// flush in progress is never cancelled, and what a failed one could not
+	// store is tried again on the next, so nothing drained is dropped.
+	flushCtx := context.WithoutCancel(ctx)
+	stopFlush, flushed := make(chan struct{}), make(chan struct{})
 	seq := 0
+	var unsaved []byte
+	var unsavedCmds []sshaccess.Command
 	flush := func(final bool) {
 		data, cmds, truncated := rec.drain(final)
-		if len(data) == 0 && len(cmds) == 0 && !final {
+		unsaved, unsavedCmds = append(unsaved, data...), append(unsavedCmds, cmds...)
+		if len(unsaved) == 0 && len(unsavedCmds) == 0 && !final {
 			return
 		}
 		err := db.InTenant(flushCtx, s.Pool, s.TenantID, func(tx pgx.Tx) error {
-			if err := sshaccess.AppendRecording(flushCtx, tx, s.TenantID, info.ID, seq, data, truncated); err != nil {
+			if err := sshaccess.AppendRecording(flushCtx, tx, s.TenantID, info.ID, seq, unsaved, truncated); err != nil {
 				return err
 			}
-			return sshaccess.AddCommands(flushCtx, tx, s.TenantID, info.ID, cmds)
+			return sshaccess.AddCommands(flushCtx, tx, s.TenantID, info.ID, unsavedCmds)
 		})
 		if err != nil {
 			log.ErrorContext(flushCtx, "SSH gateway could not store a recording", "err", err)
 			return
 		}
-		if len(data) > 0 {
+		if len(unsaved) > 0 {
 			seq++
 		}
+		unsaved, unsavedCmds = nil, nil
 	}
 	go func() {
 		defer close(flushed)
@@ -292,7 +328,7 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 		defer t.Stop()
 		for {
 			select {
-			case <-flushCtx.Done():
+			case <-stopFlush:
 				return
 			case <-t.C:
 				flush(false)
@@ -301,9 +337,8 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 	}()
 
 	end := func(reason, errText string, exit *int) {
-		stopFlush()
+		close(stopFlush)
 		<-flushed
-		flushCtx = context.WithoutCancel(ctx)
 		flush(true)
 		err := db.InTenant(flushCtx, s.Pool, s.TenantID, func(tx pgx.Tx) error {
 			return sshaccess.EndSession(flushCtx, tx, s.TenantID, info.ID, reason, errText, exit)
@@ -324,9 +359,14 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 	}
 	defer client.Close()
 	// When the person's connection drops, the target's goes with it.
+	bridged := make(chan struct{})
+	defer close(bridged)
 	go func() {
-		conn.Wait() //nolint:errcheck
-		client.Close()
+		select {
+		case <-closed:
+			client.Close()
+		case <-bridged:
+		}
 	}()
 	log.InfoContext(ctx, "SSH session started", "kind", info.Kind)
 
@@ -364,6 +404,10 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 		fmt.Fprintf(ch.Stderr(), "\r\n[Grantra] %s\r\n", msg)
 		client.Close()
 	}
+	// A session never runs on unrecorded.
+	rec.setFull(func() {
+		go stopWith(sshaccess.EndRecordingFull, "This session reached the recording limit, so it ends now.")
+	})
 
 	// Window changes, and nothing else, go on to the target.
 	go func() {
@@ -381,10 +425,13 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 			}
 		}
 	}()
+	// What goes in to a command run without a terminal is its data (a file,
+	// a password for sudo -S), not commands typed, so it is not indexed.
+	indexInput := !exec || pty != nil
 	go func() {
 		_, _ = io.Copy(stdin, readFunc(func(p []byte) (int, error) {
 			n, err := ch.Read(p)
-			if n > 0 {
+			if n > 0 && indexInput {
 				rec.input(p[:n])
 			}
 			return n, err
@@ -412,6 +459,7 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 	go func() {
 		t := time.NewTicker(s.CheckEvery)
 		defer t.Stop()
+		failed := 0
 		for {
 			select {
 			case <-watchCtx.Done():
@@ -428,9 +476,16 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 			})
 			switch {
 			case err != nil:
-				if watchCtx.Err() == nil {
-					log.WarnContext(watchCtx, "SSH gateway could not check a session's access", "err", err)
+				if watchCtx.Err() != nil {
+					return
 				}
+				log.WarnContext(watchCtx, "SSH gateway could not check a session's access", "err", err)
+				// Sessions do not go on unchecked for long.
+				if failed++; failed >= maxFailedChecks {
+					stopWith(sshaccess.EndFailed, "Grantra cannot check your access right now, so this session ends.")
+					return
+				}
+				continue
 			case reason == sshaccess.EndTerminated:
 				stopWith(reason, "An admin ended this session.")
 				return
@@ -438,6 +493,7 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 				stopWith(reason, "Your access to "+g.TargetName+" ended, so this session ends now.")
 				return
 			}
+			failed = 0
 		}
 	}()
 
@@ -465,10 +521,21 @@ func (s *Server) bridge(ctx context.Context, conn *ssh.ServerConn, g sshaccess.G
 		end(sshaccess.EndClosed, "", exit)
 	case "shutdown":
 		end(sshaccess.EndClosed, "the gateway stopped", exit)
+	case sshaccess.EndFailed:
+		end(reason, "access could not be checked", exit)
 	default:
 		end(reason, "", exit)
 	}
+	// Access that ended, or an admin ending the session, ends the whole
+	// connection: it opens no more sessions.
+	if reason == sshaccess.EndAccessEnded || reason == sshaccess.EndTerminated {
+		conn.Close()
+	}
 }
+
+// maxFailedChecks is how many access checks in a row may fail (the database
+// is unreachable) before a session ends.
+const maxFailedChecks = 3
 
 // connect logs in to the target with a fresh key and a certificate that
 // lasts two minutes, checking the target's host key against the one on

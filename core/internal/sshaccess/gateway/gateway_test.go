@@ -173,10 +173,12 @@ type env struct {
 	tenant string
 	svc    *sshaccess.Service
 	ca     ssh.PublicKey
-	gw     string
+	// gwCA is what servers behind the gateway trust.
+	gwCA ssh.PublicKey
+	gw   string
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, opts ...func(*Server)) *env {
 	t.Helper()
 	pool := dbtest.Open(t)
 	k := make([]byte, 32)
@@ -187,15 +189,24 @@ func newEnv(t *testing.T) *env {
 	}
 	e := &env{t: t, ctx: context.Background(), pool: pool, tenant: dbtest.Tenant(t, pool, "gateway"), svc: sshaccess.New(key)}
 	e.must(func(tx pgx.Tx) error {
-		line, err := e.svc.PublicCA(e.ctx, tx, e.tenant)
+		line, err := e.svc.PublicCA(e.ctx, tx, e.tenant, sshaccess.PeopleCA)
 		if err != nil {
 			return err
 		}
-		e.ca, err = sshaccess.ParseCA(line)
+		if e.ca, err = sshaccess.ParseCA(line); err != nil {
+			return err
+		}
+		if line, err = e.svc.PublicCA(e.ctx, tx, e.tenant, sshaccess.GatewayCA); err != nil {
+			return err
+		}
+		e.gwCA, err = sshaccess.ParseCA(line)
 		return err
 	})
 	srv := &Server{Pool: pool, TenantID: e.tenant, SSH: e.svc, HostKey: newSigner(t), Name: "gw-test",
 		Log: slog.New(slog.DiscardHandler), CheckEvery: 50 * time.Millisecond, FlushEvery: 20 * time.Millisecond}
+	for _, o := range opts {
+		o(srv)
+	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -317,6 +328,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 }
 
 type shellSession struct {
+	client *ssh.Client
 	sess   *ssh.Session
 	stdin  io.WriteCloser
 	out    *buffer
@@ -329,7 +341,7 @@ func (e *env) shell(c *ssh.Client) shellSession {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	s := shellSession{sess: sess, out: &buffer{}, errOut: &buffer{}}
+	s := shellSession{client: c, sess: sess, out: &buffer{}, errOut: &buffer{}}
 	sess.Stdout, sess.Stderr = s.out, s.errOut
 	if s.stdin, err = sess.StdinPipe(); err != nil {
 		e.t.Fatal(err)
@@ -375,7 +387,7 @@ func (e *env) ended(identity string) sshaccess.Session {
 func TestShellIsRecorded(t *testing.T) {
 	e := newEnv(t)
 	tg := e.target("app-1", "deploy", "127.0.0.1:1")
-	srv := startServer(t, e.ca, "deploy")
+	srv := startServer(t, e.gwCA, "deploy")
 	e.exec(`UPDATE ssh_targets SET address = $2 WHERE id = $1`, tg.ID, srv.addr)
 	ana := e.person("Ana", tg)
 
@@ -445,6 +457,34 @@ func TestShellIsRecorded(t *testing.T) {
 	if exec.Kind != "exec" || exec.Command != "cat /etc/hostname" || *exec.ExitStatus != 0 {
 		t.Errorf("exec session = %+v", exec)
 	}
+	// What goes in to a command without a terminal is its data, such as a
+	// password for sudo -S, and is not indexed.
+	if sess, err = e.connect("app-1", ana).NewSession(); err != nil {
+		t.Fatal(err)
+	}
+	sess.Stdin = strings.NewReader("hunter2\nsecond line\n")
+	if out, err := sess.Output("sudo -S true"); err != nil || string(out) != "ran sudo -S true\n" {
+		t.Errorf("exec = %q, %v", out, err)
+	}
+	piped := e.ended(ana.id)
+	e.must(func(tx pgx.Tx) (err error) { cmds, err = sshaccess.SessionCommands(e.ctx, tx, piped.ID); return err })
+	if len(cmds) != 1 || cmds[0].Command != "sudo -S true" {
+		t.Errorf("commands = %+v", cmds)
+	}
+	// A command too long to index whole is cut between characters, and the
+	// session is still recorded.
+	long := strings.Repeat("a", 3999) + "é"
+	if sess, err = e.connect("app-1", ana).NewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sess.Output(long); err != nil {
+		t.Fatal(err)
+	}
+	cut := e.ended(ana.id)
+	e.must(func(tx pgx.Tx) (err error) { cmds, err = sshaccess.SessionCommands(e.ctx, tx, cut.ID); return err })
+	if len(cmds) != 1 || cmds[0].Command != strings.Repeat("a", 3999) || cut.RecordingBytes == 0 {
+		t.Errorf("long command = %d commands, recording %d bytes", len(cmds), cut.RecordingBytes)
+	}
 	var found []sshaccess.Command
 	e.must(func(tx pgx.Tx) (err error) {
 		found, err = sshaccess.SearchCommands(e.ctx, tx, "/ETC/host", "", 10)
@@ -457,7 +497,7 @@ func TestShellIsRecorded(t *testing.T) {
 
 func TestSessionEndsWithAccess(t *testing.T) {
 	e := newEnv(t)
-	srv := startServer(t, e.ca, "root")
+	srv := startServer(t, e.gwCA, "root")
 	tg := e.target("db-1", "root", srv.addr)
 	ana, luis := e.person("Ana", tg), e.person("Luis", tg)
 
@@ -473,7 +513,10 @@ func TestSessionEndsWithAccess(t *testing.T) {
 	if got := e.ended(ana.id); got.EndReason != sshaccess.EndAccessEnded {
 		t.Errorf("session = %+v", got)
 	}
-	// And it cannot come back.
+	// Its connection closed with it, and it cannot come back.
+	if _, err := s.client.NewSession(); err == nil {
+		t.Error("the connection outlived the access")
+	}
 	signer, _ := ssh.NewCertSigner(ana.cert, ana.key)
 	if _, err := e.dial("db-1", signer); err == nil {
 		t.Error("connected without access")
@@ -491,16 +534,69 @@ func TestSessionEndsWithAccess(t *testing.T) {
 	if got := e.ended(luis.id); got.EndReason != sshaccess.EndTerminated {
 		t.Errorf("session = %+v", got)
 	}
+	if _, err := s.client.NewSession(); err == nil {
+		t.Error("the connection outlived an admin ending its session")
+	}
+}
+
+// A connection kept open (ControlMaster) opens no new session once the
+// access is gone, even with no session running to notice.
+func TestEverySessionIsChecked(t *testing.T) {
+	e := newEnv(t)
+	srv := startServer(t, e.gwCA, "root")
+	tg := e.target("db-1", "root", srv.addr)
+	ana := e.person("Ana", tg)
+	c := e.connect("db-1", ana)
+	if out, err := run(c, "id"); err != nil || out != "ran id\n" {
+		t.Fatalf("run = %q, %v", out, err)
+	}
+	e.exec(`UPDATE access_assignments SET expires_at = now() - interval '1 second' WHERE id = $1`, ana.assignment)
+	if out, err := run(c, "id"); err == nil || strings.Contains(out, "ran id") {
+		t.Errorf("run without access = %q, %v", out, err)
+	}
+}
+
+func run(c *ssh.Client, cmd string) (string, error) {
+	sess, err := c.NewSession()
+	if err != nil {
+		return "", err
+	}
+	out, err := sess.CombinedOutput(cmd)
+	return string(out), err
+}
+
+func TestRecordingLimitEndsTheSession(t *testing.T) {
+	e := newEnv(t, func(s *Server) { s.MaxRecording = 2000 })
+	srv := startServer(t, e.gwCA, "root")
+	tg := e.target("db-1", "root", srv.addr)
+	ana := e.person("Ana", tg)
+	s := e.shell(e.connect("db-1", ana))
+	waitFor(t, "the prompt", func() bool { return strings.Contains(s.out.String(), "$ ") })
+	for i := 0; i < 100 && !strings.Contains(s.errOut.String(), "recording limit"); i++ {
+		io.WriteString(s.stdin, strings.Repeat("x", 50)+"\r") //nolint:errcheck
+		time.Sleep(5 * time.Millisecond)
+	}
+	s.sess.Wait() //nolint:errcheck
+	got := e.ended(ana.id)
+	if got.EndReason != sshaccess.EndRecordingFull || !got.RecordingTruncated || got.RecordingBytes > 2000 {
+		t.Errorf("session = %+v", got)
+	}
 }
 
 func TestGatewayRefuses(t *testing.T) {
 	e := newEnv(t)
-	srv := startServer(t, e.ca, "root")
+	srv := startServer(t, e.gwCA, "root")
 	tg := e.target("db-1", "root", srv.addr)
 	e.target("db-2", "root", srv.addr)
 	ana := e.person("Ana", tg)
 	signer, _ := ssh.NewCertSigner(ana.cert, ana.key)
 
+	// Servers behind the gateway do not take people's certificates.
+	direct := &ssh.ClientConfig{User: "root", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second}
+	if _, err := ssh.Dial("tcp", srv.addr, direct); err == nil {
+		t.Error("a person's certificate logged in around the gateway")
+	}
 	// Another target than the certificate's.
 	if _, err := e.dial("db-2", signer); err == nil {
 		t.Error("certificate for db-1 opened db-2")

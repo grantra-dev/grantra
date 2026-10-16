@@ -22,10 +22,13 @@ export function SessionPlayback() {
   });
   const box = useRef<HTMLDivElement>(null);
   const player = useRef<Player | null>(null);
+  // The player starts once the session loads, and not again when it is
+  // refetched: that would restart playback and audit another view.
+  const loaded = data !== undefined;
 
   useEffect(() => {
     const el = box.current;
-    if (!el || !data) return;
+    if (!el || !loaded) return;
     let disposed = false;
     // Loaded on demand: most people never open a recording.
     void import("asciinema-player").then(({ create }) => {
@@ -46,7 +49,7 @@ export function SessionPlayback() {
       player.current?.dispose();
       player.current = null;
     };
-  }, [data, id, start]);
+  }, [loaded, id, start]);
 
   return (
     <>

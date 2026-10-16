@@ -49,11 +49,18 @@ func TestSSHAPI(t *testing.T) {
 	e.api.SSH = sshaccess.New(key)
 	e.api.GatewayAddress = "ssh.example.com:2222"
 
-	// The CA public key is public: servers fetch it without signing in.
-	pub := httptest.NewRecorder()
-	e.mux.ServeHTTP(pub, httptest.NewRequest(http.MethodGet, "/api/v1/ssh/ca.pub", nil))
-	if pub.Code != http.StatusOK || !strings.HasPrefix(pub.Body.String(), "ssh-ed25519 ") || pub.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
-		t.Errorf("ca.pub = %d %q", pub.Code, pub.Body)
+	// The CA public keys are public: servers fetch them without signing in.
+	cas := map[string]string{}
+	for _, file := range []string{"ca.pub", "gateway_ca.pub"} {
+		pub := httptest.NewRecorder()
+		e.mux.ServeHTTP(pub, httptest.NewRequest(http.MethodGet, "/api/v1/ssh/"+file, nil))
+		if pub.Code != http.StatusOK || !strings.HasPrefix(pub.Body.String(), "ssh-ed25519 ") || pub.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+			t.Errorf("%s = %d %q", file, pub.Code, pub.Body)
+		}
+		cas[file] = strings.TrimSpace(pub.Body.String())
+	}
+	if cas["ca.pub"] == cas["gateway_ca.pub"] {
+		t.Error("people and the gateway share a CA")
 	}
 
 	// Only holders get certificates: not an admin, not an auditor.
@@ -64,7 +71,7 @@ func TestSSHAPI(t *testing.T) {
 	}
 	rec = e.do(ana, http.MethodPost, certs, body)
 	cert := decode[sshaccess.Certificate](t, rec)
-	if rec.Code != http.StatusCreated || !strings.HasPrefix(cert.Certificate, "ssh-ed25519-cert-v01@openssh.com ") || cert.Principal != "prod-db" {
+	if rec.Code != http.StatusCreated || !strings.HasPrefix(cert.Certificate, "ssh-ed25519-cert-v01@openssh.com ") || cert.Principal != "grantra:prod-db" {
 		t.Fatalf("issue = %d %+v", rec.Code, cert)
 	}
 
@@ -86,7 +93,8 @@ func TestSSHAPI(t *testing.T) {
 		t.Errorf("auditor's targets = %+v", got)
 	}
 	info := decode[map[string]any](t, e.do(ana, http.MethodGet, "/api/v1/ssh", ""))
-	if !strings.HasPrefix(info["ca_public_key"].(string), "ssh-ed25519 ") || info["gateway_address"] != "ssh.example.com:2222" {
+	if info["ca_public_key"] != cas["ca.pub"] || info["gateway_ca_public_key"] != cas["gateway_ca.pub"] ||
+		info["gateway_address"] != "ssh.example.com:2222" {
 		t.Errorf("ssh info = %+v", info)
 	}
 

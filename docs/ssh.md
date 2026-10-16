@@ -7,10 +7,13 @@ nothing has to be cleaned up when someone leaves, and sessions through the
 
 ## How it fits together
 
-- Grantra keeps an SSH **certificate authority** (CA) per tenant. Its
-  private key is sealed with the [vault](vault.md) key (`GRANTRA_VAULT_KEY`),
-  so SSH certificates need that key too.
-- Servers trust the CA's public key (`TrustedUserCAKeys`), once.
+- Grantra keeps two SSH **certificate authorities** (CAs) per tenant. The
+  *people* CA signs people's certificates; the *gateway* CA signs only the
+  gateway's own. Their private keys are sealed with the [vault](vault.md)
+  key (`GRANTRA_VAULT_KEY`), so SSH certificates need that key too.
+- Each server trusts one of them (`TrustedUserCAKeys`), once: servers
+  behind the gateway the gateway CA, so nobody logs in to them around it;
+  servers reached directly the people CA.
 - Each server you add is a **target**: a name, an address and the account to
   log in as. Grantra creates the entitlement *Log in to \<name\> as \<login\>*
   in the **SSH servers** application, so it is requested, approved, reviewed
@@ -19,25 +22,50 @@ nothing has to be cleaned up when someone leaves, and sessions through the
 - Whoever holds the access signs a certificate for their own public key in
   **Servers**. It lasts the target's maximum (8 hours by default, 24 at most)
   and never past the access, so an activation of 2 hours gives a certificate
-  of 2 hours.
+  of 2 hours. Its principal is `grantra:<target name>`, which is never an
+  account name: it only works where it was meant to.
 - Targets are reached **through the gateway** (the default), which records
   every session, or **directly**, where the certificate logs in to the server
   itself and nothing is recorded.
 
 ## Set up a server
 
-Once per server, as root:
+Once per server, as root. For a server **behind the gateway** (the
+default), trust the gateway CA:
 
 ```sh
-curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/ca.pub
+curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/gateway_ca.pub
 echo 'TrustedUserCAKeys /etc/ssh/grantra_ca.pub' >> /etc/ssh/sshd_config
 systemctl reload sshd
 ```
 
-The CA public key is also shown on the **Servers** page for admins. The
-account the target logs in as (`postgres`, `deploy`…) must exist on the
-server; a certificate is only valid for that account (or, through the
-gateway, only at the gateway).
+Only the gateway holds certificates from that CA, two minutes at a time,
+so people's own certificates do not work on the server.
+
+For a server **reached directly**, trust the people CA and say which
+targets may log in as each account, in an `AuthorizedPrincipalsFile`. With
+the target `prod-db` logging in as `postgres`:
+
+```sh
+curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/ca.pub
+mkdir -p /etc/ssh/grantra_principals
+echo 'grantra:prod-db' >> /etc/ssh/grantra_principals/postgres
+cat >> /etc/ssh/sshd_config <<'CONF'
+TrustedUserCAKeys /etc/ssh/grantra_ca.pub
+AuthorizedPrincipalsFile /etc/ssh/grantra_principals/%u
+CONF
+systemctl reload sshd
+```
+
+A certificate for another target is refused there, and without the
+principals file every certificate is (no account is called
+`grantra:...`). Both keys are also shown on the **Servers** page for
+admins. The account the target logs in as (`postgres`, `deploy`…) must
+exist on the server.
+
+When a target moves from direct to the gateway, switch the server to the
+gateway CA too: that is also what stops the certificates people already
+hold for it.
 
 Then add the target in **Servers → Add server**, or:
 
@@ -92,18 +120,22 @@ connect.
 What it does:
 
 - Lets in only certificates Grantra signed for that target, from this
-  tenant's CA, still valid, whose person is active and holds the access
-  right now. A certificate for another target, from another CA or of a
-  target reached directly is refused.
-- Logs in to the target with a fresh key and a certificate of its own that
-  lasts two minutes, for that one session.
+  tenant's people CA, still valid, whose person is active and holds the
+  access right now. A certificate for another target, from another CA or
+  of a target reached directly is refused. It checks again for every
+  session opened on a connection (a kept-open `ControlMaster` one too), and
+  the connection ends when the certificate does.
+- Logs in to the target with a fresh key and a certificate of the gateway
+  CA that lasts two minutes, for that one session.
 - Learns the target's **host key** on the first connection and refuses the
   server from then on if it changes. When it changes on purpose (a rebuilt
   server), an admin clicks **Forget host key** in the target's settings.
   Changing a target's address forgets it too.
 - Checks access again every 30 seconds: when the access ends (an activation
   runs out, a review revokes it, the person leaves) or an admin clicks
-  **End**, the person sees why and the session closes.
+  **End**, the person sees why and the session closes, with the whole
+  connection. If it cannot check three times in a row (the database is
+  down), the session ends too.
 - Allows shells and commands only: no port forwarding, agent forwarding,
   X11 or SFTP, since what they carry would not be recorded.
 
@@ -113,14 +145,18 @@ Every session through the gateway is recorded in
 [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) and stored
 in the database as it happens (a crash loses seconds of it). Admins and
 auditors see them in **Servers → Sessions** and play them back; watching a
-recording is in the audit log. A recording stops at 100 MB and says so.
+recording is in the audit log. A session whose recording reaches 100 MB is
+ended, so nothing runs unrecorded.
 
 The commands typed are indexed for **Servers → Commands**: search
 `DROP TABLE` and see who typed it, where and when, and jump to that moment
-in the recording. Indexing is best effort, from the keys typed: a line only
-counts once the server echoed it, so what is typed at a password prompt is
-never indexed, and lines recalled from shell history or completed with Tab
-may be partial. The recording is the record.
+in the recording. Indexing is best effort, from the keys typed: in a
+terminal a line only counts once the server echoed it, so what is typed at
+a password prompt is not indexed, and lines recalled from shell history or
+completed with Tab may be partial. For a command run without a terminal
+(`ssh prod-db@gateway 'sudo -S true' < file`) only the command is indexed,
+not what goes in to it; a shell without a terminal (`ssh -T`) has every
+line it reads indexed, since nothing echoes. The recording is the record.
 
 A session whose gateway stops reporting (it crashed) is marked *lost*
 within a few minutes by the job **end lost SSH sessions**.
@@ -129,8 +165,8 @@ within a few minutes by the job **end lost SSH sessions**.
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v1/ssh` | Everyone: whether certificates can be signed, the gateway address and the CA public key |
-| `GET /api/v1/ssh/ca.pub` | Anyone, without signing in: the CA public key, for servers |
+| `GET /api/v1/ssh` | Everyone: whether certificates can be signed, the gateway address and both CA public keys (`ca_public_key`, `gateway_ca_public_key`) |
+| `GET /api/v1/ssh/ca.pub`, `GET /api/v1/ssh/gateway_ca.pub` | Anyone, without signing in: the people and gateway CA public keys, for servers |
 | `GET /api/v1/ssh/targets` | Admins and auditors see all; everyone else the targets they hold |
 | `POST /api/v1/ssh/targets`, `PUT`/`DELETE /api/v1/ssh/targets/{id}` | `vault.manage` (admins). `PUT` takes `address`, `notes`, `max_certificate_hours`, `via_gateway`, `forget_host_key` |
 | `POST /api/v1/ssh/targets/{id}/certificates` | Only people holding the target's access, admins included: `{"public_key"}` |

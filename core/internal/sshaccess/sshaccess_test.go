@@ -121,14 +121,20 @@ func isConflict(err error) bool { return errors.As(err, new(*apperr.Conflict)) }
 func TestCertificateAuthority(t *testing.T) {
 	e := newEnv(t)
 	var first, second string
-	e.must(func(tx pgx.Tx) (err error) { first, err = e.s.PublicCA(e.ctx, tx, e.tenant); return err })
-	e.must(func(tx pgx.Tx) (err error) { second, err = e.s.PublicCA(e.ctx, tx, e.tenant); return err })
+	e.must(func(tx pgx.Tx) (err error) { first, err = e.s.PublicCA(e.ctx, tx, e.tenant, PeopleCA); return err })
+	e.must(func(tx pgx.Tx) (err error) { second, err = e.s.PublicCA(e.ctx, tx, e.tenant, PeopleCA); return err })
 	if first != second || !strings.HasPrefix(first, "ssh-ed25519 ") {
 		t.Fatalf("CA = %q then %q, want one stable ed25519 key", first, second)
 	}
+	// The gateway has a CA of its own.
+	var gw string
+	e.must(func(tx pgx.Tx) (err error) { gw, err = e.s.PublicCA(e.ctx, tx, e.tenant, GatewayCA); return err })
+	if gw == first || !strings.HasPrefix(gw, "ssh-ed25519 ") {
+		t.Errorf("gateway CA = %q, people CA %q", gw, first)
+	}
 	// The private key is sealed: another master key cannot open it.
 	other := New(testKey(t))
-	err := e.tx(func(tx pgx.Tx) error { _, err := other.signer(e.ctx, tx, e.tenant); return err })
+	err := e.tx(func(tx pgx.Tx) error { _, err := other.signer(e.ctx, tx, e.tenant, PeopleCA); return err })
 	if err == nil {
 		t.Error("a different vault key opened the CA")
 	}
@@ -183,8 +189,8 @@ func TestTargetsAndCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.ValidBefore.Equal(until) || c.Principal != "prod-db" || !c.ViaGateway {
-		t.Errorf("certificate = %+v, want valid until %s for principal prod-db", c, until)
+	if !c.ValidBefore.Equal(until) || c.Principal != "grantra:prod-db" || !c.ViaGateway {
+		t.Errorf("certificate = %+v, want valid until %s for principal grantra:prod-db", c, until)
 	}
 	if c.ValidAfter.After(time.Now().Add(-50 * time.Second)) {
 		t.Errorf("valid_after = %s, want backdated a minute for clock skew", c.ValidAfter)
@@ -195,14 +201,18 @@ func TestTargetsAndCertificates(t *testing.T) {
 	}
 	cert := parsed.(*ssh.Certificate)
 	var caLine string
-	e.must(func(tx pgx.Tx) (err error) { caLine, err = e.s.PublicCA(e.ctx, tx, e.tenant); return err })
+	e.must(func(tx pgx.Tx) (err error) { caLine, err = e.s.PublicCA(e.ctx, tx, e.tenant, PeopleCA); return err })
 	ca, _ := ParseCA(caLine)
 	checker := ssh.CertChecker{IsUserAuthority: func(k ssh.PublicKey) bool { return string(k.Marshal()) == string(ca.Marshal()) }}
-	if err := checker.CheckCert("prod-db", cert); err != nil {
+	if err := checker.CheckCert("grantra:prod-db", cert); err != nil {
 		t.Errorf("certificate does not check against the CA: %v", err)
 	}
-	if err := checker.CheckCert("postgres", cert); err == nil {
-		t.Error("a gateway certificate logs in to the server directly")
+	// No Unix account matches it: a server takes it only where its
+	// AuthorizedPrincipalsFile names the target.
+	for _, account := range []string{"postgres", "prod-db", "root"} {
+		if err := checker.CheckCert(account, cert); err == nil {
+			t.Errorf("certificate logs in as %s", account)
+		}
 	}
 	if cert.KeyId != KeyIDPrefix+c.ID || cert.Serial != c.Serial || string(cert.Key.Marshal()) != string(signer.PublicKey().Marshal()) {
 		t.Errorf("certificate key id %q serial %d", cert.KeyId, cert.Serial)
@@ -215,7 +225,7 @@ func TestTargetsAndCertificates(t *testing.T) {
 	}
 
 	// Longer access: the target's maximum caps it. Straight to the server,
-	// the principal is the login.
+	// the principal is the same.
 	off := false
 	e.must(func(tx pgx.Tx) error {
 		_, err := Update(e.ctx, tx, e.tenant, "identity:admin", tg.ID, Settings{ViaGateway: &off, MaxCertificateHours: 1})
@@ -226,8 +236,8 @@ func TestTargetsAndCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Until(c.ValidBefore); d > time.Hour || d < 59*time.Minute || c.Principal != "postgres" {
-		t.Errorf("certificate = %+v, want an hour for postgres", c)
+	if d := time.Until(c.ValidBefore); d > time.Hour || d < 59*time.Minute || c.Principal != "grantra:prod-db" {
+		t.Errorf("certificate = %+v, want an hour for grantra:prod-db", c)
 	}
 
 	// Inactive people hold nothing.

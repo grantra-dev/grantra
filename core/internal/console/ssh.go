@@ -18,39 +18,49 @@ import (
 // access get certificates for it.
 
 // getSSH says whether certificates can be signed, where the gateway is, and
-// the CA public key servers trust.
+// the CA public keys servers trust: the people CA on servers reached
+// directly, the gateway CA on servers behind the gateway.
 func (a *API) getSSH(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"enabled": a.SSH.Enabled(), "gateway_address": a.GatewayAddress, "ca_public_key": ""}
+	out := map[string]any{"enabled": a.SSH.Enabled(), "gateway_address": a.GatewayAddress, "ca_public_key": "",
+		"gateway_ca_public_key": ""}
 	err := a.inTenant(r, func(tx pgx.Tx, _ authz.Subject) error {
 		if !a.SSH.Enabled() {
 			return nil
 		}
-		ca, err := a.SSH.PublicCA(r.Context(), tx, a.tenantID)
-		out["ca_public_key"] = ca
+		people, err := a.SSH.PublicCA(r.Context(), tx, a.tenantID, sshaccess.PeopleCA)
+		if err != nil {
+			return err
+		}
+		gateway, err := a.SSH.PublicCA(r.Context(), tx, a.tenantID, sshaccess.GatewayCA)
+		out["ca_public_key"], out["gateway_ca_public_key"] = people, gateway
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
 }
 
-// sshCAPublicKey serves the CA public key as a TrustedUserCAKeys file,
-// without signing in, so servers can fetch it while they are set up:
-// curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/ca.pub
-func (a *API) sshCAPublicKey(w http.ResponseWriter, r *http.Request) {
-	if !a.SSH.Enabled() {
-		httpjson.Error(w, http.StatusNotFound, "SSH certificates are off: "+vault.KeyEnv+" is not set")
-		return
+// sshCAPublicKey serves a CA public key as a TrustedUserCAKeys file, without
+// signing in, so servers can fetch it while they are set up:
+//
+//	curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/ca.pub
+//	curl -o /etc/ssh/grantra_ca.pub https://grantra.example.com/api/v1/ssh/gateway_ca.pub
+func (a *API) sshCAPublicKey(purpose string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !a.SSH.Enabled() {
+			httpjson.Error(w, http.StatusNotFound, "SSH certificates are off: "+vault.KeyEnv+" is not set")
+			return
+		}
+		var ca string
+		err := db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
+			ca, err = a.SSH.PublicCA(r.Context(), tx, a.tenantID, purpose)
+			return err
+		})
+		if err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, ca+"\n") //nolint:errcheck
 	}
-	var ca string
-	err := db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
-		ca, err = a.SSH.PublicCA(r.Context(), tx, a.tenantID)
-		return err
-	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	io.WriteString(w, ca+"\n") //nolint:errcheck
 }
 
 // listSSHTargets shows admins and auditors every target, and everyone else

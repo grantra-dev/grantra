@@ -124,7 +124,9 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
           ))}
         </ul>
       </Loaded>
-      {admin && info.data?.ca_public_key && <TrustCA ca={info.data.ca_public_key} />}
+      {admin && info.data?.ca_public_key && (
+        <TrustCA people={info.data.ca_public_key} gateway={info.data.gateway_ca_public_key} />
+      )}
     </section>
   );
 }
@@ -450,26 +452,49 @@ function NewTarget({ onDone }: { onDone: () => void }) {
   );
 }
 
-function TrustCA({ ca }: { ca: string }) {
+function TrustCA({ people, gateway }: { people: string; gateway: string }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Make a server trust Grantra</CardTitle>
         <p className="text-sm text-slate-500">
-          Once per server: save this line as <code>/etc/ssh/grantra_ca.pub</code>, add{" "}
+          Once per server: save the key for how it is reached as{" "}
+          <code>/etc/ssh/grantra_ca.pub</code>, add{" "}
           <code>TrustedUserCAKeys /etc/ssh/grantra_ca.pub</code> to <code>sshd_config</code> and
           reload sshd. No personal keys go on the server.
         </p>
       </CardHeader>
-      <CardContent>
-        <Textarea
-          aria-label="Certificate authority public key"
-          readOnly
-          rows={2}
-          value={ca}
-          className="font-mono text-xs"
-          onFocus={(e) => e.currentTarget.select()}
-        />
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="gateway-ca">Through the gateway (recorded)</Label>
+          <p className="text-sm text-slate-500">
+            Only the gateway logs in to these servers: nobody gets around it.
+          </p>
+          <Textarea
+            id="gateway-ca"
+            readOnly
+            rows={2}
+            value={gateway}
+            className="font-mono text-xs"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="people-ca">Reached directly</Label>
+          <p className="text-sm text-slate-500">
+            Also add <code>AuthorizedPrincipalsFile /etc/ssh/grantra_principals/%u</code>, and in
+            that file, for each account, one line <code>grantra:&lt;server name&gt;</code> per
+            server in Grantra that logs in as it.
+          </p>
+          <Textarea
+            id="people-ca"
+            readOnly
+            rows={2}
+            value={people}
+            className="font-mono text-xs"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        </div>
       </CardContent>
     </Card>
   );

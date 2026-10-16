@@ -1,4 +1,4 @@
--- SSH access: a certificate authority per tenant, the servers (targets)
+-- SSH access: certificate authorities per tenant, the servers (targets)
 -- people log in to, the short-lived certificates Grantra signs for them, and
 -- the sessions the gateway records.
 --
@@ -6,16 +6,20 @@
 -- application), so requests, approvals, reviews, separation of duties and
 -- expiry govern it like any other access.
 
--- The tenant's SSH user CA. Servers trust its public key
--- (TrustedUserCAKeys); its private key is sealed like a vault secret.
+-- The tenant's SSH user CAs, two of them: "people" signs people's
+-- certificates, "gateway" the gateway's own, which only servers behind the
+-- gateway trust (TrustedUserCAKeys). Private keys are sealed like vault
+-- secrets.
 CREATE TABLE ssh_cas (
-    tenant_id   uuid PRIMARY KEY REFERENCES tenants (id) ON DELETE CASCADE,
+    tenant_id   uuid NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+    purpose     text NOT NULL CHECK (purpose IN ('people', 'gateway')),
     public_key  text NOT NULL,
     key_id      text NOT NULL,
     wrapped_key bytea NOT NULL,
     nonce       bytea NOT NULL,
     ciphertext  bytea NOT NULL,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, purpose)
 );
 
 CREATE TABLE ssh_targets (
@@ -79,7 +83,7 @@ CREATE TABLE ssh_sessions (
     ended_at       timestamptz,
     -- closed by either side, access_ended when access went away,
     -- terminated by an admin, lost with its gateway, or failed.
-    end_reason     text CHECK (end_reason IN ('closed', 'access_ended', 'terminated', 'lost', 'failed')),
+    end_reason     text CHECK (end_reason IN ('closed', 'access_ended', 'terminated', 'lost', 'failed', 'recording_full')),
     error          text,
     terminate_requested_by text,
     exit_status    integer,

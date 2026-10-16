@@ -45,8 +45,8 @@ const clockSkew = time.Minute
 // Issue signs a certificate for publicKey, an OpenSSH public key of
 // identityID, who must hold access to the target (the caller checks the
 // policies). It lasts the target's maximum and never past the access it
-// comes from. Through the gateway the principal is the target's name;
-// straight to the server it is the login.
+// comes from. Its principal is Principal(target name), whether it is used
+// at the gateway or straight at the server.
 func (s *Service) Issue(ctx context.Context, tx pgx.Tx, tenantID, identityID, targetID, publicKey string) (Certificate, error) {
 	if !s.Enabled() {
 		return Certificate{}, ErrDisabled
@@ -59,15 +59,12 @@ func (s *Service) Issue(ctx context.Context, tx pgx.Tx, tenantID, identityID, ta
 	if err != nil {
 		return Certificate{}, err
 	}
-	signer, err := s.signer(ctx, tx, tenantID)
+	signer, err := s.signer(ctx, tx, tenantID, PeopleCA)
 	if err != nil {
 		return Certificate{}, err
 	}
 	c := Certificate{TargetID: t.ID, TargetName: t.Name, Login: t.Login, IdentityID: identityID, ViaGateway: t.ViaGateway,
-		Fingerprint: ssh.FingerprintSHA256(key), Principal: t.Login}
-	if t.ViaGateway {
-		c.Principal = t.Name
-	}
+		Fingerprint: ssh.FingerprintSHA256(key), Principal: Principal(t.Name)}
 	var serial int64
 	err = tx.QueryRow(ctx,
 		`INSERT INTO ssh_certificates (tenant_id, target_id, identity_id, principal, key_fingerprint, valid_after, valid_before)
