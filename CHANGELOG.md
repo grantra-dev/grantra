@@ -4,6 +4,17 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-17
+
+Privileged access (PAM) arrives: a credential vault, just-in-time access, break glass, and recorded sessions to servers, databases, Kubernetes, Windows desktops and cloud consoles, all handed out and taken back by the same governance as everything else. Data also comes in more easily, from the console or from scripts.
+
+### Upgrading from 0.2
+
+- Migrations run as before (`grantra migrate`, or the Helm migration job). They try to create the `pg_trgm` extension for the gateway's search indexes; if the migration role may not, searches still work, without an index.
+- The vault, SSH certificates and the gateway need a master key: set `vault.key`, `vault.existingSecret` or a key provider (`vault.provider`) before using them, and keep a copy of the key apart from the database backups ([docs](docs/vault.md#turning-it-on)). Without one, everything else keeps working.
+- The gateway (`gateway.enabled`) and guacd for desktops (`desktops.enabled`) are off by default in Helm.
+- Demo stack: run `make reset`, then `make up`. The sample database *shop-db* and the new demo data are only created on a fresh volume. `docker compose -f deploy/docker-compose.yml --profile rdp up` adds the test desktop.
+
 ### Privileged access (PAM)
 
 - **Credential vault**: passwords and SSH keys of privileged accounts, sealed with envelope encryption under a master key (`GRANTRA_VAULT_KEY`). People who hold an account's access check it out with a reason for a limited time; exclusive accounts go to one person at a time. Admins manage the vault but cannot read secrets without the access ([docs](docs/vault.md)).
@@ -93,6 +104,7 @@ The first public release: identity governance (IGA) you can run on your laptop i
 - Multi-tenant PostgreSQL with row-level security.
 - Container image and binaries signed with cosign (keyless), with an SPDX SBOM ([docs](docs/releases.md)).
 
-[Unreleased]: https://github.com/grantra-dev/grantra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/grantra-dev/grantra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.3.0
 [0.2.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.2.0
 [0.1.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.1.0
