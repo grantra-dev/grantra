@@ -86,6 +86,14 @@ export function ServiceTokens() {
                   <TableCell>
                     <div className="font-medium">{t.name}</div>
                     <code className="text-xs text-slate-500">{t.prefix}…</code>
+                    {t.creator_name && (
+                      <div className="text-xs text-slate-500">Created by {t.creator_name}</div>
+                    )}
+                    {t.creator_left && !t.revoked_at && !expired && (
+                      <Badge variant="amber" className="mt-1">
+                        Creator left: check who looks after it
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     <ul>

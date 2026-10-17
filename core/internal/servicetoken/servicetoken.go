@@ -22,6 +22,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/connector/flatfile"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/notify"
 )
 
 // Prefix starts every service token, so leaked tokens are easy to spot.
@@ -57,6 +58,10 @@ type Token struct {
 	ExpiresAt  time.Time  `json:"expires_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	// CreatorName is the display name of the person who created the token,
+	// and CreatorLeft whether they have since left the company.
+	CreatorName string `json:"creator_name,omitempty"`
+	CreatorLeft bool   `json:"creator_left,omitempty"`
 }
 
 // Actor is how the audit log names what the token does.
@@ -156,7 +161,93 @@ func List(ctx context.Context, tx pgx.Tx) ([]Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, scan)
+	toks, err := pgx.CollectRows(rows, scan)
+	if err != nil {
+		return nil, err
+	}
+	return toks, addCreators(ctx, tx, toks)
+}
+
+// addCreators fills in who created each token and whether they left.
+func addCreators(ctx context.Context, tx pgx.Tx, toks []Token) error {
+	var ids []string
+	for _, t := range toks {
+		if id, ok := strings.CutPrefix(t.CreatedBy, db.IdentityActor("")); ok && db.ValidUUID(id) {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	type creator struct {
+		name string
+		left bool
+	}
+	creators := map[string]creator{}
+	rows, err := tx.Query(ctx, `SELECT id, display_name, status = 'terminated' FROM identities WHERE id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return err
+	}
+	var (
+		id string
+		c  creator
+	)
+	_, err = pgx.ForEachRow(rows, []any{&id, &c.name, &c.left}, func() error {
+		creators[db.IdentityActor(id)] = c
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for i := range toks {
+		if c, ok := creators[toks[i].CreatedBy]; ok {
+			toks[i].CreatorName, toks[i].CreatorLeft = c.name, c.left
+		}
+	}
+	return nil
+}
+
+// CreatorsLeft tells the admins about the tokens still working that the
+// people in identityIDs created, when actor (the HR sync or the end-date
+// check) makes them leavers. The tokens keep working, because the jobs using
+// them belong to the company (and the HR sync that handles leavers may be one
+// of them), but an admin who stays should decide whether to keep, replace or
+// revoke each one.
+func CreatorsLeft(ctx context.Context, tx pgx.Tx, tenantID, actor string, identityIDs []string) error {
+	if len(identityIDs) == 0 {
+		return nil
+	}
+	actors := make([]string, len(identityIDs))
+	for i, id := range identityIDs {
+		actors[i] = db.IdentityActor(id)
+	}
+	rows, err := tx.Query(ctx, `SELECT `+columns+` FROM service_tokens
+		WHERE created_by = ANY($1) AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at, id`, actors)
+	if err != nil {
+		return err
+	}
+	toks, err := pgx.CollectRows(rows, scan)
+	if err != nil || len(toks) == 0 {
+		return err
+	}
+	if err := addCreators(ctx, tx, toks); err != nil {
+		return err
+	}
+	list := make([]map[string]any, len(toks))
+	for i, t := range toks {
+		list[i] = map[string]any{"name": t.Name, "prefix": t.Prefix, "creator": t.CreatorName}
+		err := db.Audit(ctx, tx, tenantID, actor, "service_token.creator_left", "service_token", t.ID,
+			map[string]any{"name": t.Name, "prefix": t.Prefix, "created_by": t.CreatedBy})
+		if err != nil {
+			return err
+		}
+	}
+	admins, err := notify.Admins(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return notify.Enqueue(ctx, tx, tenantID, notify.TokenCreatorLeft, admins,
+		map[string]any{"tokens": list, "count": len(list)})
 }
 
 // Revoke stops a token working. Revoking a revoked token does nothing.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
 
 // ErrNotFound is returned for a source that does not exist.
@@ -427,11 +428,21 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID, sourceID, runID string, cha
 }
 
 // recordAll writes the lifecycle event and the audit event for each change,
-// and ends leavers' console sessions, in batches.
+// and ends leavers' console sessions, in batches. Admins hear about the API
+// tokens leavers created.
 func recordAll(ctx context.Context, tx pgx.Tx, tenantID, actor, runID string, changes []*Change, opts Options) error {
 	var run *string
 	if runID != "" {
 		run = &runID
+	}
+	var leavers []string
+	for _, ch := range changes {
+		if ch.Kind == Leaver {
+			leavers = append(leavers, ch.IdentityID)
+		}
+	}
+	if err := servicetoken.CreatorsLeft(ctx, tx, tenantID, actor, leavers); err != nil {
+		return fmt.Errorf("tokens of leavers: %w", err)
 	}
 	return db.SendBatch(ctx, tx, changes, func(b *pgx.Batch, ch *Change) {
 		details := map[string]any{"external_id": ch.ExternalID, "status": ch.Status}

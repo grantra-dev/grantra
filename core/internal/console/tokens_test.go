@@ -1,9 +1,11 @@
 package console
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/authz"
@@ -136,6 +138,66 @@ func TestServiceTokens(t *testing.T) {
 		if n := e.count(`SELECT count(*) FROM audit_events WHERE action = $1 AND target_id = $2`, action, tok.Token.ID); n != 1 {
 			t.Errorf("%s audit events = %d", action, n)
 		}
+	}
+}
+
+// When the admin who made a token leaves, the token keeps working, so the
+// HR feed that processed their exit keeps running, and the admins who stay
+// hear about it once.
+func TestTokensOfLeavers(t *testing.T) {
+	e := newEnv(t)
+	leaving := e.identity("Leaving admin", "", authz.RoleAdmin)
+	staying := e.identity("Staying admin", "", authz.RoleAdmin)
+	hr := decode[lifecycle.Source](t, e.do(leaving, http.MethodPost, "/api/v1/identity-sources", `{"name": "HR", "kind": "csv"}`))
+	mk := func(as, name string) created {
+		t.Helper()
+		rec := e.do(as, http.MethodPost, "/api/v1/service-tokens", `{"name": "`+name+`", "scopes": ["identity_source.sync:`+hr.ID+`"], "expires_in_days": 30}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s = %d %s", name, rec.Code, rec.Body)
+		}
+		return decode[created](t, rec)
+	}
+	nightly := mk(leaving, "Nightly HR")
+	revoked := mk(leaving, "Old job")
+	mine := mk(staying, "Staying job")
+	e.do(leaving, http.MethodDelete, "/api/v1/service-tokens/"+revoked.Token.ID, "")
+
+	e.exec(`UPDATE identities SET end_date = current_date - 1 WHERE id = $1`, leaving)
+	for range 2 {
+		if _, _, err := lifecycle.ApplyDueDates(context.Background(), e.pool, e.tenant, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// One email, to the admin who stays, about the token that still works.
+	if n := e.count(`SELECT count(*) FROM notification_outbox WHERE kind = 'service_token_creator_left'`); n != 1 {
+		t.Fatalf("notifications = %d, want 1", n)
+	}
+	if n := e.count(`SELECT count(*) FROM notification_outbox WHERE kind = 'service_token_creator_left' AND identity_id = $1
+		AND data->'tokens' @> '[{"name": "Nightly HR", "creator": "Leaving admin"}]' AND jsonb_array_length(data->'tokens') = 1`, staying); n != 1 {
+		t.Errorf("notification is not to the staying admin about the nightly token")
+	}
+	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'service_token.creator_left'`); n != 1 {
+		t.Errorf("creator_left audit events = %d, want 1", n)
+	}
+	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'service_token.creator_left' AND target_id = $1`, nightly.Token.ID); n != 1 {
+		t.Errorf("creator_left not audited on the nightly token")
+	}
+
+	// The token still works, and the list says whose it was.
+	if code := e.bearer(nightly.Secret, http.MethodPost, "/api/v1/identity-sources/"+hr.ID+"/runs?dry_run=true", "employee_id,display_name\nE1,Ana\n"); code != http.StatusOK {
+		t.Errorf("token of a leaver = %d, want 200", code)
+	}
+	list := decode[struct{ Tokens []servicetoken.Token }](t, e.do(staying, http.MethodGet, "/api/v1/service-tokens", ""))
+	got := map[string]servicetoken.Token{}
+	for _, tok := range list.Tokens {
+		got[tok.ID] = tok
+	}
+	if tok := got[nightly.Token.ID]; !tok.CreatorLeft || tok.CreatorName != "Leaving admin" {
+		t.Errorf("nightly token = %+v, want creator left", tok)
+	}
+	if tok := got[mine.Token.ID]; tok.CreatorLeft || tok.CreatorName != "Staying admin" {
+		t.Errorf("staying admin's token = %+v", tok)
 	}
 }
 

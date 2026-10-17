@@ -29,6 +29,8 @@ const (
 	SoDViolation    Kind = "sod_violation"
 	BreakGlassUsed  Kind = "break_glass_used"
 	BreakGlassDue   Kind = "break_glass_review"
+	// TokenCreatorLeft is about API tokens whose creator left the company.
+	TokenCreatorLeft Kind = "service_token_creator_left"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -50,6 +52,7 @@ var Kinds = []KindInfo{
 	{SoDViolation, "Separation of duties violations", "For admins: a check found people holding access that should not go together.", false},
 	{BreakGlassUsed, "Break-glass use", "For admins and auditors: someone opened a break-glass vault account in an emergency.", true},
 	{BreakGlassDue, "Break-glass reviews", "For admins: a break-glass use still waits for someone to confirm it was justified.", false},
+	{TokenCreatorLeft, "API tokens of people who left", "For admins: someone who left the company had created API tokens that still work.", false},
 }
 
 // required reports whether nobody may turn k off.
