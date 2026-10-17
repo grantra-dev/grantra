@@ -9,6 +9,8 @@ Scripts and scheduled jobs use a **service token** to send Grantra files without
 
 Admins create and revoke tokens in **Administration → API tokens**; auditors can see them. Tokens belong to the company, not to whoever made them, so revoke the ones nobody looks after any more.
 
+When the person who created a token leaves the company, the token **keeps working**: the job using it is the company's, and it may well be the HR feed that processed their exit. Instead, the admins get one email (`service_token_creator_left`) listing that person's working tokens, each one is audited as `service_token.creator_left`, and the list marks it *Creator left* until someone revokes it or it expires. Replace it with a token made by an admin who stays if the job should keep running.
+
 ## Scopes
 
 | Scope | Lets the token call |

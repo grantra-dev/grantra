@@ -212,6 +212,7 @@ describe("API tokens", () => {
     prefix: "grantra_st_abc123",
     scopes: ["identity_source.sync:hr", "application.import_accounts"],
     created_by: "identity:ada",
+    creator_name: "Ada",
     created_at: "2026-10-14T09:00:00Z",
     expires_at: "2099-10-14T09:00:00Z",
   };
@@ -272,7 +273,33 @@ describe("API tokens", () => {
 
     expect(await screen.findByText("Feed an HR source: Workday export")).toBeInTheDocument();
     expect(screen.getByText("Load an application's account file: any")).toBeInTheDocument();
+    expect(screen.getByText("Created by Ada")).toBeInTheDocument();
+    expect(screen.queryByText(/Creator left/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(revoked).toBe(true));
+  });
+
+  it("flags working tokens whose creator left", async () => {
+    serve({
+      "GET /api/v1/me": ok(admin),
+      "GET /api/v1/service-tokens": ok({
+        tokens: [
+          { ...token, creator_left: true },
+          {
+            ...token,
+            id: "t2",
+            name: "Old job",
+            creator_left: true,
+            revoked_at: "2026-10-15T09:00:00Z",
+          },
+        ],
+      }),
+      "GET /api/v1/identity-sources": ok({ sources: [source] }),
+      "GET /api/v1/applications": ok({ applications: [] }),
+    });
+    renderAt("/admin?tab=tokens");
+
+    expect(await screen.findByText("Creator left: check who looks after it")).toBeInTheDocument();
+    expect(screen.getAllByText(/Creator left/)).toHaveLength(1);
   });
 });

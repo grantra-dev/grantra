@@ -15,14 +15,15 @@ var templateFiles embed.FS
 
 // pages are where each kind of notification sends people in the console.
 var pages = map[Kind]string{
-	ApprovalNeeded:  "/approvals",
-	RequestExpiring: "/approvals",
-	RequestDecided:  "/requests",
-	ReviewAssigned:  "/reviews",
-	CampaignDueSoon: "/reviews",
-	SoDViolation:    "/admin?tab=sod",
-	BreakGlassUsed:  "/vault?tab=break-glass",
-	BreakGlassDue:   "/vault?tab=break-glass",
+	ApprovalNeeded:   "/approvals",
+	RequestExpiring:  "/approvals",
+	RequestDecided:   "/requests",
+	ReviewAssigned:   "/reviews",
+	CampaignDueSoon:  "/reviews",
+	SoDViolation:     "/admin?tab=sod",
+	BreakGlassUsed:   "/vault?tab=break-glass",
+	BreakGlassDue:    "/vault?tab=break-glass",
+	TokenCreatorLeft: "/admin?tab=tokens",
 }
 
 var templates = func() map[Kind]*template.Template {

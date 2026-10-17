@@ -32,7 +32,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 - **Column mapping in the console**: HR sources can be edited, and the source form has a box per field to name the column that holds it, with a sample file to pick from that shows which fields it already has (`PUT /api/v1/identity-sources/{id}`) ([docs](docs/identity-lifecycle.md#the-csv-file)).
 - **Account files**: the `csv` connector loads the accounts of applications with no SCIM or LDAP from a CSV export, one row per account or per account and role, checked first with a dry run and refused whole on any error (`POST /api/v1/applications/{id}/account-imports`) ([docs](docs/connectors.md#csv-files)).
-- **Service tokens**: scripts and scheduled jobs feed HR sources and account files without a session, with a token that can only do what its scopes say (optionally one source or application), expires within a year, can be revoked, and is audited under its own name. Administration has an **API tokens** tab ([docs](docs/service-tokens.md)).
+- **Service tokens**: scripts and scheduled jobs feed HR sources and account files without a session, with a token that can only do what its scopes say (optionally one source or application), expires within a year, can be revoked, and is audited under its own name. Administration has an **API tokens** tab ([docs](docs/service-tokens.md)). When a token's creator leaves the company it keeps working, so jobs don't break, and the admins are emailed and the tab marks it until someone acts.
 
 ### Changed
 

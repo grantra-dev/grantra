@@ -1,0 +1,11 @@
+{{define "subject"}}{{.Data.count}} API {{plural .Data.count "token" "tokens"}} created by someone who left{{end}}
+{{define "body"}}Hi {{.Name}},
+
+These API tokens were created by people who have left the company. They still work, so the jobs using them keep running:
+{{range .Data.tokens}}
+- {{.name}} ({{.prefix}}...), created by {{.creator}}{{end}}
+
+Check that someone still looks after each job. Keep the token, replace it with a new one, or revoke it if nothing uses it any more.
+
+{{.URL}}
+{{end}}

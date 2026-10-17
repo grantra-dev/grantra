@@ -413,6 +413,9 @@ export interface ServiceToken {
   expires_at: string;
   last_used_at?: string;
   revoked_at?: string;
+  creator_name?: string;
+  /** The person who created it has left the company; the token still works. */
+  creator_left?: boolean;
 }
 
 export const listServiceTokens = () =>
