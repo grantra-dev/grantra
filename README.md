@@ -18,11 +18,13 @@ Grantra is an open-source alternative to SailPoint and CyberArk. It starts with 
 
 It works with the identity provider you already run (Entra ID, Okta, Keycloak). Companies without one can use **Grantra Login**, a Keycloak that ships preconfigured with Grantra and is managed from the Grantra console: single sign-on, MFA and passkeys, and a gradual move over from Entra ID or Okta.
 
+For privileged access, it keeps admin passwords and keys in a vault, hands out admin rights just in time, and records every session to servers, databases, clusters, desktops and cloud consoles.
+
 <p align="center">
   <img src="site/screenshots/home.png" width="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
 </p>
 
-> **Status:** v0.2 adds Grantra Login (access management) on top of identity governance. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
+> **Status:** v0.3 adds privileged access (PAM) to identity governance and Grantra Login. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
 
 ## Try it in five minutes
 
@@ -92,8 +94,8 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 
 1. **Foundations and identity governance** *(done in v0.1)*.
 2. **Integrated IAM** *(done in v0.2)*: Grantra Login managed from the console, single sign-on and MFA policies, gradual migration from another identity provider, and authorization for your apps.
-3. **Privileged access (PAM)** *(in progress)*: credential vault, just-in-time access, break glass, SSH certificates and session recording, KMS/HSM keys, a gateway for databases, Kubernetes, desktops (RDP) and cloud consoles.
-4. **Identity threat detection** and AI-assisted recommendations.
+3. **Privileged access (PAM)** *(done in v0.3)*: credential vault, just-in-time access, break glass, SSH certificates and session recording, KMS/HSM keys, a gateway for databases, Kubernetes, desktops (RDP) and cloud consoles.
+4. **Identity threat detection** *(next)* and AI-assisted recommendations.
 
 The plan lives in the [GitHub milestones](https://github.com/grantra-dev/grantra/milestones).
 
