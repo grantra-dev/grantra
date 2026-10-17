@@ -3,41 +3,72 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Grantra: open-source identity governance</title>
-  <meta name="description" content="Grantra is open-source identity governance: who has access to what, why, and until when. Joiner, mover, leaver, access requests, access reviews and separation of duties. Apache 2.0, self-hosted.">
+  <title>Grantra: open-source identity security</title>
+  <meta name="description" content="Grantra is open-source identity security: identity governance, single sign-on with MFA, and privileged access in one self-hosted platform. Apache 2.0, an open alternative to SailPoint and CyberArk.">
+  <link rel="canonical" href="https://grantra.dev/">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <meta property="og:title" content="Grantra: open-source identity governance">
-  <meta property="og:description" content="Who has access to what, why, and until when. Self-hosted and Apache 2.0.">
+  <meta name="theme-color" content="#4338ca">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Grantra: open-source identity security">
+  <meta property="og:description" content="Governance, sign-in and privileged access in one self-hosted, Apache 2.0 platform.">
   <meta property="og:image" content="https://grantra.dev/screenshots/home.png">
   <meta property="og:url" content="https://grantra.dev/">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="nav wrap">
-    <a class="brand" href="/"><img src="favicon.svg" width="28" height="28" alt=""> Grantra</a>
-    <nav>
-      <a href="#features">Features</a>
-      <a href="#try">Try it</a>
-      <a href="https://github.com/grantra-dev/grantra/tree/main/docs">Docs</a>
-      <a class="btn btn-small" href="https://github.com/grantra-dev/grantra">GitHub</a>
-    </nav>
+  <header class="nav-bar">
+    <div class="nav wrap">
+      <a class="brand" href="/"><img src="favicon.svg" width="28" height="28" alt=""> Grantra</a>
+      <nav>
+        <a href="#govern">Governance</a>
+        <a href="#login">Sign-in</a>
+        <a href="#privileged">Privileged access</a>
+        <a href="https://github.com/grantra-dev/grantra/tree/main/docs">Docs</a>
+        <a class="btn btn-small" href="https://github.com/grantra-dev/grantra">GitHub</a>
+      </nav>
+    </div>
   </header>
 
   <main>
     <section class="hero wrap">
-      <p class="eyebrow">Open source · Apache 2.0 · Self-hosted</p>
+      <a class="eyebrow" href="https://github.com/grantra-dev/grantra/releases">v0.2 is out · privileged access is on main</a>
       <h1>Know who has access to what, why, and until when.</h1>
-      <p class="lead">Grantra is open-source identity governance, an open alternative to SailPoint and CyberArk. It gives and removes access as people join, move and leave, runs access requests and reviews, and stops toxic combinations of access before they happen.</p>
+      <p class="lead">Grantra is open-source identity security: it governs access as people join, move and leave, signs them in with MFA, and hands out privileged access just in time, recorded. One self-hosted platform instead of separate SailPoint, Okta and CyberArk bills.</p>
       <div class="actions">
         <a class="btn" href="#try">Try it in 5 minutes</a>
         <a class="btn btn-ghost" href="https://github.com/grantra-dev/grantra">Star on GitHub</a>
       </div>
+      <ul class="facts">
+        <li>Apache 2.0</li>
+        <li>Self-hosted</li>
+        <li>Helm and Docker</li>
+        <li>Signed releases with SBOM</li>
+      </ul>
       <img class="shot hero-shot" src="screenshots/home.png" width="1280" height="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
     </section>
 
-    <section id="features" class="wrap">
-      <h2>Identity governance, without the six-month rollout</h2>
+    <section class="wrap pillars" aria-label="What Grantra covers">
+      <a class="pillar" href="#govern">
+        <span class="pillar-kicker">Identity governance</span>
+        <strong>Who should have access</strong>
+        <span>Joiner, mover, leaver, requests, reviews and separation of duties.</span>
+      </a>
+      <a class="pillar" href="#login">
+        <span class="pillar-kicker">Access management</span>
+        <strong>How people sign in</strong>
+        <span>Grantra Login with MFA, passkeys and federation, or keep your own IdP.</span>
+      </a>
+      <a class="pillar" href="#privileged">
+        <span class="pillar-kicker">Privileged access</span>
+        <strong>Admin rights, only when needed</strong>
+        <span>Vault, just-in-time access and recorded sessions to servers, databases and clouds.</span>
+      </a>
+    </section>
+
+    <section id="govern" class="wrap">
+      <p class="section-kicker">Identity governance</p>
+      <h2>Access that follows people, without the six-month rollout</h2>
       <div class="grid">
         <article>
           <h3>Joiner, mover, leaver</h3>
@@ -53,15 +84,15 @@
         </article>
         <article>
           <h3>Separation of duties</h3>
-          <p>Policies such as "nobody both creates and approves payments", detected every 30 minutes or prevented at request time, with time-boxed exceptions an admin signs off.</p>
+          <p>Policies such as "nobody both creates and approves payments", detected every 30 minutes or stopped at request time, with time-boxed exceptions an admin signs off.</p>
         </article>
         <article>
           <h3>Connectors</h3>
-          <p>SCIM and LDAP / Active Directory. Grantra reads accounts, links them to people, flags orphans, and can provision changes back, off by default and with a dry run.</p>
+          <p>SCIM, LDAP / Active Directory and Grantra Login. Grantra reads accounts, links them to people, flags orphans, and can provision changes back, off by default and with a dry run.</p>
         </article>
         <article>
           <h3>Audit log</h3>
-          <p>Every change and decision, with who made it and why, searchable from the console. Authorization inside Grantra runs on Cedar policies.</p>
+          <p>Every change and decision, with who made it and why, searchable from the console and ready for your auditors.</p>
         </article>
       </div>
     </section>
@@ -70,12 +101,59 @@
       <div>
         <h2>Built for the people who approve, not just admins</h2>
         <p>One web app for employees, managers, application owners, auditors and admins. Each person sees what they need to do, and nothing they shouldn't.</p>
-        <p>Keep the identity provider you already run, such as Entra ID, Okta or Keycloak. No identity provider yet? Grantra Login, a preconfigured Keycloak, ships with it.</p>
+        <p>Approvers get an inbox with the reason, the risk and the deadline, so saying yes or no takes seconds instead of a ticket.</p>
       </div>
       <img class="shot" src="screenshots/approvals.png" width="1280" height="860" alt="A manager's approvals inbox with an access request to GitHub Org admins, its reason and its deadline" loading="lazy">
     </section>
 
-    <section class="wrap split split-reverse">
+    <section id="login" class="wrap">
+      <p class="section-kicker">Access management</p>
+      <h2>Sign-in included, or bring the one you have</h2>
+      <p class="section-lead">Keep Entra ID, Okta or Keycloak and let Grantra govern on top. No identity provider yet, or want to leave one? Grantra Login, a Keycloak managed from the Grantra console, ships with it.</p>
+      <div class="grid">
+        <article>
+          <h3>MFA and passkeys</h3>
+          <p>Ask for a second factor from everyone, or only from people who hold sensitive access. Grantra keeps that list up to date as access changes.</p>
+        </article>
+        <article>
+          <h3>Federation and gradual migration</h3>
+          <p>People sign in with Entra ID, Okta, or any OpenID Connect or SAML provider. Move one email domain at a time, and import users and apps from another Keycloak after a dry run.</p>
+        </article>
+        <article>
+          <h3>Authorization for your apps</h3>
+          <p>Your apps ask Grantra whether someone may do something, and Cedar policies answer with the person's roles, manager and entitlements. Leavers are always denied.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="privileged" class="wrap split split-reverse">
+      <div>
+        <p class="section-kicker">Privileged access</p>
+        <h2>No standing admin rights</h2>
+        <p>Admin access is something people activate for a few hours with a reason, not something they keep. When it ends, Grantra takes it back on its own.</p>
+        <ul class="checks">
+          <li><strong>Credential vault</strong> for privileged passwords and SSH keys, rotated after each use, with the master key in your KMS or HSM</li>
+          <li><strong>Just-in-time access</strong> with approval, and a report that turns standing admin rights into eligibility in one click</li>
+          <li><strong>Recorded sessions</strong> to SSH servers, PostgreSQL, MySQL, Kubernetes and Windows desktops in the browser, played back and searchable</li>
+          <li><strong>Cloud consoles</strong> for AWS, Azure and Google Cloud, with roles granted for the session and removed after</li>
+          <li><strong>Break glass</strong> for emergencies: every admin is told, the password rotates, and someone reviews each use</li>
+        </ul>
+      </div>
+      <figure class="term" aria-label="Example terminal session through the Grantra SSH gateway">
+        <div class="term-bar"><span></span><span></span><span></span><em>marta@laptop</em></div>
+<pre><code><span class="c"># 1. In My access: activate "prod-api" for 2 hours, with a reason</span>
+<span class="c"># 2. In Servers: Get certificate, valid until the access ends</span>
+
+<span class="p">$</span> ssh -p 2222 prod-api@ssh.example.com
+<span class="c"># the gateway checks the access and records everything</span>
+deploy@prod-api:~$ sudo systemctl restart api
+deploy@prod-api:~$ exit
+
+<span class="c"># 2 hours later the access ends and any open session closes</span></code></pre>
+      </figure>
+    </section>
+
+    <section class="wrap split">
       <div>
         <h2>Ready for your own infrastructure</h2>
         <ul class="checks">
@@ -83,6 +161,7 @@
           <li>PostgreSQL with row-level security per tenant</li>
           <li>OpenTelemetry traces, metrics and logs, plus a Grafana dashboard</li>
           <li>Releases signed with cosign and shipped with an SBOM</li>
+          <li>Authorization inside Grantra itself runs on Cedar policies</li>
         </ul>
       </div>
       <img class="shot" src="screenshots/separation-of-duties.png" width="1280" height="860" alt="Separation of duties policies and an open violation, with a button to accept the risk" loading="lazy">
@@ -101,16 +180,32 @@ make up</code></pre>
       <h2>Where it's going</h2>
       <ol>
         <li><strong>Identity governance</strong> <span class="tag done">Available in v0.1</span></li>
-        <li><strong>Access management</strong> with Grantra Login: single sign-on, MFA and passkeys <span class="tag done">Available in v0.2</span></li>
-        <li><strong>Privileged access</strong>: credential vault, just-in-time access, session recording <span class="tag">Next</span></li>
-        <li><strong>Identity threat detection</strong> and access recommendations</li>
+        <li><strong>Access management</strong> with Grantra Login: MFA, passkeys and federation <span class="tag done">Available in v0.2</span></li>
+        <li><strong>Privileged access</strong>: vault, just-in-time access, recorded sessions, cloud consoles <span class="tag done">On main, coming in v0.3</span></li>
+        <li><strong>Identity threat detection</strong> and access recommendations <span class="tag">Next</span></li>
       </ol>
+    </section>
+
+    <section class="wrap faq">
+      <h2>Questions</h2>
+      <details>
+        <summary>Is it really free?</summary>
+        <p>Yes. Grantra is Apache 2.0: you can run it, change it and use it commercially. You host it on your own infrastructure.</p>
+      </details>
+      <details>
+        <summary>Do I have to replace my identity provider?</summary>
+        <p>No. Grantra governs access on top of Entra ID, Okta, Keycloak or Active Directory. Grantra Login is there if you want it, and you can move over one domain at a time.</p>
+      </details>
+      <details>
+        <summary>Is it ready for production?</summary>
+        <p>Grantra is young and versions before 1.0 may change behavior. It ships a Helm chart, observability and signed releases, and we recommend starting with a pilot. Report security issues as described in the <a href="https://github.com/grantra-dev/grantra/blob/main/SECURITY.md">security policy</a>.</p>
+      </details>
     </section>
   </main>
 
   <footer class="wrap">
-    <p>Grantra is open source under the Apache 2.0 license. <a href="https://github.com/grantra-dev/grantra">GitHub</a> · <a href="https://github.com/grantra-dev/grantra/releases">Releases</a> · <a href="https://github.com/grantra-dev/grantra/blob/main/SECURITY.md">Security</a></p>
-    <p class="muted">SailPoint and CyberArk are trademarks of their respective owners. Grantra is not affiliated with them.</p>
+    <p>Grantra is open source under the Apache 2.0 license. <a href="https://github.com/grantra-dev/grantra">GitHub</a> · <a href="https://github.com/grantra-dev/grantra/tree/main/docs">Docs</a> · <a href="https://github.com/grantra-dev/grantra/releases">Releases</a> · <a href="https://github.com/grantra-dev/grantra/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/grantra-dev/grantra/blob/main/SECURITY.md">Security</a></p>
+    <p class="muted">SailPoint, Okta and CyberArk are trademarks of their respective owners. Grantra is not affiliated with them.</p>
   </footer>
 </body>
 </html>

@@ -30,7 +30,7 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
 
 body {
   margin: 0;
@@ -47,13 +47,23 @@ a { color: var(--brand); }
   padding: 0 20px;
 }
 
+.nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
 .nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-top: 18px;
-  padding-bottom: 18px;
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 .brand {
@@ -102,9 +112,9 @@ a { color: var(--brand); }
 
 .btn-ghost:hover { background: var(--bg-soft); border-color: var(--border); }
 
-section { padding-top: 72px; padding-bottom: 8px; }
+section.wrap { padding-top: 72px; padding-bottom: 8px; }
 
-.hero { text-align: center; padding-top: 48px; }
+section.hero { text-align: center; padding-top: 48px; }
 
 .eyebrow {
   display: inline-block;
@@ -115,7 +125,10 @@ section { padding-top: 72px; padding-bottom: 8px; }
   color: var(--brand);
   font-size: 14px;
   font-weight: 600;
+  text-decoration: none;
 }
+
+a.eyebrow:hover { text-decoration: underline; }
 
 h1 {
   max-width: 820px;
@@ -149,7 +162,55 @@ h1 {
   box-shadow: 0 20px 50px -20px rgb(15 23 42 / 0.35);
 }
 
-.hero-shot { margin-top: 48px; }
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  margin: 26px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.facts li::before { content: "✓ "; color: var(--brand); font-weight: 700; }
+
+.hero-shot { margin-top: 40px; }
+
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.pillar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--brand);
+  border-radius: 14px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.pillar:hover { background: var(--bg-soft); }
+
+.pillar strong { color: var(--text); font-size: 19px; }
+
+.pillar-kicker, .section-kicker {
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.section-kicker { margin: 0 0 8px; }
+
+.section-lead { max-width: 760px; color: var(--muted); margin: 0; }
 
 h2 {
   font-size: clamp(26px, 4vw, 34px);
@@ -188,6 +249,8 @@ h3 { margin: 0 0 8px; font-size: 19px; }
 .split-reverse > div { order: 2; }
 
 .checks { padding: 0; list-style: none; }
+
+.checks strong { color: var(--text); }
 
 .checks li {
   position: relative;
@@ -231,6 +294,33 @@ p code {
   font-size: 0.9em;
 }
 
+.term {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px -20px rgb(15 23 42 / 0.35);
+}
+
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 14px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.term-bar span { width: 11px; height: 11px; border-radius: 50%; background: #475569; }
+
+.term-bar em { margin-left: 8px; color: #94a3b8; font-size: 13px; font-style: normal; }
+
+.term pre { max-width: none; margin: 0; border-radius: 0; font-size: 13.5px; white-space: pre-wrap; }
+
+.term .c { color: #94a3b8; }
+
+.term .p { color: #a5b4fc; }
+
 .roadmap ol { padding-left: 22px; }
 
 .roadmap li { margin: 12px 0; }
@@ -247,6 +337,16 @@ p code {
 
 .tag.done { background: var(--brand-soft); color: var(--brand); border-color: transparent; }
 
+.faq details {
+  max-width: 760px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.faq summary { cursor: pointer; font-weight: 600; }
+
+.faq details p { margin: 10px 0 0; color: var(--muted); }
+
 footer {
   margin-top: 72px;
   padding-top: 28px;
@@ -261,6 +361,7 @@ footer {
 @media (max-width: 760px) {
   .nav nav a:not(.btn) { display: none; }
   .split { grid-template-columns: 1fr; gap: 24px; }
+  .pillars { grid-template-columns: 1fr; }
   .split-reverse > div { order: 0; }
-  section { padding-top: 56px; }
+  section.wrap { padding-top: 56px; }
 }
