@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 import { Layout } from "@/components/Layout";
 import { ApiError, getMe } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
@@ -23,7 +23,10 @@ import { Vault } from "@/pages/Vault";
 
 // Pages few people open load when first visited.
 const Servers = lazy(() => import("@/pages/Servers").then((m) => ({ default: m.Servers })));
-const Databases = lazy(() => import("@/pages/Databases").then((m) => ({ default: m.Databases })));
+const RemoteAccess = lazy(() =>
+  import("@/pages/RemoteAccess").then((m) => ({ default: m.RemoteAccess })),
+);
+const Desktop = lazy(() => import("@/pages/Desktop").then((m) => ({ default: m.Desktop })));
 const GatewaySessionLog = lazy(() =>
   import("@/pages/GatewaySessionLog").then((m) => ({ default: m.GatewaySessionLog })),
 );
@@ -60,9 +63,9 @@ export function App() {
         <Servers me={me} />
       </Suspense>
     ),
-    "/databases": (
+    "/remote-access": (
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <Databases me={me} />
+        <RemoteAccess me={me} />
       </Suspense>
     ),
     "/approvals": <Approvals me={me} />,
@@ -81,8 +84,8 @@ export function App() {
         <SessionPlayback />
       </Suspense>,
     ],
-    "/databases": [
-      "/databases/sessions/:id",
+    "/remote-access": [
+      "/remote-access/sessions/:id",
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
         <GatewaySessionLog />
       </Suspense>,
@@ -90,6 +93,15 @@ export function App() {
   };
   return (
     <Routes>
+      {/* A desktop takes its whole tab. */}
+      <Route
+        path="/remote-access/desktops/:id"
+        element={
+          <Suspense fallback={<p className="p-8 text-sm text-slate-500">Loading…</p>}>
+            <Desktop />
+          </Suspense>
+        }
+      />
       <Route element={<Layout me={me} />}>
         {visibleSections(me).map((s) => (
           <Route key={s.path} path={s.path} element={pages[s.path] ?? <ComingSoon section={s} />} />
@@ -98,6 +110,8 @@ export function App() {
           const sub = subpages[s.path];
           return sub ? [<Route key={sub[0]} path={sub[0]} element={sub[1]} />] : [];
         })}
+        {/* Where remote access was before desktops and clouds joined it. */}
+        <Route path="/databases" element={<Navigate to="/remote-access" replace />} />
         <Route path="/settings/notifications" element={<NotificationSettings me={me} />} />
         <Route path="*" element={<NotFound />} />
       </Route>

@@ -54,8 +54,15 @@ type Server struct {
 	InClusterTokenFile string
 	InClusterCAFile    string
 
+	// Guacd is where guacd listens (host:port), which desktop sessions go
+	// through; MaxRecording caps a desktop session's screen recording
+	// (default 1 GiB), and a session reaching it ends.
+	Guacd        string
+	MaxRecording int64
+
 	cancels sync.Map // pgCancelKey -> pgCancelTarget
 	kube    kubeSessions
+	rdp     rdpSessions
 }
 
 func (s *Server) defaults() {
@@ -79,6 +86,9 @@ func (s *Server) defaults() {
 	}
 	if s.InClusterCAFile == "" {
 		s.InClusterCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	}
+	if s.MaxRecording == 0 {
+		s.MaxRecording = 1 << 30
 	}
 	if s.Log == nil {
 		s.Log = slog.Default()
@@ -136,6 +146,11 @@ type live struct {
 	pending []*gateways.Event
 	count   int
 	reason  string
+	// A desktop session's screen recording: what is not stored yet, the
+	// pieces stored and the bytes recorded.
+	rec      []byte
+	recSeq   int
+	recBytes int64
 
 	stopped  chan struct{}
 	loopDone chan struct{}
@@ -216,28 +231,56 @@ func (l *live) setStatus(e *gateways.Event, status int) {
 	l.mu.Unlock()
 }
 
-// flush stores the pending events. What a failed flush could not store is
-// tried again on the next.
+// record adds data to the session's screen recording. It returns false,
+// and halts the session, when the recording is full or the session is
+// stopping: data must not reach the person unrecorded.
+func (l *live) record(data []byte) bool {
+	l.mu.Lock()
+	if l.reason != "" {
+		l.mu.Unlock()
+		return false
+	}
+	if l.recBytes+int64(len(data)) > l.s.MaxRecording {
+		l.mu.Unlock()
+		l.halt(gateways.EndRecordingFull, "This session reached the gateway's recording limit, so it ends now. Connect again to go on.")
+		return false
+	}
+	l.recBytes += int64(len(data))
+	l.rec = append(l.rec, data...)
+	l.mu.Unlock()
+	return true
+}
+
+// flush stores the pending events and recording. What a failed flush could
+// not store is tried again on the next.
 func (l *live) flush(ctx context.Context) {
 	l.mu.Lock()
 	events := make([]gateways.Event, len(l.pending))
 	for i, e := range l.pending {
 		events[i] = *e
 	}
-	taken := l.pending
-	l.pending = nil
+	taken, rec, seq := l.pending, l.rec, l.recSeq
+	l.pending, l.rec = nil, nil
 	l.mu.Unlock()
-	if len(events) == 0 {
+	if len(events) == 0 && len(rec) == 0 {
 		return
 	}
 	err := db.InTenant(ctx, l.s.Pool, l.s.TenantID, func(tx pgx.Tx) error {
-		return gateways.AddEvents(ctx, tx, l.s.TenantID, l.id, events)
+		if err := gateways.AddEvents(ctx, tx, l.s.TenantID, l.id, events); err != nil {
+			return err
+		}
+		return gateways.AppendRecording(ctx, tx, l.s.TenantID, l.id, seq, rec)
 	})
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if err != nil {
 		l.log.ErrorContext(ctx, "gateway could not store a session's log", "err", err)
-		l.mu.Lock()
 		l.pending = append(taken, l.pending...)
-		l.mu.Unlock()
+		l.rec = append(rec, l.rec...)
+		return
+	}
+	if len(rec) > 0 {
+		l.recSeq++
 	}
 }
 

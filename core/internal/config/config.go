@@ -91,6 +91,12 @@ type Gateway struct {
 	// CAFile (on the server) holds the PEM certificate clients verify the
 	// gateway with when TLSCertFile is the operator's own certificate.
 	CAFile string
+
+	// Guacd (on the server) is where guacd listens (host:port), which
+	// desktop sessions go through; empty turns desktops off.
+	Guacd string
+	// MaxRecordingMB caps a desktop session's screen recording.
+	MaxRecordingMB int
 }
 
 // Off turns a gateway listener off.
@@ -161,6 +167,7 @@ func FromEnv() (Config, error) {
 			PostgresAddress:   os.Getenv("GRANTRA_GATEWAY_POSTGRES_ADDRESS"),
 			MySQLAddress:      os.Getenv("GRANTRA_GATEWAY_MYSQL_ADDRESS"),
 			CAFile:            os.Getenv("GRANTRA_GATEWAY_CA_FILE"),
+			Guacd:             os.Getenv("GRANTRA_GUACD_ADDR"),
 		},
 		SessionIdle: 30 * time.Minute,
 		SessionMax:  8 * time.Hour,
@@ -221,6 +228,14 @@ func FromEnv() (Config, error) {
 	}
 	if (cfg.Gateway.TLSCertFile == "") != (cfg.Gateway.TLSKeyFile == "") {
 		return Config{}, errors.New("set both GRANTRA_GATEWAY_TLS_CERT_FILE and GRANTRA_GATEWAY_TLS_KEY_FILE, or neither")
+	}
+	cfg.Gateway.MaxRecordingMB = 1024
+	if v := os.Getenv("GRANTRA_RDP_MAX_RECORDING_MB"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return Config{}, errors.New("GRANTRA_RDP_MAX_RECORDING_MB must be a number of megabytes")
+		}
+		cfg.Gateway.MaxRecordingMB = n
 	}
 	cfg.Gateway.publicDefaults()
 	return cfg, nil

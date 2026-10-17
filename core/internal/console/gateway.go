@@ -9,15 +9,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
+	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
+	"github.com/grantra-dev/grantra/core/internal/gateways/proxy"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
-// Clusters and databases behind the gateway sit with the vault, like SSH:
-// vault.manage manages them and vault.read sees them and their sessions.
-// Only people holding a target's access get tokens for it.
+// Clusters, databases, desktops and cloud consoles behind the gateway sit
+// with the vault, like SSH: vault.manage manages them and vault.read sees
+// them and their sessions. Only people holding a target's access connect to
+// it.
 
 // GatewayAddresses are where people reach the gateway's listeners
 // (host:port), shown in the console with the commands to connect.
@@ -29,6 +33,16 @@ type GatewayAddresses struct {
 	// gateway with, for an operator's own TLS certificate; otherwise it is
 	// the tenant's gateway CA.
 	CAFile string
+}
+
+// Desktops is where desktop sessions run: the gateway relaying them to
+// guacd, the context that ends them when Grantra stops, and the origins
+// (host or host:port) the console's pages come from besides the request's
+// own host, such as behind a proxy that changes it.
+type Desktops struct {
+	Gateway *proxy.Server
+	Context context.Context
+	Origins []string
 }
 
 // gatewayCA is the PEM certificate clients verify the gateway with.
@@ -44,7 +58,8 @@ func (a *API) gatewayCA(ctx context.Context, tx pgx.Tx) (string, error) {
 // the CA the gateway's certificate chains to.
 func (a *API) getGateway(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"enabled": a.Gateways.Enabled(), "kubernetes_address": a.GatewayAddresses.Kubernetes,
-		"postgres_address": a.GatewayAddresses.Postgres, "mysql_address": a.GatewayAddresses.MySQL, "ca_certificate": ""}
+		"postgres_address": a.GatewayAddresses.Postgres, "mysql_address": a.GatewayAddresses.MySQL, "ca_certificate": "",
+		"desktops_enabled": a.Desktops.Gateway != nil, "consoles_enabled": a.Consoles != nil}
 	err := a.inTenant(r, func(tx pgx.Tx, _ authz.Subject) error {
 		if !a.Gateways.Enabled() {
 			return nil
@@ -155,12 +170,12 @@ func (a *API) issueGatewayToken(w http.ResponseWriter, r *http.Request) {
 			return gateways.ErrDisabled
 		}
 		id := r.PathValue("id")
-		holders, err := gateways.Holders(r.Context(), tx, id)
+		t, err := a.checkConnect(r.Context(), tx, me, id)
 		if err != nil {
 			return err
 		}
-		if err := a.check(r.Context(), authz.Request{Principal: me, Action: authz.ConnectGateway, Resource: authz.GatewayTargetResource(id, holders)}); err != nil {
-			return err
+		if t.Kind == gateways.RDP || gateways.Cloud(t.Kind) {
+			return apperr.Invalidf("%s opens from the console, without a token", t.Name)
 		}
 		if out.Token, err = gateways.Issue(r.Context(), tx, a.tenantID, me.ID, id); err != nil {
 			return err
@@ -181,6 +196,98 @@ func (a *API) issueGatewayToken(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	a.respond(w, r, http.StatusCreated, out, err)
+}
+
+// checkConnect checks that me may connect to the target id: they hold its
+// access right now.
+func (a *API) checkConnect(ctx context.Context, tx pgx.Tx, me authz.Subject, id string) (gateways.Target, error) {
+	holders, err := gateways.Holders(ctx, tx, id)
+	if err != nil {
+		return gateways.Target{}, err
+	}
+	if err := a.check(ctx, authz.Request{Principal: me, Action: authz.ConnectGateway, Resource: authz.GatewayTargetResource(id, holders)}); err != nil {
+		return gateways.Target{}, err
+	}
+	return gateways.Get(ctx, tx, id)
+}
+
+// connectDesktop opens a desktop session on a WebSocket, for the console's
+// Guacamole client: ?width=&height=&dpi=&timezone= describe the screen.
+func (a *API) connectDesktop(w http.ResponseWriter, r *http.Request) {
+	var g gateways.Grant
+	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
+		if a.Desktops.Gateway == nil {
+			return apperr.Conflictf("desktops are off: Grantra needs guacd to reach them (set GRANTRA_GUACD_ADDR)")
+		}
+		if !a.Gateways.Enabled() {
+			return gateways.ErrDisabled
+		}
+		t, err := a.checkConnect(r.Context(), tx, me, r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if t.Kind != gateways.RDP {
+			return apperr.Invalidf("%s is not a desktop", t.Name)
+		}
+		// Each session runs on a token of its own, which ends with the
+		// access and which ending the session revokes. Nobody sees it.
+		tok, err := gateways.Issue(r.Context(), tx, a.tenantID, me.ID, t.ID)
+		if err != nil {
+			return err
+		}
+		g, err = gateways.Authorize(r.Context(), tx, tok.Token, t.Kind, t.Name)
+		return err
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	a.Desktops.Gateway.ServeRDP(a.Desktops.Context, w, r, g, a.Desktops.Origins)
+}
+
+// openConsole signs the caller in to a cloud console target they hold
+// access to: the URL to open, and on AWS credentials for the CLI.
+func (a *API) openConsole(w http.ResponseWriter, r *http.Request) {
+	if a.Consoles == nil {
+		a.fail(w, r, apperr.Conflictf("cloud consoles are off on this Grantra"))
+		return
+	}
+	var me authz.Subject
+	err := a.inTenant(r, func(tx pgx.Tx, s authz.Subject) error {
+		me = s
+		_, err := a.checkConnect(r.Context(), tx, s, r.PathValue("id"))
+		return err
+	})
+	var out cloud.Opened
+	if err == nil {
+		out, err = a.Consoles.Open(r.Context(), me.ID, r.PathValue("id"), r.RemoteAddr)
+	}
+	if err == nil {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	a.respond(w, r, http.StatusCreated, out, err)
+}
+
+// gatewayRecording returns a desktop session's screen recording, in the
+// Guacamole protocol, for the console's player. Watching one is audited.
+func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
+	started := false
+	err := a.guardedOn(r, authz.ReadVault, authz.VaultResource(), func(tx pgx.Tx, me authz.Subject) error {
+		return gateways.WriteRecording(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), func() {
+			started = true
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+		}, w)
+	})
+	if err != nil {
+		if started {
+			// Too late to say so: the client sees a recording cut short.
+			a.log.ErrorContext(r.Context(), "could not send a desktop recording", "session", r.PathValue("id"), "err", err)
+			return
+		}
+		a.fail(w, r, err)
+	}
 }
 
 // listGatewaySessions lists sessions, newest first: ?target=, ?identity=,

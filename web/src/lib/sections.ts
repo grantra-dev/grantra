@@ -1,12 +1,12 @@
 import {
   ClipboardCheck,
-  Database,
   FileSearch,
   House,
   Inbox,
   KeyRound,
   ListChecks,
   LockKeyhole,
+  MonitorCloud,
   type LucideIcon,
   Settings,
   ShoppingBag,
@@ -81,10 +81,11 @@ export const sections: Section[] = [
     visible: everyone,
   },
   {
-    path: "/databases",
-    title: "Databases & clusters",
-    description: "Connect to databases and Kubernetes clusters with a short-lived token.",
-    icon: Database,
+    path: "/remote-access",
+    title: "Remote access",
+    description:
+      "Connect to databases, clusters, desktops and cloud consoles for as long as your access lasts.",
+    icon: MonitorCloud,
     visible: everyone,
   },
   {
