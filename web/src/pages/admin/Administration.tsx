@@ -6,6 +6,7 @@ import { Applications } from "./Applications";
 import { GrantraLogin } from "./GrantraLogin";
 import { HrSources } from "./HrSources";
 import { SeparationOfDuties } from "./SeparationOfDuties";
+import { ServiceTokens } from "./ServiceTokens";
 import { StandingAccess } from "./StandingAccess";
 
 const tabs = [
@@ -15,6 +16,7 @@ const tabs = [
   ["sod", "Separation of duties"],
   ["standing", "Standing access"],
   ["login", "Grantra Login"],
+  ["tokens", "API tokens"],
 ] as const;
 
 type Tab = (typeof tabs)[number][0];
@@ -40,6 +42,7 @@ export function Administration() {
       {tab === "sod" && <SeparationOfDuties />}
       {tab === "standing" && <StandingAccess />}
       {tab === "login" && <GrantraLogin />}
+      {tab === "tokens" && <ServiceTokens />}
     </>
   );
 }
