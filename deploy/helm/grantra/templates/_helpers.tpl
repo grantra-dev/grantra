@@ -72,6 +72,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (include "grantra.fullname" .) .Values.smtp.existingSecret -}}
 {{- end -}}
 
+{{/*
+The vault's master key: GRANTRA_VAULT_KEY and, with an external provider,
+which key to use and how to reach it.
+*/}}
+{{- define "grantra.vaultEnv" -}}
+{{- if or .Values.vault.existingSecret .Values.vault.key }}
+- name: GRANTRA_VAULT_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "grantra.vaultSecret" . }}
+      key: vault-key
+{{- end }}
+{{- with .Values.vault.provider }}
+- name: GRANTRA_VAULT_KEY_PROVIDER
+  value: {{ . | quote }}
+- name: GRANTRA_VAULT_KMS_KEY
+  value: {{ required "vault.kmsKey is needed with vault.provider" $.Values.vault.kmsKey | quote }}
+{{- end }}
+{{- with .Values.vault.env }}
+{{ toYaml . }}
+{{- end }}
+{{- end -}}
+
 {{- define "grantra.vaultSecret" -}}
 {{- default (include "grantra.fullname" .) .Values.vault.existingSecret -}}
 {{- end -}}

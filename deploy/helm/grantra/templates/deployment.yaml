@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         {{- include "grantra.selector" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
@@ -116,13 +119,7 @@ spec:
             - name: GRANTRA_SSH_GATEWAY_ADDRESS
               value: {{ .Values.gateway.publicAddress | quote }}
             {{- end }}
-            {{- if or .Values.vault.existingSecret .Values.vault.key }}
-            - name: GRANTRA_VAULT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "grantra.vaultSecret" . }}
-                  key: vault-key
-            {{- end }}
+            {{- include "grantra.vaultEnv" . | nindent 12 }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -149,11 +146,17 @@ spec:
             # Large uploads (HR files) spill to disk.
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.vault.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           securityContext:
             {{- include "grantra.containerSecurity" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with .Values.vault.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

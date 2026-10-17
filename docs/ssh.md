@@ -10,7 +10,8 @@ nothing has to be cleaned up when someone leaves, and sessions through the
 - Grantra keeps two SSH **certificate authorities** (CAs) per tenant. The
   *people* CA signs people's certificates; the *gateway* CA signs only the
   gateway's own. Their private keys are sealed with the [vault](vault.md)
-  key (`GRANTRA_VAULT_KEY`), so SSH certificates need that key too.
+  key (`GRANTRA_VAULT_KEY` or a [key provider](vault.md#key-providers)), so
+  SSH certificates need that key too.
 - Each server trusts one of them (`TrustedUserCAKeys`), once: servers
   behind the gateway the gateway CA, so nobody logs in to them around it;
   servers reached directly the people CA.
@@ -107,7 +108,7 @@ database, the vault key and its own host key:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GRANTRA_DATABASE_URL`, `GRANTRA_VAULT_KEY`, `GRANTRA_TENANT` | | The same as the server's |
+| `GRANTRA_DATABASE_URL`, `GRANTRA_TENANT`, `GRANTRA_VAULT_KEY` or the [key provider](vault.md#key-providers)'s settings | | The same as the server's |
 | `GRANTRA_GATEWAY_ADDR` | `:2222` | Where it listens |
 | `GRANTRA_GATEWAY_HOST_KEY_FILE` | `gateway_host_key` | Its SSH host key, created the first time. Keep it: a new one makes every client warn |
 | `GRANTRA_SSH_GATEWAY_ADDRESS` (on the server) | | `host:port` people use to reach the gateway, shown in the console |

@@ -210,7 +210,8 @@ export interface ReviewItem {
   target_name: string;
   application?: string;
   risk?: Requestable["risk"];
-  origin: Assignment["origin"];
+  /** "eligibility": the person may activate it just in time, rather than hold it now. */
+  origin: Assignment["origin"] | "eligibility";
   granted_at: string;
   reviewer_id?: string;
   reviewer_name?: string;

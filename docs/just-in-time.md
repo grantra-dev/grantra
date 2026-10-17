@@ -41,9 +41,10 @@ Someone becomes eligible in one of two ways:
 - They ask for it in **Request access**: for just-in-time access the form offers *To be eligible* (the default) or *The access itself, once, for a set time*. An eligibility request goes through the same approvals as any request.
 
 Eligibilities show in **My access** and on the person's page, and end on
-their own when their days run out. Leavers lose them. Access reviews list
-running activations; revoking one also removes the eligibility behind it.
-Eligibilities with no activation running are not in reviews yet.
+their own when their days run out. Leavers lose them. Access reviews
+certify eligibilities, as *Eligible to activate*, whether an activation is
+running or not; revoking one also ends its activation
+([access-reviews.md](access-reviews.md#what-is-reviewed)).
 
 ## Activating
 

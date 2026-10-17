@@ -63,11 +63,26 @@ vault:
   key: ""
   # An existing Secret with the key vault-key.
   existingSecret: ""
+  # Keep the master key outside Grantra instead: aws-kms, gcp-kms,
+  # azure-keyvault, transit (OpenBao or HashiCorp Vault) or pkcs11, with
+  # kmsKey naming the key. Credentials come from the pod's cloud identity
+  # (serviceAccount.annotations) or from env. When moving from vault.key,
+  # keep it set until `grantra vault rewrap` has run. See docs/vault.md.
+  provider: ""
+  kmsKey: ""
+  # Extra environment for the key provider, for the server and the gateway,
+  # such as GRANTRA_VAULT_TRANSIT_ADDR or a token from a Secret.
+  env: []
+  # Volumes for the key provider's files (a transit token or CA, an HSM PIN
+  # or PKCS#11 module), mounted in the server and the gateway.
+  volumes: []
+  volumeMounts: []
 
 # The SSH gateway (grantra gateway): people SSH through it to the servers
-# they hold access to, and it records every session. It needs vault.key (or
-# vault.existingSecret): it signs its own short-lived certificates with the
-# SSH certificate authority, which that key seals. See docs/ssh.md.
+# they hold access to, and it records every session. It needs the vault's
+# master key (vault.key, vault.existingSecret or vault.provider): it signs its
+# own short-lived certificates with the SSH certificate authority, which that
+# key seals. See docs/ssh.md.
 gateway:
   enabled: false
   replicaCount: 1
@@ -119,6 +134,9 @@ resources:
     memory: 512Mi
 
 podAnnotations: {}
+# Labels for the server's and gateway's pods, such as
+# azure.workload.identity/use: "true" for Azure workload identity.
+podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
@@ -126,6 +144,9 @@ affinity: {}
 serviceAccount:
   create: true
   name: ""
+  # Such as eks.amazonaws.com/role-arn or iam.gke.io/gcp-service-account,
+  # for a cloud KMS key provider.
+  annotations: {}
 
 # Grantra Login: the bundled Keycloak, for companies without an IdP. Skip it
 # when people already sign in through Entra ID, Okta or similar.

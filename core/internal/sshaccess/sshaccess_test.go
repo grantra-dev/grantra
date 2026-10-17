@@ -42,6 +42,18 @@ func testKey(t *testing.T) vault.KeyProvider {
 	return key
 }
 
+// twoKeys wraps with cur and unwraps with whichever key wrapped.
+type twoKeys struct{ cur, old vault.KeyProvider }
+
+func (k twoKeys) KeyID() string                            { return k.cur.KeyID() }
+func (k twoKeys) Wrap(dataKey, aad []byte) ([]byte, error) { return k.cur.Wrap(dataKey, aad) }
+func (k twoKeys) Unwrap(keyID string, wrapped, aad []byte) ([]byte, error) {
+	if keyID == k.old.KeyID() {
+		return k.old.Unwrap(keyID, wrapped, aad)
+	}
+	return k.cur.Unwrap(keyID, wrapped, aad)
+}
+
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	pool := dbtest.Open(t)
@@ -138,6 +150,25 @@ func TestCertificateAuthority(t *testing.T) {
 	if err == nil {
 		t.Error("a different vault key opened the CA")
 	}
+	// Moving to another master key: grantra vault rewrap re-wraps both CAs,
+	// which then open with the new key alone and stay the same CAs.
+	next := testKey(t)
+	var n int
+	e.must(func(tx pgx.Tx) (err error) { n, err = Rewrap(e.ctx, tx, e.tenant, twoKeys{next, e.s.keys}); return err })
+	if n != 2 {
+		t.Fatalf("rewrapped %d CAs, want 2", n)
+	}
+	moved := New(next)
+	var again string
+	e.must(func(tx pgx.Tx) (err error) { again, err = moved.PublicCA(e.ctx, tx, e.tenant, PeopleCA); return err })
+	e.must(func(tx pgx.Tx) error { _, err := moved.signer(e.ctx, tx, e.tenant, GatewayCA); return err })
+	if again != first {
+		t.Errorf("CA changed on rewrap: %q, was %q", again, first)
+	}
+	if err := e.tx(func(tx pgx.Tx) error { _, err := e.s.signer(e.ctx, tx, e.tenant, PeopleCA); return err }); err == nil {
+		t.Error("the old key still opens the CA after rewrap")
+	}
+
 	// Without a key nothing is signed.
 	off := New(nil)
 	err = e.tx(func(tx pgx.Tx) error { _, err := off.Issue(e.ctx, tx, e.tenant, "x", "y", "z"); return err })

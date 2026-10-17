@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -287,17 +288,33 @@ func TestOwnersAndDeadlines(t *testing.T) {
 	}
 }
 
-// Revoking a just-in-time activation also takes away the eligibility behind
-// it, or it could be activated again at once.
-func TestRevokeActivation(t *testing.T) {
+// Eligibilities are reviewed as their own items, whether an activation is
+// running or not; activations are not. Revoking one ends the activation too.
+func TestReviewEligibilities(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	boss := e.identity("Boss", "")
-	ana := e.identity("Ana", boss)
+	ana, luis, eva := e.identity("Ana", boss), e.identity("Luis", boss), e.identity("Eva", boss)
 	_, ent := e.app("Cloud", "")
+	eligible := func(who string, expires *time.Time) string {
+		var id string
+		e.tx(func(tx pgx.Tx) (err error) {
+			id, err = access.MakeEligible(ctx, tx, e.tenant, "identity:admin", who, access.Target{EntitlementID: ent}, expires, "")
+			return err
+		})
+		return id
+	}
+	eligible(ana, nil)
+	luisEl := eligible(luis, nil)
+	// An eligibility that has ended is not reviewed.
+	evaEl := eligible(eva, nil)
 	e.tx(func(tx pgx.Tx) error {
-		id, err := access.MakeEligible(ctx, tx, e.tenant, "identity:admin", ana, access.Target{EntitlementID: ent}, nil, "")
-		if err != nil {
+		_, err := tx.Exec(ctx, `UPDATE access_eligibilities SET expires_at = now() - interval '1 minute' WHERE id = $1`, evaEl)
+		return err
+	})
+	e.tx(func(tx pgx.Tx) error {
+		var id string
+		if err := tx.QueryRow(ctx, `SELECT id FROM access_eligibilities WHERE identity_id = $1`, ana).Scan(&id); err != nil {
 			return err
 		}
 		el, err := access.GetEligibility(ctx, tx, id, true)
@@ -311,10 +328,78 @@ func TestRevokeActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := e.items(ItemFilter{Mine: true, Me: boss})
-	if len(items) != 1 || items[0].Origin != access.OriginActivation {
+	who := map[string]Item{}
+	for _, it := range items {
+		if it.Origin != OriginEligibility || it.TargetID != ent {
+			t.Errorf("item = %+v, want only eligibilities", it)
+		}
+		who[it.IdentityID] = it
+	}
+	if len(items) != 2 || who[ana].ID == "" || who[luis].ID == "" {
 		t.Fatalf("items = %+v", items)
 	}
-	if _, err := e.decide(boss, items[0].ID, Revoke); err != nil {
+	if _, err := e.decide(boss, who[ana].ID, Revoke); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.decide(boss, who[luis].ID, Keep); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	e.tx(func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id::text FROM access_eligibilities WHERE identity_id IN ($1, $2)`, ana, luis)
+		if err != nil {
+			return err
+		}
+		left, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	})
+	if len(left) != 1 || left[0] != luisEl || e.holds(ana, ent) {
+		t.Errorf("after the review: eligibilities %v (want Luis's), Ana holds = %v", left, e.holds(ana, ent))
+	}
+	// The audit log ties the removal to the review decision.
+	var linked int
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action = 'review_item.decided' AND target_id = $1 AND details->>'eligibility_id' IS NOT NULL`, who[ana].ID).Scan(&linked)
+	})
+	if linked != 1 {
+		t.Errorf("%d review decisions name the eligibility they removed", linked)
+	}
+}
+
+// Revoking a just-in-time activation also takes away the eligibility behind
+// it, or it could be activated again at once. Campaigns launched before
+// eligibilities were reviewed have such items.
+func TestRevokeActivation(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	boss := e.identity("Boss", "")
+	ana := e.identity("Ana", boss)
+	_, ent := e.app("Cloud", "")
+	var assignment string
+	e.tx(func(tx pgx.Tx) error {
+		id, err := access.MakeEligible(ctx, tx, e.tenant, "identity:admin", ana, access.Target{EntitlementID: ent}, nil, "")
+		if err != nil {
+			return err
+		}
+		el, err := access.GetEligibility(ctx, tx, id, true)
+		if err != nil {
+			return err
+		}
+		a, err := access.Activate(ctx, tx, e.tenant, "identity:"+ana, el, 1, "deploy", "")
+		assignment = a.AssignmentID
+		return err
+	})
+	c, err := e.launch(Input{Name: "Q4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var item string
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`INSERT INTO review_items (tenant_id, campaign_id, assignment_id, identity_id, entitlement_id, origin, granted_at, reviewer_id)
+			 VALUES ($1, $2, $3, $4, $5, 'activation', now(), $6) RETURNING id`, e.tenant, c.ID, assignment, ana, ent, boss).Scan(&item)
+	})
+	if _, err := e.decide(boss, item, Revoke); err != nil {
 		t.Fatal(err)
 	}
 	var n int

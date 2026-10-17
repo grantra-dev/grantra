@@ -93,8 +93,10 @@ func run() error {
 			return migrate(ctx, log, cfg)
 		case os.Args[1] == "gateway" && len(os.Args) == 2:
 			return runGateway(ctx, log, cfg)
+		case len(os.Args) == 3 && os.Args[1] == "vault" && os.Args[2] == "rewrap":
+			return rewrap(ctx, log, cfg)
 		}
-		return fmt.Errorf("unknown command %q: run grantra, grantra migrate or grantra gateway", strings.Join(os.Args[1:], " "))
+		return fmt.Errorf("unknown command %q: run grantra, grantra migrate, grantra gateway or grantra vault rewrap", strings.Join(os.Args[1:], " "))
 	}
 
 	if cfg.MigrateOnStart {
@@ -142,9 +144,9 @@ func run() error {
 		}
 	}
 
-	keys, err := vault.LocalKeyFromEnv()
+	keys, err := vault.KeysFromEnv(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("vault key: %w", err)
 	}
 	var (
 		vlt    *vault.Vault

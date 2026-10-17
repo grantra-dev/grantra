@@ -8,6 +8,8 @@ A campaign covers the assignments (see [access.md](access.md)) given **by hand**
 - With `application_ids`, it covers the entitlements of those applications.
 - Without them, it covers everything, business roles included.
 
+It also covers **eligibilities** for [just-in-time access](just-in-time.md), shown as *Eligible to activate*: who may turn the access on for a few hours, whether or not an activation is running. Revoking one removes the eligibility and ends any activation running with it. Activations themselves are not items: they last hours, and the eligibility is what lets them happen.
+
 Birthright access is left out, because rules give it and take it back. For birthright access, the thing to review is the rule itself. Platform roles are reviewed under platform roles.
 
 ## Who reviews

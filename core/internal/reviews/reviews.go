@@ -4,6 +4,10 @@
 // manager, or the owner of the application or role. Revoked access is
 // removed at once; provisioning then takes it out of the application.
 //
+// Eligibilities for just-in-time access are reviewed as their own items
+// ("eligible to activate"), and revoking one ends any activation running
+// with it; activations themselves last hours and are not reviewed.
+//
 // Birthright access is not reviewed here: rules give it and take it back, so
 // what to review for it is the rule. Items with nobody to ask (no manager or
 // owner, an inactive reviewer, or a reviewer who would review their own
@@ -119,7 +123,11 @@ func (in *Input) check(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-// Launch creates a campaign and its items, one per assignment in scope.
+// OriginEligibility is the origin of review items for eligibilities.
+const OriginEligibility = "eligibility"
+
+// Launch creates a campaign and its items, one per assignment and
+// eligibility in scope.
 func Launch(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (Campaign, error) {
 	if err := in.check(ctx, tx); err != nil {
 		return Campaign{}, err
@@ -144,28 +152,45 @@ func Launch(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (C
 	if in.Reviewer == ByOwner {
 		reviewer = `coalesce(ro.owner_id, app.owner_id)`
 	}
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO review_items (tenant_id, campaign_id, assignment_id, identity_id, role_id, entitlement_id, origin, granted_at, reviewer_id)
-		SELECT $1, $2, x.id, x.identity_id, x.role_id, x.entitlement_id, x.origin, x.granted_at,
-		       CASE WHEN r.id IS NULL OR r.status <> 'active' OR r.id = x.identity_id THEN NULL ELSE r.id END
+	// Assignments, then eligibilities, as items.
+	sources := []struct {
+		query string
+		args  []any
+	}{{`
+		SELECT x.id AS assignment_id, NULL::uuid AS eligibility_id, x.identity_id, x.role_id, x.entitlement_id, x.origin, x.granted_at
 		FROM access_assignments x
-		JOIN identities i ON i.id = x.identity_id
-		LEFT JOIN roles ro ON ro.id = x.role_id
-		LEFT JOIN entitlements e ON e.id = x.entitlement_id
-		LEFT JOIN applications app ON app.id = e.application_id
-		LEFT JOIN identities r ON r.id = `+reviewer+`
-		WHERE x.origin <> $3
-		  AND (x.expires_at IS NULL OR x.expires_at > now())
-		  AND (cardinality($4::uuid[]) = 0 OR e.application_id = ANY($4))`,
-		tenantID, id, access.OriginBirthright, in.ApplicationIDs)
-	if err != nil {
-		return Campaign{}, err
+		WHERE x.origin NOT IN ($4, $5) AND (x.expires_at IS NULL OR x.expires_at > now())`,
+		[]any{access.OriginBirthright, access.OriginActivation},
+	}, {`
+		SELECT NULL::uuid AS assignment_id, el.id AS eligibility_id, el.identity_id, el.role_id, el.entitlement_id, $4::text AS origin, el.granted_at
+		FROM access_eligibilities el
+		WHERE el.expires_at IS NULL OR el.expires_at > now()`,
+		[]any{OriginEligibility},
+	}}
+	var items int64
+	for _, src := range sources {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO review_items (tenant_id, campaign_id, assignment_id, eligibility_id, identity_id, role_id, entitlement_id, origin, granted_at, reviewer_id)
+			SELECT $1, $2, x.assignment_id, x.eligibility_id, x.identity_id, x.role_id, x.entitlement_id, x.origin, x.granted_at,
+			       CASE WHEN r.id IS NULL OR r.status <> 'active' OR r.id = x.identity_id THEN NULL ELSE r.id END
+			FROM (`+src.query+`) x
+			JOIN identities i ON i.id = x.identity_id
+			LEFT JOIN roles ro ON ro.id = x.role_id
+			LEFT JOIN entitlements e ON e.id = x.entitlement_id
+			LEFT JOIN applications app ON app.id = e.application_id
+			LEFT JOIN identities r ON r.id = `+reviewer+`
+			WHERE cardinality($3::uuid[]) = 0 OR e.application_id = ANY($3)`,
+			append([]any{tenantID, id, in.ApplicationIDs}, src.args...)...)
+		if err != nil {
+			return Campaign{}, err
+		}
+		items += tag.RowsAffected()
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "review_campaign.launched", "review_campaign", id,
-		map[string]any{"name": in.Name, "reviewer": in.Reviewer, "application_ids": in.ApplicationIDs, "on_missing": in.OnMissing, "items": tag.RowsAffected()}); err != nil {
+		map[string]any{"name": in.Name, "reviewer": in.Reviewer, "application_ids": in.ApplicationIDs, "on_missing": in.OnMissing, "items": items}); err != nil {
 		return Campaign{}, err
 	}
-	if tag.RowsAffected() == 0 {
+	if items == 0 {
 		if err := closeCampaign(ctx, tx, tenantID, actor, id); err != nil {
 			return Campaign{}, err
 		}
@@ -238,6 +263,7 @@ type Item struct {
 
 	campaignStatus string
 	assignmentID   string
+	eligibilityID  string
 }
 
 // Resource describes the item to the policies.
@@ -254,7 +280,8 @@ const selectItems = `
 	       CASE WHEN it.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 	       coalesce(it.role_id, it.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''), coalesce(e.risk, ''),
 	       it.origin, it.granted_at, coalesce(it.reviewer_id::text, ''), coalesce(rv.display_name, ''),
-	       it.decision, coalesce(it.decided_by, ''), it.decided_at, coalesce(it.comment, ''), coalesce(it.assignment_id::text, '')
+	       it.decision, coalesce(it.decided_by, ''), it.decided_at, coalesce(it.comment, ''), coalesce(it.assignment_id::text, ''),
+	       coalesce(it.eligibility_id::text, '')
 	FROM review_items it
 	JOIN review_campaigns c ON c.id = it.campaign_id
 	JOIN identities i ON i.id = it.identity_id
@@ -268,7 +295,7 @@ func scanItem(row pgx.CollectableRow) (Item, error) {
 	err := row.Scan(&it.ID, &it.CampaignID, &it.CampaignName, &it.campaignStatus, &it.IdentityID, &it.IdentityName,
 		&it.Type, &it.TargetID, &it.TargetName, &it.Application, &it.Risk,
 		&it.Origin, &it.GrantedAt, &it.ReviewerID, &it.ReviewerName,
-		&it.Decision, &it.DecidedBy, &it.DecidedAt, &it.Comment, &it.assignmentID)
+		&it.Decision, &it.DecidedBy, &it.DecidedAt, &it.Comment, &it.assignmentID, &it.eligibilityID)
 	return it, err
 }
 
@@ -386,13 +413,27 @@ func decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, it Item, dec
 		return err
 	}
 	details := map[string]any{"campaign_id": it.CampaignID, "identity_id": it.IdentityID, it.Type + "_id": it.TargetID, "decision": decision}
+	if it.eligibilityID != "" {
+		details["eligibility_id"] = it.eligibilityID
+	}
 	if comment != "" {
 		details["comment"] = comment
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "review_item.decided", "review_item", it.ID, details); err != nil {
 		return err
 	}
-	if decision != Revoke || it.assignmentID == "" {
+	if decision != Revoke {
+		return nil
+	}
+	if it.eligibilityID != "" {
+		// Ends any activation running with it too.
+		err := access.RemoveEligibility(ctx, tx, tenantID, actor, it.eligibilityID)
+		if errors.Is(err, apperr.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if it.assignmentID == "" {
 		return nil
 	}
 	var eligibility *string

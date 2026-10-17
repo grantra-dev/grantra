@@ -16,6 +16,41 @@ openssl rand -base64 32
 
 **Keep a copy of the key somewhere safe and separate from the database backups.** Secrets sealed with a lost key cannot be recovered, and anyone holding both the key and a database backup can read them.
 
+## Key providers
+
+Instead of `GRANTRA_VAULT_KEY`, the master key can live in a key service, so that Grantra never holds it: a copy of the database or of Grantra's configuration then opens nothing without access to that key. Set `GRANTRA_VAULT_KEY_PROVIDER` and `GRANTRA_VAULT_KMS_KEY` (with Helm, `vault.provider` and `vault.kmsKey`) on the server, the [SSH gateway](ssh.md) and wherever you run `grantra vault rewrap`.
+
+| `GRANTRA_VAULT_KEY_PROVIDER` | `GRANTRA_VAULT_KMS_KEY` | Credentials |
+|---|---|---|
+| `local` (default) | | `GRANTRA_VAULT_KEY` |
+| `aws-kms` | Key id, ARN or alias (`alias/grantra`) of a symmetric `ENCRYPT_DECRYPT` key | The AWS SDK's usual chain: IAM role for the service account (IRSA), instance profile, `AWS_*` variables. Needs `kms:Encrypt`, `kms:Decrypt` and `kms:DescribeKey`. |
+| `gcp-kms` | `projects/P/locations/L/keyRings/R/cryptoKeys/K`, purpose `ENCRYPT_DECRYPT` | Application Default Credentials: workload identity, `GOOGLE_APPLICATION_CREDENTIALS`. Needs *Cloud KMS CryptoKey Encrypter/Decrypter* and `cloudkms.cryptoKeys.get`. |
+| `azure-keyvault` | `https://<vault>.vault.azure.net/keys/<name>` (Key Vault or Managed HSM), an RSA key | `DefaultAzureCredential`: workload identity, managed identity, `AZURE_*` variables. The key must allow `wrapKey`, `unwrapKey` and `sign` (*Key Vault Crypto User*). |
+| `transit` | The name of a transit key of type `aes256-gcm96`, `aes128-gcm96` or `chacha20-poly1305` | `GRANTRA_VAULT_TRANSIT_ADDR` (or `VAULT_ADDR`/`BAO_ADDR`), `GRANTRA_VAULT_TRANSIT_TOKEN` (or `VAULT_TOKEN`/`BAO_TOKEN`) or `GRANTRA_VAULT_TRANSIT_TOKEN_FILE`, re-read on every call so an agent can renew it; optional `_MOUNT` (default `transit`), `_NAMESPACE`, `_CACERT`. Needs `update` on `transit/encrypt/<key>`, `transit/decrypt/<key>` and `read` on `transit/keys/<key>`. At start Grantra checks that the server binds `associated_data` and refuses one that ignores it. |
+| `pkcs11` | The label of an AES key in the HSM (the key id Grantra stores names the token too) | `GRANTRA_VAULT_PKCS11_MODULE` (the vendor's `.so`), `GRANTRA_VAULT_PKCS11_TOKEN` (token label), `GRANTRA_VAULT_PKCS11_PIN` or `GRANTRA_VAULT_PKCS11_PIN_FILE`. |
+
+Grantra checks the key when it starts and refuses to start if it is missing, disabled or of the wrong kind.
+
+Every provider binds a wrapped data key to the tenant, account and version it belongs to (the KMS's encryption context or additional authenticated data), so it does not open anywhere else. Azure Key Vault's wrap has no such field: Grantra wraps locally with the key's public half and has Key Vault sign the result together with the binding, and checks that signature before asking Key Vault to unwrap, so a wrapped key made without the vault's key is refused.
+
+**HSMs.** The release binaries and image are static builds without PKCS#11, which needs cgo. Build Grantra with it:
+
+```sh
+cd core && CGO_ENABLED=1 go build -tags pkcs11 ./cmd/grantra
+```
+
+and run it where the vendor's PKCS#11 module is installed. CI tests it against SoftHSM.
+
+**Rotating a key.** Rotating inside the provider (a new AWS, Google or Azure key version, `transit/keys/<key>/rotate`) needs nothing from Grantra: old data keys keep unwrapping, new ones use the new version. In Azure, pin a key version in the URL to keep it fixed; without one, Grantra wraps with the version current at start and unwraps with the version each data key names.
+
+### Moving to another key or provider
+
+1. Set the new provider and key, and keep the old one for unwrapping only: leave `GRANTRA_VAULT_KEY` set when moving from the local key, or set `GRANTRA_VAULT_OLD_KEY_PROVIDER` and `GRANTRA_VAULT_OLD_KMS_KEY` when moving from another provider or key, back to the local key included (the connection settings above are shared, so two transit keys must live in the same engine and two HSM keys in the same token). New secrets go to the new key.
+2. Run `grantra vault rewrap` once, with the same environment (with Helm, `kubectl exec deploy/<release>-grantra -- /grantra vault rewrap` after the upgrade). It unwraps every data key the old key wrapped and wraps it with the new one, for vault secrets and the [SSH certificate authorities](ssh.md); secrets themselves are not decrypted. It is safe to run again, and the audit log records it as `vault.rewrapped`.
+3. Remove the old key's settings and restart. A secret still wrapped by a key Grantra no longer has fails to open with a message naming that key.
+
+Each provider unwraps only with its own key (any version of it): a key id written into the database cannot make Grantra call another KMS key, vault or server with its credentials.
+
 ## How secrets are stored
 
 Envelope encryption:
@@ -23,7 +58,7 @@ Envelope encryption:
 - The data key is wrapped (encrypted) by the master key, and only the wrapped data key is stored, with the id of the key that wrapped it (`local:` and the start of the key's SHA-256).
 - Each ciphertext is bound to its tenant, vault account and version: copying it to another row makes it fail to open.
 
-Cloud KMS, OpenBao/Vault Transit and HSM key providers will plug in behind the same interface ([#84](https://github.com/grantra-dev/grantra/issues/84)).
+With an [external key provider](#key-providers) the master key never leaves the KMS or HSM: only it can unwrap a data key, and it logs every unwrap.
 
 Secrets never appear in API lists, logs or the audit log. Only a check-out returns one, with `Cache-Control: no-store`.
 
