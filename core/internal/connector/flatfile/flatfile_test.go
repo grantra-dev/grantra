@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -127,5 +128,18 @@ func TestConnector(t *testing.T) {
 	}
 	if _, err := connector.New(Kind, json.RawMessage(`{"columns": {"nope": "x"}}`), nil); err == nil {
 		t.Error("bad config accepted")
+	}
+}
+
+// The sample in deploy/samples must stay a valid file.
+func TestSampleFile(t *testing.T) {
+	f, err := os.Open("../../../../deploy/samples/app-accounts.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	snap, err := Parse(nil, f)
+	if err != nil || len(snap.Accounts) != 4 || len(snap.Entitlements) != 3 {
+		t.Fatalf("sample: %+v, %v", snap, err)
 	}
 }

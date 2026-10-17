@@ -97,6 +97,35 @@ The client needs **Service accounts** on and, on its service account, the `realm
 - Accounts carry `department` and `title` when those attributes exist. For Keycloak to keep `employee_id`, `department` and `title`, the realm's user profile must declare them, as the bundled realm does (admin-only).
 - Service-account users are not people and Keycloak does not list them.
 
+## CSV files
+
+Applications with no SCIM or LDAP (a legacy ERP, an in-house tool) can still be governed: set their connector to `csv` and load their account list from a file, from the application's page in the console (**Load accounts from a file**, then **Check file** and **Import**) or from a script with a [service token](service-tokens.md).
+
+```sh
+curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
+  "kind": "csv", "config": {"columns": {"username": "Login", "entitlements": "Roles"}}
+}'
+curl -b cookies -X POST "localhost:8080/api/v1/applications/$APP/account-imports?dry_run=true" \
+  -H 'Content-Type: text/csv' --data-binary @deploy/samples/app-accounts.csv
+```
+
+One row per account, with a header row. Column names are matched loosely (`Account ID` is `account_id`), and `config.columns` maps other names.
+
+| Column | Meaning |
+|---|---|
+| `account_id` | The account's stable id in the application. Without this column, `username` is the id |
+| `username`, `email`, `display_name` | |
+| `employee_id` | The person's HR employee id, the surest way to link the account to them |
+| `status` | `active` (the default; also `enabled`, `yes`, `1`) or `disabled` (also `inactive`, `locked`, `suspended`, `no`, `0`) |
+| `entitlements` | The roles or groups the account holds, separated by `;` (`config.separator` changes it). Entitlements are created from the names found |
+
+Any other column is kept as an attribute of the account. An export with one row per account **and** role (the result of a "users join roles" query) works as it is: rows of the same account are merged, and a value that differs between them (two emails for one account) is an error. See [`deploy/samples/app-accounts.csv`](../deploy/samples/app-accounts.csv).
+
+- **All or nothing.** A file with any error is refused (`422`) with every problem and its line, and changes nothing; the run is recorded as failed.
+- **Dry run.** `dry_run=true` answers with what would change, and changes nothing.
+- **Full lists.** The file is the whole application: accounts missing from it are marked `deleted`, as in any aggregation. A file with no accounts, where there were some, is refused.
+- The hourly aggregation leaves these applications alone, and the connector cannot provision: changes are made in the application by hand and show up with the next file.
+
 ## Aggregation
 
 - Runs on demand (`POST /aggregations`) and on its own once an hour for every application with a connector.
@@ -173,8 +202,9 @@ The Grantra Login connector creates users (username and verified email from HR, 
 
 | Endpoint | Action |
 |---|---|
-| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "scim" or "ldap", "config": {...}}`; `"kind": "manual"` removes it |
+| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "scim", "ldap", "grantra-login" or "csv", "config": {...}}`; `"kind": "manual"` removes it |
 | `POST /api/v1/applications/{id}/aggregations` | `catalog.manage`: `200` with the run, `502` if the application could not be read |
+| `POST /api/v1/applications/{id}/account-imports?dry_run=` | `catalog.manage`, or a service token with `application.import_accounts`: the CSV file is the body (32 MiB max). `200` with the run (`planned` for a dry run), `422` with the run when the file is refused |
 | `PUT /api/v1/applications/{id}/provisioning` | `catalog.manage`: `{"mode": "on", "remove_unassigned": false, "max_change_percent": 10}` |
 | `POST /api/v1/applications/{id}/provisioning-runs?dry_run=&force=` | `catalog.manage`: `200` with the run and its actions, `409` when refused or not possible yet, `502` when actions failed |
 | `GET /api/v1/applications/{id}/runs?limit=` | `catalog.read`: aggregation and provisioning runs |

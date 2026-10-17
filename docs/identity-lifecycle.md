@@ -6,7 +6,7 @@ The first kind of source is a **CSV export**, which almost every HR system can p
 
 ## The CSV file
 
-One row per person, with a header row. Column names are matched loosely (`Employee ID` and `employee_id` are the same), and a source can map its own names with `config.columns`.
+One row per person, with a header row. Column names are matched loosely (`Employee ID` and `employee_id` are the same), and a source can map its own names with `config.columns`: in the console, **New HR source** or **Edit** has a box per field, and a sample file shows which fields it already has.
 
 | Column | Required | Meaning |
 |---|---|---|
@@ -48,13 +48,14 @@ Every run is stored in `identity_source_runs`, each change lands in `audit_event
 
 ## API
 
-All endpoints need a signed-in session. Creating and syncing sources needs `grantra-admin`; `grantra-auditor` can read everything.
+All endpoints need a signed-in session, except syncs, which a script can also send with a [service token](service-tokens.md) holding `identity_source.sync`. Creating and syncing sources needs `grantra-admin`; `grantra-auditor` can read everything.
 
 | Endpoint | Action |
 |---|---|
 | `GET /api/v1/identity-sources` | `identity_source.read`: sources with their latest run |
 | `POST /api/v1/identity-sources` | `identity_source.manage`: `{"name": "HR", "kind": "csv", "config": {...}}` |
 | `GET /api/v1/identity-sources/{id}` | `identity_source.read` |
+| `PUT /api/v1/identity-sources/{id}` | `identity_source.manage`: `{"name": "HR", "config": {...}}`, the whole config. The next sync uses it |
 | `GET /api/v1/identity-sources/{id}/runs?limit=` | `identity_source.read` |
 | `POST /api/v1/identity-sources/{id}/runs?dry_run=&force=` | `identity_source.sync`: the CSV file is the body (32 MiB max). `200` planned or applied, `422` invalid file, `409` leaver limit |
 | `GET /api/v1/lifecycle-events?limit=&before=&identity=` | `lifecycle_event.read` |
@@ -65,6 +66,10 @@ curl -b cookies -X POST localhost:8080/api/v1/identity-sources \
   -d '{"name": "HR", "kind": "csv"}'
 curl -b cookies -X POST "localhost:8080/api/v1/identity-sources/$SOURCE/runs?dry_run=true" \
   --data-binary @deploy/samples/hr-employees.csv
+
+# A nightly job does the same with a service token instead of a session.
+curl -X POST -H "Authorization: Bearer $GRANTRA_TOKEN" -H 'Content-Type: text/csv' \
+  --data-binary @export.csv "https://grantra.example.com/api/v1/identity-sources/$SOURCE/runs"
 ```
 
 Source config:
