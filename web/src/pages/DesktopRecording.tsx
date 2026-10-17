@@ -24,43 +24,33 @@ export function DesktopRecording({ sessionID }: { sessionID: string }) {
   useEffect(() => {
     const el = screen.current;
     if (!el) return;
-    let rec: GuacamoleTypes.SessionRecording | null = null;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const ctl = new AbortController();
-    fetch(desktopRecordingURL(sessionID), { signal: ctl.signal })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`Grantra could not load the recording (${r.status}).`);
-        const blob = await r.blob();
-        if (blob.size === 0) throw new Error("Nothing was recorded.");
-        rec = new Guacamole.SessionRecording(blob);
-        player.current = rec;
-        const display = rec.getDisplay();
-        const view = display.getElement();
-        el.appendChild(view);
-        display.onresize = (w, h) => {
-          if (w && h) display.scale(Math.min(1, el.clientWidth / w));
-        };
-        rec.onprogress = (d) => setDuration(d);
-        rec.onload = () => {
-          setLoaded(true);
-          setDuration(rec?.getDuration() ?? 0);
-        };
-        rec.onerror = (m) => setProblem(m);
-        rec.onplay = () => setPlaying(true);
-        rec.onpause = () => setPlaying(false);
-        rec.onseek = (p) => setPosition(p);
-        timer = setInterval(() => rec && setPosition(rec.getPosition()), 250);
-        rec.connect();
-      })
-      .catch((e: Error) => {
-        if (e.name !== "AbortError") setProblem(e.message);
-      });
+    // Streamed from Grantra as it plays. (This client's Blob source is
+    // broken: it reads the Blob before keeping it.)
+    const rec = new Guacamole.SessionRecording(
+      new Guacamole.StaticHTTPTunnel(desktopRecordingURL(sessionID)),
+    );
+    player.current = rec;
+    const display = rec.getDisplay();
+    el.appendChild(display.getElement());
+    display.onresize = (w) => {
+      if (w) display.scale(Math.min(1, el.clientWidth / w));
+    };
+    rec.onprogress = (d) => setDuration(d);
+    rec.onload = () => {
+      setLoaded(true);
+      setDuration(rec.getDuration());
+    };
+    rec.onerror = (m) => setProblem(m || "Grantra could not load the recording.");
+    rec.onplay = () => setPlaying(true);
+    rec.onpause = () => setPlaying(false);
+    rec.onseek = (p) => setPosition(p);
+    const timer = setInterval(() => setPosition(rec.getPosition()), 250);
+    rec.connect();
     return () => {
-      ctl.abort();
       clearInterval(timer);
-      rec?.pause();
-      rec?.abort();
-      rec?.disconnect();
+      rec.pause();
+      rec.abort();
+      rec.disconnect();
       el.replaceChildren();
       player.current = null;
     };

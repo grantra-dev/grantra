@@ -105,10 +105,12 @@ func TestSeedWithVault(t *testing.T) {
 	var entitlement string
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
 		list, err := vault.List(ctx, tx, "")
-		if err != nil || len(list) != 2 {
+		// By name: the office desktop's login, the root password, the shop
+		// database's owner.
+		if err != nil || len(list) != 3 {
 			t.Fatalf("vault accounts = %+v, %v", list, err)
 		}
-		root := list[0]
+		root := list[1]
 		if root.Name != "Production database root" {
 			root = list[1]
 		}
@@ -130,7 +132,8 @@ func TestSeedWithVault(t *testing.T) {
 		t.Fatalf("version %d, entitlement %q", version, entitlement)
 	}
 	// Luis may activate GitHub org admin, SSH to the production database
-	// server and the shop database, which nobody holds for good.
+	// server, the shop database and the office desktop, which nobody holds
+	// for good.
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
 		var luis string
 		if err := tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis); err != nil {
@@ -141,8 +144,8 @@ func TestSeedWithVault(t *testing.T) {
 		for _, el := range list {
 			names[el.Name] = el.MaxActivationHours
 		}
-		if err != nil || len(list) != 3 || names["Org admins"] != 2 || names["Log in to prod-db as postgres"] == 0 ||
-			names["Connect to the shop-db database"] == 0 {
+		if err != nil || len(list) != 4 || names["Org admins"] != 2 || names["Log in to prod-db as postgres"] == 0 ||
+			names["Connect to the shop-db database"] == 0 || names["Use the office-pc desktop"] == 0 {
 			t.Fatalf("luis's eligibilities = %+v, %v", list, err)
 		}
 		return nil

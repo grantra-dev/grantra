@@ -74,16 +74,35 @@ services:
       # Shown in the console with the command to connect through the gateway
       # (the database and cluster listeners default to the same host).
       GRANTRA_SSH_GATEWAY_ADDRESS: localhost:2222
+      # Desktops open in the browser through guacd. The demo's office-pc is
+      # the test desktop of the rdp profile:
+      #   docker compose -f deploy/docker-compose.yml --profile rdp up
+      GRANTRA_GUACD_ADDR: guacd:4822
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      guacd:
+        condition: service_started
+
+  # Apache Guacamole's proxy: it speaks RDP to desktops and draws them for
+  # the browser. Only Grantra talks to it; it publishes no port.
+  guacd:
+    image: guacamole/guacd:1.5.5
+    restart: unless-stopped
+
+  # A Linux desktop with xrdp, to try desktops with (user ubuntu, password
+  # ubuntu, which the demo keeps in the vault).
+  desktop:
+    image: scottyhardy/docker-remote-desktop:latest
+    profiles: [rdp]
+    shm_size: 1gb
 
   # The gateway: ssh -p 2222 <server>@localhost with a certificate from the
   # console's Servers page (docs/ssh.md), and databases and Kubernetes
   # clusters on 15432 (PostgreSQL), 13306 (MySQL) and 8443 (Kubernetes) with
-  # a token from Databases & clusters (docs/gateways.md). It records every
+  # a token from Remote access (docs/gateways.md). It records every
   # session.
   gateway:
     build:

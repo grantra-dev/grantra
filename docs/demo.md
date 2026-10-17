@@ -43,7 +43,7 @@ On top of the people:
 - **Separation of duties**: the policy *Create and approve payments* (prevent mode) says nobody may hold both.
 - **Just-in-time access**: nobody holds GitHub *Org admins* for good; Luis is eligible to activate it for up to two hours.
 - **Vault**: the root password of a production database, which only people granted *Use Production database root* can check out (needs `GRANTRA_VAULT_KEY`, set in docker-compose). Luis can also break the glass on it in an emergency.
-- **Databases**: the shop's orders database, *shop-db*, which Luis can activate and query through the gateway, logged as he goes (needs the vault key too).
+- **Remote access**: the shop's orders database, *shop-db*, which Luis can activate and query through the gateway, logged as he goes, and the office desktop *office-pc*, which he can open in the browser, recorded (both need the vault key too).
 
 `elena` signs in once she joins in step 1.
 
@@ -152,7 +152,7 @@ read it yet, not even the admin.
    server does not exist, so to see a recording add a target of your own
    that trusts Grantra (see [ssh.md](ssh.md#set-up-a-server)).
 8. Database: activate *Connect to the shop-db database* from **My access**,
-   open **Databases & clusters**, click **Get token** and **Download
+   open **Remote access**, click **Get token** and **Download
    certificate**, and connect with the command shown, giving the token as
    the password:
 
@@ -160,10 +160,15 @@ read it yet, not even the admin.
    psql "host=localhost port=15432 user=shop-db sslmode=verify-full sslrootcert=grantra-gateway-ca.pem"
    ```
 
-   Run `SELECT * FROM orders;`. As `admin`, **Databases & clusters** →
+   Run `SELECT * FROM orders;`. As `admin`, **Remote access** →
    **Sessions** shows the session and every query in it. The shop database
    is created when the Postgres volume is first made: after upgrading, run
    `make reset`, then `make up`.
+9. Desktop: start the stack with the test desktop,
+   `docker compose -f deploy/docker-compose.yml --profile rdp up`, activate
+   *Use the office-pc desktop* and click **Connect** in **Remote access**.
+   A Linux desktop opens in a new tab, logged in. As `admin`, **Remote
+   access** → **Sessions** → **Recording** plays it back.
 
 As `admin`, click the account's name in **Vault** to see every check-out and
 its reason, and **Administration** → **Standing access** to see who holds

@@ -108,6 +108,7 @@ jobs:
             --set gateway.publicAddress=gw.example.com:2222,gateway.kubernetes.inCluster=true,gateway.ports.mysql=0 > /dev/null
           helm template t deploy/helm/grantra --set database.existingSecret=grantra-db,vault.key=k,gateway.enabled=true \
             --set gateway.tls.existingSecret=gw-tls > /dev/null
+          helm template t deploy/helm/grantra --set database.existingSecret=grantra-db,vault.key=k,desktops.enabled=true > /dev/null
 
   docker:
     runs-on: ubuntu-latest

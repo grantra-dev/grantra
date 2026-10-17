@@ -528,7 +528,7 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (T
 	return Get(ctx, tx, id)
 }
 
-// ensureApplication returns the "Databases and clusters" application,
+// ensureApplication returns the "Remote access" application,
 // creating it the first time. It is governed by hand: there is nothing to
 // read or provision, only access to grant.
 func ensureApplication(ctx context.Context, tx pgx.Tx, tenantID string) (string, error) {

@@ -83,7 +83,7 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `/api/v1/sod-policies`, `/api/v1/sod-violations` | Separation of duties, see [separation-of-duties.md](separation-of-duties.md) |
 | `/api/v1/vault/...` | Credential vault: accounts, check-outs, break glass, rotation and discovery, see [vault.md](vault.md) |
 | `/api/v1/ssh/...` | SSH targets, certificates, gateway sessions, recordings and commands, see [ssh.md](ssh.md) |
-| `/api/v1/gateway/...` | Database and cluster targets, tokens, sessions and their logs, see [gateways.md](gateways.md) |
+| `/api/v1/gateway/...` | Remote access: database, cluster, desktop and cloud targets, tokens, the desktop WebSocket, console sign-in, sessions with their logs and recordings, see [gateways.md](gateways.md) |
 | `/api/v1/identities/{id}/eligibilities`, `/api/v1/eligibilities/...`, `/api/v1/entitlements/{id}/jit`, `/api/v1/standing-access`, `/api/v1/assignments/{id}/eligibility` | Just-in-time access, see [just-in-time.md](just-in-time.md) |
 
 ## Identity lifecycle
