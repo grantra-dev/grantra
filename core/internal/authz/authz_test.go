@@ -116,6 +116,10 @@ func TestDecisions(t *testing.T) {
 		{"helpdesk cannot read sources", Request{Principal: helpdesk, Action: ReadSources, Resource: LifecycleResource()}, false, nil},
 		{"helpdesk cannot sync", Request{Principal: helpdesk, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
 		{"employee cannot sync", Request{Principal: report, Action: SyncSource, Resource: LifecycleResource()}, false, nil},
+		{"admin manages service tokens", Request{Principal: admin, Action: ManageServiceTokens, Resource: ServiceTokensResource()}, true, []string{"admin-all"}},
+		{"auditor reads service tokens", Request{Principal: auditor, Action: ReadServiceTokens, Resource: ServiceTokensResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot make service tokens", Request{Principal: auditor, Action: ManageServiceTokens, Resource: ServiceTokensResource()}, false, nil},
+		{"helpdesk cannot read service tokens", Request{Principal: helpdesk, Action: ReadServiceTokens, Resource: ServiceTokensResource()}, false, nil},
 
 		// Catalog and birthright rules.
 		{"admin manages catalog", Request{Principal: admin, Action: ManageCatalog, Resource: CatalogResource()}, true, []string{"admin-all"}},

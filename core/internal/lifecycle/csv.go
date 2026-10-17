@@ -9,15 +9,14 @@
 package lifecycle
 
 import (
-	"bytes"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
 	"time"
-	"unicode"
+
+	"github.com/grantra-dev/grantra/core/internal/csvfile"
 )
 
 // Fields Grantra reads from a source. Columns in the feed are matched to these
@@ -64,13 +63,8 @@ type Config struct {
 
 // Validate checks the config and fills in defaults.
 func (c *Config) Validate() error {
-	for field, col := range c.Columns {
-		if !slices.Contains(knownFields, field) {
-			return fmt.Errorf("columns: unknown field %q (known: %s)", field, strings.Join(knownFields, ", "))
-		}
-		if strings.TrimSpace(col) == "" {
-			return fmt.Errorf("columns: empty column name for %q", field)
-		}
+	if err := csvfile.ValidateMapping(c.Columns, knownFields); err != nil {
+		return err
 	}
 	switch c.Missing {
 	case "":
@@ -127,65 +121,15 @@ var (
 // file as a whole cannot be used (not CSV, required columns missing) and
 // issues for lines that cannot.
 func ParseCSV(r io.Reader, cfg Config) ([]Record, []Issue, error) {
-	data, err := io.ReadAll(r)
+	f, err := csvfile.Open(r, knownFields, cfg.Columns)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Spreadsheet programs like to start UTF-8 files with a byte order mark.
-	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
-	cr := csv.NewReader(bytes.NewReader(data))
-	cr.TrimLeadingSpace = true
-
-	header, err := cr.Read()
-	if errors.Is(err, io.EOF) {
-		return nil, nil, errors.New("the file is empty")
+	if !f.Has(FieldEmployeeID) {
+		return nil, nil, fmt.Errorf("no %q column (map it with columns.%s)", f.Column(FieldEmployeeID), FieldEmployeeID)
 	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("read header: %w", err)
-	}
-
-	// Which column holds each field, and which columns are extra attributes.
-	col := map[string]int{}
-	extra := map[int]string{}
-	byName := map[string]int{}
-	for i, h := range header {
-		name := normalize(h)
-		if name == "" {
-			continue
-		}
-		if _, dup := byName[name]; dup {
-			return nil, nil, fmt.Errorf("column %q appears twice", strings.TrimSpace(h))
-		}
-		byName[name] = i
-	}
-	for _, f := range knownFields {
-		name := f
-		if c, ok := cfg.Columns[f]; ok {
-			name = normalize(c)
-		}
-		if i, ok := byName[name]; ok {
-			col[f] = i
-		}
-	}
-	taken := map[int]bool{}
-	for _, i := range col {
-		taken[i] = true
-	}
-	for name, i := range byName {
-		// A column named like a field that was mapped elsewhere is ignored
-		// rather than allowed to shadow the mapped one.
-		if !taken[i] && !slices.Contains(knownFields, name) {
-			extra[i] = name
-		}
-	}
-	if _, ok := col[FieldEmployeeID]; !ok {
-		return nil, nil, fmt.Errorf("no %q column (map it with columns.%s)", columnName(cfg, FieldEmployeeID), FieldEmployeeID)
-	}
-	_, hasDisplay := col[FieldDisplayName]
-	_, hasFirst := col[FieldFirstName]
-	_, hasLast := col[FieldLastName]
-	if !hasDisplay && !hasFirst && !hasLast {
-		return nil, nil, fmt.Errorf("no %q column, nor %q and %q", columnName(cfg, FieldDisplayName), columnName(cfg, FieldFirstName), columnName(cfg, FieldLastName))
+	if !f.Has(FieldDisplayName) && !f.Has(FieldFirstName) && !f.Has(FieldLastName) {
+		return nil, nil, fmt.Errorf("no %q column, nor %q and %q", f.Column(FieldDisplayName), f.Column(FieldFirstName), f.Column(FieldLastName))
 	}
 
 	var (
@@ -194,50 +138,36 @@ func ParseCSV(r io.Reader, cfg Config) ([]Record, []Issue, error) {
 		seen    = map[string]int{}
 	)
 	for {
-		row, err := cr.Read()
+		line, err := f.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		line, _ := cr.FieldPos(0)
 		if err != nil {
-			var pe *csv.ParseError
-			if errors.As(err, &pe) {
-				return nil, nil, fmt.Errorf("line %d: %v", pe.Line, pe.Err)
-			}
 			return nil, nil, err
 		}
-		if blank(row) {
-			continue
-		}
-		get := func(f string) string {
-			if i, ok := col[f]; ok && i < len(row) {
-				return strings.TrimSpace(row[i])
-			}
-			return ""
-		}
 		bad := func(msg string, args ...any) {
-			issues = append(issues, Issue{Line: line, ExternalID: get(FieldEmployeeID), Message: fmt.Sprintf(msg, args...)})
+			issues = append(issues, Issue{Line: line, ExternalID: f.Get(FieldEmployeeID), Message: fmt.Sprintf(msg, args...)})
 		}
 
 		rec := Record{
 			Line:              line,
-			ExternalID:        get(FieldEmployeeID),
-			DisplayName:       get(FieldDisplayName),
-			Email:             get(FieldEmail),
-			ManagerExternalID: get(FieldManagerID),
+			ExternalID:        f.Get(FieldEmployeeID),
+			DisplayName:       f.Get(FieldDisplayName),
+			Email:             f.Get(FieldEmail),
+			ManagerExternalID: f.Get(FieldManagerID),
 			Attributes:        map[string]string{},
 		}
 		if rec.ExternalID == "" {
-			bad("%s is empty", columnName(cfg, FieldEmployeeID))
+			bad("%s is empty", f.Column(FieldEmployeeID))
 			continue
 		}
 		if first, ok := seen[rec.ExternalID]; ok {
-			bad("%s %q already appears on line %d", columnName(cfg, FieldEmployeeID), rec.ExternalID, first)
+			bad("%s %q already appears on line %d", f.Column(FieldEmployeeID), rec.ExternalID, first)
 			continue
 		}
 		seen[rec.ExternalID] = line
 		if rec.DisplayName == "" {
-			rec.DisplayName = strings.TrimSpace(get(FieldFirstName) + " " + get(FieldLastName))
+			rec.DisplayName = strings.TrimSpace(f.Get(FieldFirstName) + " " + f.Get(FieldLastName))
 		}
 		if rec.DisplayName == "" {
 			bad("the person has no name")
@@ -245,25 +175,25 @@ func ParseCSV(r io.Reader, cfg Config) ([]Record, []Issue, error) {
 		if rec.Email != "" && !strings.Contains(rec.Email, "@") {
 			bad("email %q is not an email address", rec.Email)
 		}
-		status := strings.ToLower(get(FieldStatus))
+		status := strings.ToLower(f.Get(FieldStatus))
 		switch {
 		case slices.Contains(activeValues, status):
 		case slices.Contains(terminatedValues, status):
 			rec.Terminated = true
 		default:
-			bad("unknown status %q (use active or terminated)", get(FieldStatus))
+			bad("unknown status %q (use active or terminated)", f.Get(FieldStatus))
 		}
 		for _, d := range []struct {
 			field string
 			dst   **time.Time
 		}{{FieldStartDate, &rec.StartDate}, {FieldEndDate, &rec.EndDate}} {
-			v := get(d.field)
+			v := f.Get(d.field)
 			if v == "" {
 				continue
 			}
 			t, err := time.Parse(time.DateOnly, v)
 			if err != nil {
-				bad("%s %q is not a date like 2026-10-31", columnName(cfg, d.field), v)
+				bad("%s %q is not a date like 2026-10-31", f.Column(d.field), v)
 				continue
 			}
 			*d.dst = &t
@@ -271,55 +201,13 @@ func ParseCSV(r io.Reader, cfg Config) ([]Record, []Issue, error) {
 		if rec.StartDate != nil && rec.EndDate != nil && rec.EndDate.Before(*rec.StartDate) {
 			bad("end date is before start date")
 		}
-		for _, f := range JobAttributes {
-			if v := get(f); v != "" {
-				rec.Attributes[f] = v
+		for _, field := range JobAttributes {
+			if v := f.Get(field); v != "" {
+				rec.Attributes[field] = v
 			}
 		}
-		for i, name := range extra {
-			if i < len(row) {
-				if v := strings.TrimSpace(row[i]); v != "" {
-					rec.Attributes[name] = v
-				}
-			}
-		}
+		f.Extra(func(name, v string) { rec.Attributes[name] = v })
 		records = append(records, rec)
 	}
 	return records, issues, nil
-}
-
-// normalize turns a column header into snake_case: "Employee ID" becomes
-// "employee_id".
-func normalize(h string) string {
-	var b strings.Builder
-	under := false
-	for _, r := range strings.ToLower(strings.TrimSpace(h)) {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r):
-			if under && b.Len() > 0 {
-				b.WriteByte('_')
-			}
-			under = false
-			b.WriteRune(r)
-		default:
-			under = true
-		}
-	}
-	return b.String()
-}
-
-func columnName(cfg Config, field string) string {
-	if c, ok := cfg.Columns[field]; ok {
-		return c
-	}
-	return field
-}
-
-func blank(row []string) bool {
-	for _, v := range row {
-		if strings.TrimSpace(v) != "" {
-			return false
-		}
-	}
-	return true
 }

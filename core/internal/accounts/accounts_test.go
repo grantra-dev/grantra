@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/connector"
+	"github.com/grantra-dev/grantra/core/internal/connector/flatfile"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
 )
@@ -294,5 +296,101 @@ func TestAggregateLargeApplication(t *testing.T) {
 	if run.Status != RunSucceeded || run.Counts["accounts_new"] != 0 || run.Counts["accounts_deleted"] != 10 ||
 		run.Counts["memberships_added"] != 0 || run.Counts["memberships_removed"] != (n-10)+20 {
 		t.Fatalf("second run = %s %v", run.Status, run.Counts)
+	}
+}
+
+// Applications with no API load their accounts from a file: checked first
+// with a dry run that changes nothing, then imported, then imported again
+// with changes, like any aggregation.
+func TestImportFile(t *testing.T) {
+	e := newEnv(t)
+	ana := e.identity("Ana", "ana@example.com", "E1")
+	ctx := context.Background()
+	e.tx(func(tx pgx.Tx) error {
+		return SetConnector(ctx, tx, e.app, flatfile.Kind, json.RawMessage(`{"columns": {"username": "Login"}}`), noSecrets)
+	})
+	imp := func(file string, dryRun bool) Run {
+		t.Helper()
+		run, err := Import(ctx, e.pool, e.tenant, e.app, "identity:tester", strings.NewReader(file), dryRun)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	file := "Login,email,employee_id,status,entitlements\n" +
+		"ana,ana@example.com,E1,active,Admin;Billing\n" +
+		"ghost,,,disabled,Billing\n"
+
+	run := imp(file, true)
+	if run.Status != RunPlanned || run.Counts["accounts_new"] != 2 || run.Counts["memberships_added"] != 3 || run.Counts["orphans"] != 1 {
+		t.Fatalf("dry run = %s %v %s", run.Status, run.Counts, run.Error)
+	}
+	if got := e.accounts(false); len(got) != 0 {
+		t.Fatalf("dry run stored accounts: %v", got)
+	}
+	var n int
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM entitlements WHERE application_id = $1`, e.app).Scan(&n)
+	})
+	if n != 0 {
+		t.Fatalf("dry run stored %d entitlements", n)
+	}
+
+	run = imp(file, false)
+	if run.Status != RunSucceeded || run.Counts["accounts_new"] != 2 || run.Counts["entitlements_new"] != 2 {
+		t.Fatalf("import = %s %v %s", run.Status, run.Counts, run.Error)
+	}
+	got := e.accounts(false)
+	if a := got["ana"]; a.IdentityID != ana || a.Status != "active" || len(a.Entitlements) != 2 {
+		t.Errorf("ana = %+v", a)
+	}
+	if g := got["ghost"]; g.IdentityID != "" || g.Status != "disabled" {
+		t.Errorf("ghost = %+v", g)
+	}
+
+	// Ana loses Admin and the ghost account is gone from the next export.
+	run = imp("Login,entitlements\nana,Billing\n", false)
+	if run.Status != RunSucceeded || run.Counts["accounts_deleted"] != 1 || run.Counts["memberships_removed"] != 2 {
+		t.Fatalf("second import = %s %v %s", run.Status, run.Counts, run.Error)
+	}
+
+	// A broken file is a failed run that changes nothing.
+	run = imp("Login,status\nana,on leave\n", false)
+	if run.Status != RunFailed || !strings.Contains(run.Error, `unknown status "on leave"`) {
+		t.Errorf("bad file = %s %q", run.Status, run.Error)
+	}
+	if a := e.accounts(false)["ana"]; a.Status != "active" {
+		t.Errorf("bad file changed ana: %+v", a)
+	}
+	var runs, audits int
+	e.tx(func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM connector_runs WHERE application_id = $1`, e.app).Scan(&runs); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action = 'application.aggregated' AND target_id = $1`, e.app).Scan(&audits)
+	})
+	if runs != 4 || audits != 4 {
+		t.Errorf("runs = %d, audit events = %d, want 4 each", runs, audits)
+	}
+
+	// The connector cannot be read without a file, and the background
+	// aggregation leaves it alone.
+	if _, err := Aggregate(ctx, e.pool, e.tenant, e.app, "identity:tester", noSecrets); !errors.As(err, new(*apperr.Invalid)) {
+		t.Errorf("aggregate a csv application = %v", err)
+	}
+	due, err := AggregateDue(ctx, e.pool, e.tenant, time.Nanosecond, noSecrets)
+	if err != nil || len(due) != 0 {
+		t.Errorf("due = %v, %v", due, err)
+	}
+
+	// Only csv applications take files.
+	e.tx(func(tx pgx.Tx) error {
+		return SetConnector(ctx, tx, e.app, "fake", json.RawMessage(`{"name": "`+e.name+`"}`), noSecrets)
+	})
+	if _, err := Import(ctx, e.pool, e.tenant, e.app, "identity:tester", strings.NewReader(file), false); !errors.As(err, new(*apperr.Invalid)) {
+		t.Errorf("import into a scim application = %v", err)
+	}
+	if _, err := Import(ctx, e.pool, e.tenant, "nope", "identity:tester", strings.NewReader(file), false); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("import into an unknown application = %v", err)
 	}
 }

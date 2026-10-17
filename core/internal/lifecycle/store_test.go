@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -289,4 +290,71 @@ func TestCreateSource(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// TestSyncLargeFeed syncs more people than fit in one batch, so every batch
+// boundary is crossed, and checks every write landed: identities, managers
+// (who often come after their reports), events and audit entries.
+func TestSyncLargeFeed(t *testing.T) {
+	e := newDBEnv(t, Config{MaxLeaverPercent: 100})
+	n := db.BatchSize*2 + 7
+	feed := func(dept func(i int) string, skip func(i int) bool) string {
+		var b strings.Builder
+		b.WriteString(header)
+		for i := range n {
+			if skip(i) {
+				continue
+			}
+			// Everyone reports to the person ten rows further down, so
+			// managers come after their reports; the last ten have none.
+			mgr := ""
+			if i+10 < n {
+				mgr = fmt.Sprintf("E%d", i+10)
+			}
+			fmt.Fprintf(&b, "E%d,Person %d,p%d@example.com,%s,%s,,,\n", i, i, i, mgr, dept(i))
+		}
+		return b.String()
+	}
+	start := time.Now()
+	res := e.sync(feed(func(int) string { return "Eng" }, func(int) bool { return false }), Options{Actor: "identity:tester", Now: day1})
+	t.Logf("%d joiners in %s", n, time.Since(start))
+	if res.Status != RunApplied || res.Counts[Joiner] != n {
+		t.Fatalf("first sync = %s %v %v", res.Status, res.Counts, res.Errors)
+	}
+	if got := e.count(`SELECT count(*) FROM identities i JOIN identities m ON m.id = i.manager_id
+		WHERE m.external_id = 'E' || (substr(i.external_id, 2)::int + 10)`); got != n-10 {
+		t.Errorf("managers set = %d, want %d", got, n-10)
+	}
+
+	// Every third person moves to Sales and the last five leave.
+	start = time.Now()
+	res = e.sync(feed(func(i int) string {
+		if i%3 == 0 {
+			return "Sales"
+		}
+		return "Eng"
+	}, func(i int) bool { return i >= n-5 }), Options{Actor: "identity:tester", Now: day1.AddDate(0, 0, 1)})
+	t.Logf("%d movers and leavers in %s", res.Counts[Mover]+res.Counts[Leaver], time.Since(start))
+	// Reports of the leavers keep them as managers: they are still known.
+	movers := (n - 5 + 2) / 3
+	if res.Status != RunApplied || res.Counts[Mover] != movers || res.Counts[Leaver] != 5 {
+		t.Fatalf("second sync = %s %v, want %d movers %v", res.Status, res.Counts, movers, res.Errors)
+	}
+	if got := e.count(`SELECT count(*) FROM identities WHERE attributes->>'department' = 'Sales'`); got != (n-5+2)/3 {
+		t.Errorf("in Sales = %d", got)
+	}
+	if got := e.count(`SELECT count(*) FROM identities WHERE status = 'terminated'`); got != 5 {
+		t.Errorf("terminated = %d", got)
+	}
+	if got := e.count(`SELECT count(*) FROM identities WHERE manager_id IS NOT NULL`); got != n-10 {
+		t.Errorf("with a manager = %d, want %d", got, n-10)
+	}
+	for kind, want := range map[Kind]int{Joiner: n, Mover: movers, Leaver: 5} {
+		if got := e.count(`SELECT count(*) FROM lifecycle_events WHERE kind = $1`, kind); got != want {
+			t.Errorf("%s events = %d, want %d", kind, got, want)
+		}
+		if got := e.count(`SELECT count(*) FROM audit_events WHERE action = $1`, auditAction[kind]); got != want {
+			t.Errorf("%s audit events = %d, want %d", kind, got, want)
+		}
+	}
 }

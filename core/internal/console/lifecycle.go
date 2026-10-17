@@ -14,10 +14,11 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
 
-// maxFeedBytes caps an uploaded HR file. 32 MiB holds a few hundred thousand
-// employees.
+// maxFeedBytes caps an uploaded file: an HR export or an account list. 32
+// MiB holds a few hundred thousand rows.
 const maxFeedBytes = 32 << 20
 
 func (a *API) listSources(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +61,31 @@ func (a *API) createSource(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, r, http.StatusCreated, out, err)
 }
 
+// updateSource renames a source or changes how its files are read, such as
+// which column holds each field: {"name": "HR", "config": {...}}.
+func (a *API) updateSource(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name   string           `json:"name"`
+		Config lifecycle.Config `json:"config"`
+	}
+	if !decodeBodyMax(w, r, &body, 64<<10, `{"name": "HR export", "config": {"columns": {"employee_id": "Worker ID"}}}`) {
+		return
+	}
+	var out lifecycle.Source
+	err := a.guardedOn(r, authz.ManageSources, authz.LifecycleResource(), func(tx pgx.Tx, me authz.Subject) error {
+		before, err := lifecycle.GetSource(r.Context(), tx, r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if out, err = lifecycle.UpdateSource(r.Context(), tx, before.ID, body.Name, body.Config); err != nil {
+			return err
+		}
+		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "identity_source.updated", "identity_source", out.ID,
+			map[string]any{"name": out.Name, "config": out.Config, "before": map[string]any{"name": before.Name, "config": before.Config}})
+	})
+	a.respond(w, r, http.StatusOK, out, err)
+}
+
 func (a *API) listRuns(w http.ResponseWriter, r *http.Request) {
 	limit, ok := pageLimit(w, r)
 	if !ok {
@@ -78,7 +104,8 @@ func (a *API) listRuns(w http.ResponseWriter, r *http.Request) {
 // applies a sync that breaks the leaver safety limit. The answer is the run
 // with every change: 200 when planned or applied, 422 when the file has
 // errors and 409 when the leaver limit stopped it. Nothing is applied in
-// those last two cases.
+// those last two cases. Scripts call it with a service token holding the
+// identity_source.sync scope.
 func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	dryRun, err1 := parseBool(q.Get("dry_run"))
@@ -87,29 +114,21 @@ func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "dry_run and force must be true or false")
 		return
 	}
-	// Check the permission before taking the upload, so people who may not
-	// sync cannot make the server read 32 MiB bodies.
-	if _, err := a.allowed(r, authz.SyncSource, authz.LifecycleResource()); err != nil {
+	sourceID := r.PathValue("id")
+	actor, err := a.caller(r, authz.SyncSource, authz.LifecycleResource(), servicetoken.ScopeSyncSource, sourceID)
+	if err != nil {
 		a.fail(w, r, err)
 		return
 	}
-	// Read the whole file before opening the transaction, so a slow upload
-	// does not hold locks.
-	feed, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFeedBytes))
-	if err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			httpjson.Error(w, http.StatusRequestEntityTooLarge, "the file is larger than 32 MiB")
-			return
-		}
-		httpjson.Error(w, http.StatusBadRequest, "could not read the file")
+	feed, ok := readUpload(w, r)
+	if !ok {
 		return
 	}
 
 	var out lifecycle.SyncResult
-	err = a.guardedOn(r, authz.SyncSource, authz.LifecycleResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		out, err = lifecycle.Sync(r.Context(), tx, a.tenantID, r.PathValue("id"), bytes.NewReader(feed),
-			lifecycle.Options{DryRun: dryRun, Force: force, Actor: me.Actor()})
+	err = db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
+		out, err = lifecycle.Sync(r.Context(), tx, a.tenantID, sourceID, bytes.NewReader(feed),
+			lifecycle.Options{DryRun: dryRun, Force: force, Actor: actor})
 		return err
 	})
 	if err != nil {
@@ -133,6 +152,25 @@ func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusConflict
 	}
 	httpjson.Write(w, status, out)
+}
+
+// readUpload reads an uploaded file, up to maxFeedBytes. Callers check
+// permissions first, so people who may not upload cannot make the server
+// read large bodies, and read the whole file before opening a transaction,
+// so a slow upload does not hold locks. It answers itself and returns false
+// when the file cannot be read.
+func readUpload(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFeedBytes))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			httpjson.Error(w, http.StatusRequestEntityTooLarge, "the file is larger than 32 MiB")
+			return nil, false
+		}
+		httpjson.Error(w, http.StatusBadRequest, "could not read the file")
+		return nil, false
+	}
+	return data, true
 }
 
 // listLifecycleEvents pages backwards from the newest event:

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/connector"
+	"github.com/grantra-dev/grantra/core/internal/connector/flatfile"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -103,65 +105,101 @@ const readTimeout = 5 * time.Minute
 // found. A failed read is recorded as a failed run and changes nothing; the
 // error is returned only when Grantra itself failed.
 func Aggregate(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID, actor string, secrets connector.SecretResolver) (Run, error) {
-	run := Run{ApplicationID: applicationID, Kind: "aggregation", Actor: actor, StartedAt: time.Now(), Counts: map[string]int{}}
-	if !db.ValidUUID(applicationID) {
-		return run, apperr.ErrNotFound
-	}
-	var (
-		kind   string
-		config json.RawMessage
-	)
-	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT connector, config FROM applications WHERE id = $1`, applicationID).Scan(&kind, &config)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return run, apperr.ErrNotFound
-	}
+	run := newRun(applicationID, actor)
+	kind, config, err := connectorOf(ctx, pool, tenantID, applicationID)
 	if err != nil {
 		return run, err
 	}
-	if kind == manualConnector || kind == builtinConnector {
+	switch kind {
+	case manualConnector, builtinConnector:
 		return run, apperr.Invalidf("this application has no connector to read")
+	case flatfile.Kind:
+		return run, &apperr.Invalid{Msg: flatfile.ErrUploadOnly.Error()}
 	}
 
-	var (
-		snap    connector.Snapshot
-		failure string
-	)
+	var snap connector.Snapshot
 	reader, err := connector.New(kind, config, secrets)
 	if err == nil {
 		rctx, cancel := context.WithTimeout(ctx, readTimeout)
 		snap, err = reader.Read(rctx)
 		cancel()
 	}
+	if err != nil && ctx.Err() != nil {
+		return run, ctx.Err()
+	}
+	return finish(ctx, pool, tenantID, run, snap, err, false)
+}
+
+// Import reads an application's accounts from an uploaded file, for
+// applications whose connector is "csv", and stores them like an
+// aggregation. A dry run stores nothing and returns what would change as a
+// planned run. A file Grantra cannot use is a failed run, like an
+// application that cannot be read.
+func Import(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID, actor string, file io.Reader, dryRun bool) (Run, error) {
+	run := newRun(applicationID, actor)
+	kind, config, err := connectorOf(ctx, pool, tenantID, applicationID)
 	if err != nil {
-		if ctx.Err() != nil {
-			return run, ctx.Err()
-		}
-		failure = err.Error()
+		return run, err
+	}
+	if kind != flatfile.Kind {
+		return run, apperr.Invalidf("only applications with the csv connector take account files")
+	}
+	snap, err := flatfile.Parse(config, file)
+	return finish(ctx, pool, tenantID, run, snap, err, dryRun)
+}
+
+func newRun(applicationID, actor string) Run {
+	return Run{ApplicationID: applicationID, Kind: "aggregation", Actor: actor, StartedAt: time.Now(), Counts: map[string]int{}}
+}
+
+func connectorOf(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID string) (kind string, config json.RawMessage, err error) {
+	if !db.ValidUUID(applicationID) {
+		return "", nil, apperr.ErrNotFound
 	}
 	err = db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT connector, config FROM applications WHERE id = $1`, applicationID).Scan(&kind, &config)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = apperr.ErrNotFound
+	}
+	return kind, config, err
+}
+
+// finish stores what a read found, unless readErr says the read failed,
+// and records the run. A dry run throws the changes away once counted.
+func finish(ctx context.Context, pool *pgxpool.Pool, tenantID string, run Run, snap connector.Snapshot, readErr error, dryRun bool) (Run, error) {
+	failure := ""
+	if readErr != nil {
+		failure = readErr.Error()
+	}
+	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		if failure == "" {
 			var refusal *refused
-			switch err := store(ctx, tx, tenantID, applicationID, snap, run.Counts); {
+			switch err := store(ctx, tx, tenantID, run.ApplicationID, snap, run.Counts); {
 			case errors.As(err, &refusal):
-				// Throw away anything written before the refusal.
-				if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT aggregation`); err != nil {
-					return err
-				}
 				failure = refusal.msg
 			case err != nil:
 				return err
 			}
+			// Throw away anything written before a refusal, and everything
+			// a dry run wrote.
+			if failure != "" || dryRun {
+				if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT aggregation`); err != nil {
+					return err
+				}
+			}
 		}
 		run.Status = RunSucceeded
-		if failure != "" {
+		switch {
+		case failure != "":
 			run.Status, run.Error, run.Counts = RunFailed, failure, map[string]int{}
+		case dryRun:
+			run.Status = RunPlanned
 		}
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO connector_runs (tenant_id, application_id, kind, actor, status, counts, error, started_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), $8) RETURNING id, finished_at`,
-			tenantID, applicationID, run.Kind, actor, run.Status, run.Counts, run.Error, run.StartedAt).
+			tenantID, run.ApplicationID, run.Kind, run.Actor, run.Status, run.Counts, run.Error, run.StartedAt).
 			Scan(&run.ID, &run.FinishedAt); err != nil {
 			return err
 		}
@@ -169,7 +207,7 @@ func Aggregate(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationID,
 		if run.Error != "" {
 			details["error"] = run.Error
 		}
-		return db.Audit(ctx, tx, tenantID, actor, "application.aggregated", "application", applicationID, details)
+		return db.Audit(ctx, tx, tenantID, run.Actor, "application.aggregated", "application", run.ApplicationID, details)
 	})
 	return run, err
 }
@@ -214,7 +252,9 @@ func (c candidate) match(a connector.Account) (string, string) {
 	return "", ""
 }
 
-// store writes a snapshot. counts collects what changed.
+// store writes a snapshot. counts collects what changed. Everything it
+// writes comes after the savepoint "aggregation", for the caller to roll
+// back to.
 func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connector.Snapshot, counts map[string]int) error {
 	if _, err := tx.Exec(ctx, `SAVEPOINT aggregation`); err != nil {
 		return err
@@ -431,8 +471,7 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		counts["accounts_deleted"] += len(gone)
 		counts["memberships_removed"] += int(tag.RowsAffected())
 	}
-	_, err = tx.Exec(ctx, `RELEASE SAVEPOINT aggregation`)
-	return err
+	return nil
 }
 
 // AggregateDue aggregates every application with a connector whose last
@@ -443,11 +482,11 @@ func AggregateDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, ever
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT a.id FROM applications a
-			 WHERE a.connector NOT IN ($1, $2)
+			 WHERE a.connector NOT IN ($1, $2, $4)
 			   AND NOT EXISTS (SELECT 1 FROM connector_runs r
 			                   WHERE r.application_id = a.id AND r.kind = 'aggregation' AND r.started_at > now() - make_interval(secs => $3))
 			   AND NOT EXISTS (SELECT 1 FROM connector_runs r WHERE r.application_id = a.id AND r.status = 'running')
-			 ORDER BY a.name`, manualConnector, builtinConnector, every.Seconds())
+			 ORDER BY a.name`, manualConnector, builtinConnector, every.Seconds(), flatfile.Kind)
 		if err != nil {
 			return err
 		}

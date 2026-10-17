@@ -79,6 +79,32 @@ func CreateSource(ctx context.Context, tx pgx.Tx, tenantID, name, kind string, c
 	return s, err
 }
 
+// UpdateSource renames a source or changes how it is read. The next sync
+// uses the new config; past runs keep what they did.
+func UpdateSource(ctx context.Context, tx pgx.Tx, id, name string, cfg Config) (Source, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 200 {
+		return Source{}, &apperr.Invalid{Msg: "name must be between 1 and 200 characters"}
+	}
+	if err := cfg.Validate(); err != nil {
+		return Source{}, &apperr.Invalid{Msg: err.Error()}
+	}
+	if !db.ValidUUID(id) {
+		return Source{}, ErrNotFound
+	}
+	tag, err := tx.Exec(ctx, `UPDATE identity_sources SET name = $2, config = $3 WHERE id = $1`, id, name, cfg)
+	if db.IsUniqueViolation(err) {
+		return Source{}, ErrNameTaken
+	}
+	if err != nil {
+		return Source{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return Source{}, ErrNotFound
+	}
+	return GetSource(ctx, tx, id)
+}
+
 const sourceColumns = `s.id, s.name, s.kind, s.config, s.created_at,
 	r.id, r.actor, r.dry_run, r.status, r.counts, r.errors, r.warnings, r.created_at`
 
@@ -226,7 +252,10 @@ func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Rea
 	}
 
 	res := SyncResult{Run: Run{SourceID: sourceID, Actor: opts.Actor, DryRun: opts.DryRun}}
-	var plan Result
+	var (
+		plan    Result
+		current []Current
+	)
 	records, issues, perr := ParseCSV(feed, cfg)
 	switch {
 	case perr != nil:
@@ -235,8 +264,7 @@ func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Rea
 		// Planning around bad lines would show their people as leavers.
 		plan = Result{Errors: issues, Warnings: []Issue{}}
 	default:
-		current, err := loadCurrent(ctx, tx)
-		if err != nil {
+		if current, err = loadCurrent(ctx, tx); err != nil {
 			return SyncResult{}, err
 		}
 		plan = Plan(sourceID, cfg, records, current, opts.Now)
@@ -267,7 +295,7 @@ func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Rea
 		return SyncResult{}, fmt.Errorf("record run: %w", err)
 	}
 	if res.Status == RunApplied {
-		if err := apply(ctx, tx, tenantID, sourceID, res.ID, res.Changes, opts); err != nil {
+		if err := apply(ctx, tx, tenantID, sourceID, res.ID, res.Changes, current, opts); err != nil {
 			return SyncResult{}, err
 		}
 	}
@@ -313,123 +341,144 @@ var auditAction = map[Kind]string{
 	Update: "identity.updated",
 }
 
-func apply(ctx context.Context, tx pgx.Tx, tenantID, sourceID, runID string, changes []Change, opts Options) error {
+// apply writes a plan. Every statement goes to Postgres in batches, so a
+// first import of thousands of people takes a few round trips, not tens of
+// thousands. current is what the plan was made from.
+func apply(ctx context.Context, tx pgx.Tx, tenantID, sourceID, runID string, changes []Change, current []Current, opts Options) error {
 	today := dateOnly(opts.Now)
 	// Employee id to identity id, to point managers at the right people once
 	// every joiner exists.
-	ids := map[string]string{}
-	rows, err := tx.Query(ctx, `SELECT external_id, id FROM identities WHERE external_id IS NOT NULL`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var ext, id string
-		if err := rows.Scan(&ext, &id); err != nil {
-			return err
+	ids := make(map[string]string, len(current)+len(changes))
+	for _, c := range current {
+		if c.ExternalID != "" {
+			ids[c.ExternalID] = c.ID
 		}
-		ids[ext] = id
 	}
-	if err := rows.Err(); err != nil {
-		return err
+	all := make([]*Change, len(changes))
+	for i := range changes {
+		all[i] = &changes[i]
 	}
 
 	created := map[string]bool{}
-	for i := range changes {
-		ch := &changes[i]
+	err := db.SendBatch(ctx, tx, all, func(b *pgx.Batch, ch *Change) {
 		rec := ch.record
 		switch {
 		case rec == nil:
 			// In the store but no longer in the feed.
-			_, err = tx.Exec(ctx,
-				`UPDATE identities SET status = 'terminated', end_date = coalesce(end_date, $2), updated_at = now()
+			b.Queue(`UPDATE identities SET status = 'terminated', end_date = coalesce(end_date, $2), updated_at = now()
 				 WHERE id = $1`, ch.IdentityID, today)
 		case ch.IdentityID == "":
-			err = tx.QueryRow(ctx,
-				`INSERT INTO identities (tenant_id, source_id, external_id, status, display_name, email, start_date, end_date, attributes)
+			b.Queue(`INSERT INTO identities (tenant_id, source_id, external_id, status, display_name, email, start_date, end_date, attributes)
 				 VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, $9) RETURNING id`,
 				tenantID, sourceID, rec.ExternalID, ch.Status, rec.DisplayName, rec.Email,
-				rec.StartDate, rec.EndDate, rec.Attributes).Scan(&ch.IdentityID)
-			ids[rec.ExternalID] = ch.IdentityID
-			created[ch.IdentityID] = true
+				rec.StartDate, rec.EndDate, rec.Attributes)
 		default:
-			_, err = tx.Exec(ctx,
-				`UPDATE identities SET source_id = $2, external_id = $3, status = $4, display_name = $5,
+			b.Queue(`UPDATE identities SET source_id = $2, external_id = $3, status = $4, display_name = $5,
 				        email = nullif($6, ''), start_date = $7, end_date = $8, attributes = $9, updated_at = now()
 				 WHERE id = $1`,
 				ch.IdentityID, sourceID, rec.ExternalID, ch.Status, rec.DisplayName, rec.Email,
 				rec.StartDate, rec.EndDate, rec.Attributes)
-			ids[rec.ExternalID] = ch.IdentityID
+		}
+	}, func(br pgx.BatchResults, ch *Change) error {
+		var err error
+		switch rec := ch.record; {
+		case rec != nil && ch.IdentityID == "":
+			err = br.QueryRow().Scan(&ch.IdentityID)
+			created[ch.IdentityID] = true
+		default:
+			_, err = br.Exec()
 		}
 		if err != nil {
 			return fmt.Errorf("apply %s %s: %w", ch.Kind, ch.ExternalID, err)
 		}
+		if ch.record != nil {
+			ids[ch.record.ExternalID] = ch.IdentityID
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
-	for i := range changes {
-		ch := &changes[i]
-		if rec := ch.record; rec != nil {
-			_, managerChanged := ch.Changes[FieldManagerID]
-			if managerChanged || (created[ch.IdentityID] && rec.ManagerExternalID != "") {
-				var mgr *string
-				if id, ok := ids[rec.ManagerExternalID]; ok && rec.ManagerExternalID != "" {
-					mgr = &id
-				}
-				if _, err := tx.Exec(ctx, `UPDATE identities SET manager_id = $2 WHERE id = $1`, ch.IdentityID, mgr); err != nil {
-					return fmt.Errorf("set manager of %s: %w", ch.ExternalID, err)
-				}
-			}
+	// Managers, in one statement now that every joiner has an id.
+	var who, managers []*string
+	for _, ch := range all {
+		rec := ch.record
+		if rec == nil {
+			continue
 		}
-		if err := record(ctx, tx, tenantID, "identity_source:"+sourceID, runID, ch, opts); err != nil {
-			return err
+		_, managerChanged := ch.Changes[FieldManagerID]
+		if managerChanged || (created[ch.IdentityID] && rec.ManagerExternalID != "") {
+			var mgr *string
+			if id, ok := ids[rec.ManagerExternalID]; ok && rec.ManagerExternalID != "" {
+				mgr = &id
+			}
+			who, managers = append(who, &ch.IdentityID), append(managers, mgr)
 		}
 	}
-	return nil
+	if len(who) > 0 {
+		if _, err := tx.Exec(ctx,
+			`UPDATE identities i SET manager_id = m.manager
+			 FROM unnest($1::uuid[], $2::uuid[]) AS m(id, manager) WHERE i.id = m.id`, who, managers); err != nil {
+			return fmt.Errorf("set managers: %w", err)
+		}
+	}
+	return recordAll(ctx, tx, tenantID, "identity_source:"+sourceID, runID, all, opts)
 }
 
-// record writes the lifecycle event and the audit event for one change, and
-// ends a leaver's console sessions.
-func record(ctx context.Context, tx pgx.Tx, tenantID, actor, runID string, ch *Change, opts Options) error {
-	details := map[string]any{"external_id": ch.ExternalID, "status": ch.Status}
-	if len(ch.Changes) > 0 {
-		details["changes"] = ch.Changes
-	}
-	if ch.Reason != "" {
-		details["reason"] = ch.Reason
-	}
-	if ch.Kind != Update {
-		effective := opts.Now
-		if (ch.Kind == Joiner || ch.Kind == Rehire) && ch.record != nil && ch.record.StartDate != nil {
-			effective = *ch.record.StartDate
-		}
-		var run *string
-		if runID != "" {
-			run = &runID
-		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO lifecycle_events (tenant_id, identity_id, kind, run_id, changes, effective_at)
-			 VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, ch.IdentityID, ch.Kind, run, details, effective); err != nil {
-			return fmt.Errorf("lifecycle event for %s: %w", ch.ExternalID, err)
-		}
-	}
-	if ch.Kind == Leaver {
-		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE identity_id = $1`, ch.IdentityID); err != nil {
-			return err
-		}
-	}
-	audit := map[string]any{"display_name": ch.DisplayName}
-	for k, v := range details {
-		audit[k] = v
-	}
+// recordAll writes the lifecycle event and the audit event for each change,
+// and ends leavers' console sessions, in batches.
+func recordAll(ctx context.Context, tx pgx.Tx, tenantID, actor, runID string, changes []*Change, opts Options) error {
+	var run *string
 	if runID != "" {
-		audit["run_id"] = runID
+		run = &runID
 	}
-	if opts.Actor != "" && opts.Actor != actor {
-		audit["started_by"] = opts.Actor
-	}
-	if ch.Linked {
-		audit["linked"] = true
-	}
-	return db.Audit(ctx, tx, tenantID, actor, auditAction[ch.Kind], "identity", ch.IdentityID, audit)
+	return db.SendBatch(ctx, tx, changes, func(b *pgx.Batch, ch *Change) {
+		details := map[string]any{"external_id": ch.ExternalID, "status": ch.Status}
+		if len(ch.Changes) > 0 {
+			details["changes"] = ch.Changes
+		}
+		if ch.Reason != "" {
+			details["reason"] = ch.Reason
+		}
+		if ch.Kind != Update {
+			effective := opts.Now
+			if (ch.Kind == Joiner || ch.Kind == Rehire) && ch.record != nil && ch.record.StartDate != nil {
+				effective = *ch.record.StartDate
+			}
+			b.Queue(`INSERT INTO lifecycle_events (tenant_id, identity_id, kind, run_id, changes, effective_at)
+				 VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, ch.IdentityID, ch.Kind, run, details, effective)
+		}
+		if ch.Kind == Leaver {
+			b.Queue(`DELETE FROM sessions WHERE identity_id = $1`, ch.IdentityID)
+		}
+		audit := map[string]any{"display_name": ch.DisplayName}
+		for k, v := range details {
+			audit[k] = v
+		}
+		if runID != "" {
+			audit["run_id"] = runID
+		}
+		if opts.Actor != "" && opts.Actor != actor {
+			audit["started_by"] = opts.Actor
+		}
+		if ch.Linked {
+			audit["linked"] = true
+		}
+		db.QueueAudit(b, tenantID, actor, auditAction[ch.Kind], "identity", ch.IdentityID, audit)
+	}, func(br pgx.BatchResults, ch *Change) error {
+		if ch.Kind != Update {
+			if _, err := br.Exec(); err != nil {
+				return fmt.Errorf("lifecycle event for %s: %w", ch.ExternalID, err)
+			}
+		}
+		if ch.Kind == Leaver {
+			if _, err := br.Exec(); err != nil {
+				return fmt.Errorf("end sessions of %s: %w", ch.ExternalID, err)
+			}
+		}
+		return db.ReadAudit(br, auditAction[ch.Kind])
+	})
 }
 
 // ApplyDueDates carries out the start and end dates that passed since the
@@ -451,11 +500,12 @@ func ApplyDueDates(ctx context.Context, pool *pgxpool.Pool, tenantID string, now
 		if err != nil {
 			return err
 		}
-		for _, r := range started {
-			if err := db.Audit(ctx, tx, tenantID, "system:lifecycle", "identity.activated", "identity", r.ID,
-				map[string]any{"external_id": r.ExternalID, "display_name": r.DisplayName, "reason": "start date reached"}); err != nil {
-				return err
-			}
+		err = db.SendBatch(ctx, tx, started, func(b *pgx.Batch, r dueRow) {
+			db.QueueAudit(b, tenantID, "system:lifecycle", "identity.activated", "identity", r.ID,
+				map[string]any{"external_id": r.ExternalID, "display_name": r.DisplayName, "reason": "start date reached"})
+		}, func(br pgx.BatchResults, _ dueRow) error { return db.ReadAudit(br, "identity.activated") })
+		if err != nil {
+			return err
 		}
 		activated = len(started)
 
@@ -474,12 +524,13 @@ func ApplyDueDates(ctx context.Context, pool *pgxpool.Pool, tenantID string, now
 		if err != nil {
 			return err
 		}
-		for _, r := range ended {
-			ch := &Change{Kind: Leaver, IdentityID: r.ID, ExternalID: r.ExternalID, DisplayName: r.DisplayName,
+		changes := make([]*Change, len(ended))
+		for i, r := range ended {
+			changes[i] = &Change{Kind: Leaver, IdentityID: r.ID, ExternalID: r.ExternalID, DisplayName: r.DisplayName,
 				Status: "terminated", Reason: ReasonEndDate, Changes: map[string]FieldChange{"status": {r.Status, "terminated"}}}
-			if err := record(ctx, tx, tenantID, "system:lifecycle", "", ch, Options{Now: now}); err != nil {
-				return err
-			}
+		}
+		if err := recordAll(ctx, tx, tenantID, "system:lifecycle", "", changes, Options{Now: now}); err != nil {
+			return err
 		}
 		left = len(ended)
 		return nil

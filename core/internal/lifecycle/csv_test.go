@@ -121,19 +121,6 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestNormalize(t *testing.T) {
-	for in, want := range map[string]string{
-		"Employee ID":      "employee_id",
-		" employee_id ":    "employee_id",
-		"Año de ingreso":   "año_de_ingreso",
-		"Cost-Center (EU)": "cost_center_eu",
-	} {
-		if got := normalize(in); got != want {
-			t.Errorf("normalize(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // The sample in deploy/samples must stay a valid feed.
 func TestSampleFile(t *testing.T) {
 	f, err := os.Open("../../../deploy/samples/hr-employees.csv")

@@ -2,15 +2,13 @@ package appauthz
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/apikey"
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
@@ -29,11 +27,6 @@ type Key struct {
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
-func hash(secret string) []byte {
-	h := sha256.Sum256([]byte(secret))
-	return h[:]
-}
-
 // CreateKey gives an application a new API key. The secret is returned
 // once; Grantra keeps only its hash.
 func CreateKey(ctx context.Context, tx pgx.Tx, tenantID, appID, name, actor string) (Key, string, error) {
@@ -44,16 +37,15 @@ func CreateKey(ctx context.Context, tx pgx.Tx, tenantID, appID, name, actor stri
 	if err := appExists(ctx, tx, appID); err != nil {
 		return Key{}, "", err
 	}
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	secret, shown, err := apikey.New(KeyPrefix)
+	if err != nil {
 		return Key{}, "", err
 	}
-	secret := KeyPrefix + base64.RawURLEncoding.EncodeToString(b)
-	k := Key{Name: name, Prefix: secret[:len(KeyPrefix)+6], CreatedBy: actor}
-	err := tx.QueryRow(ctx, `
+	k := Key{Name: name, Prefix: shown, CreatedBy: actor}
+	err = tx.QueryRow(ctx, `
 		INSERT INTO app_api_keys (tenant_id, application_id, name, prefix, hash, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-		tenantID, appID, k.Name, k.Prefix, hash(secret), actor).Scan(&k.ID, &k.CreatedAt)
+		tenantID, appID, k.Name, k.Prefix, apikey.Hash(secret), actor).Scan(&k.ID, &k.CreatedAt)
 	if err != nil {
 		return Key{}, "", err
 	}
@@ -82,9 +74,12 @@ func ListKeys(ctx context.Context, tx pgx.Tx, appID string) ([]Key, error) {
 
 // RevokeKey stops a key working. Revoking a revoked key does nothing.
 func RevokeKey(ctx context.Context, tx pgx.Tx, tenantID, appID, keyID, actor string) error {
+	if !db.ValidUUID(appID) || !db.ValidUUID(keyID) {
+		return apperr.ErrNotFound
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE app_api_keys SET revoked_at = coalesce(revoked_at, now())
-		WHERE application_id::text = $1 AND id::text = $2`, appID, keyID)
+		WHERE application_id = $1 AND id = $2`, appID, keyID)
 	if err != nil {
 		return err
 	}
@@ -108,9 +103,9 @@ func AppForKey(ctx context.Context, tx pgx.Tx, secret string) (string, error) {
 		used *time.Time
 	)
 	err := tx.QueryRow(ctx, `SELECT application_id, last_used_at FROM app_api_keys WHERE hash = $1 AND revoked_at IS NULL`,
-		hash(secret)).Scan(&app, &used)
+		apikey.Hash(secret)).Scan(&app, &used)
 	if err == nil && (used == nil || time.Since(*used) > time.Minute) {
-		_, err = tx.Exec(ctx, `UPDATE app_api_keys SET last_used_at = now() WHERE hash = $1`, hash(secret))
+		_, err = tx.Exec(ctx, `UPDATE app_api_keys SET last_used_at = now() WHERE hash = $1`, apikey.Hash(secret))
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrBadKey

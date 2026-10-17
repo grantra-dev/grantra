@@ -53,81 +53,85 @@ type Action string
 
 // Console actions. Each belongs to the "read" or the "write" action group.
 const (
-	ReadIdentity       Action = "identity.read"
-	ListIdentities     Action = "identity.list"
-	ReadAuditLog       Action = "audit.read"
-	ReadPlatformRole   Action = "platform_role.read"
-	GrantPlatformRole  Action = "platform_role.grant"
-	RevokePlatformRole Action = "platform_role.revoke"
-	ReadSources        Action = "identity_source.read"
-	ManageSources      Action = "identity_source.manage"
-	SyncSource         Action = "identity_source.sync"
-	ReadLifecycle      Action = "lifecycle_event.read"
-	ReadCatalog        Action = "catalog.read"
-	ManageCatalog      Action = "catalog.manage"
-	ReadAccessRules    Action = "access_rule.read"
-	ManageAccessRules  Action = "access_rule.manage"
-	ReadRequestable    Action = "requestable.read"
-	CreateRequest      Action = "access_request.create"
-	ReadRequest        Action = "access_request.read"
-	ListRequests       Action = "access_request.list"
-	DecideRequest      Action = "access_request.decide"
-	CancelRequest      Action = "access_request.cancel"
-	ReadCampaigns      Action = "review_campaign.read"
-	ManageCampaigns    Action = "review_campaign.manage"
-	DecideReview       Action = "review_item.decide"
-	ReadSoD            Action = "sod.read"
-	ManageSoD          Action = "sod.manage"
-	ReadLogin          Action = "login.read"
-	ManageLogin        Action = "login.manage"
-	ReadVault          Action = "vault.read"
-	ManageVault        Action = "vault.manage"
-	CheckoutVault      Action = "vault_account.checkout"
-	BreakGlassVault    Action = "vault_account.break_glass"
-	ReviewBreakGlass   Action = "break_glass_use.review"
-	ConnectSSH         Action = "ssh_target.connect"
-	ConnectGateway     Action = "gateway_target.connect"
-	ManageAccess       Action = "access.manage"
-	ActivateAccess     Action = "access.activate"
+	ReadIdentity        Action = "identity.read"
+	ListIdentities      Action = "identity.list"
+	ReadAuditLog        Action = "audit.read"
+	ReadPlatformRole    Action = "platform_role.read"
+	GrantPlatformRole   Action = "platform_role.grant"
+	RevokePlatformRole  Action = "platform_role.revoke"
+	ReadSources         Action = "identity_source.read"
+	ManageSources       Action = "identity_source.manage"
+	SyncSource          Action = "identity_source.sync"
+	ReadLifecycle       Action = "lifecycle_event.read"
+	ReadCatalog         Action = "catalog.read"
+	ManageCatalog       Action = "catalog.manage"
+	ReadAccessRules     Action = "access_rule.read"
+	ManageAccessRules   Action = "access_rule.manage"
+	ReadRequestable     Action = "requestable.read"
+	CreateRequest       Action = "access_request.create"
+	ReadRequest         Action = "access_request.read"
+	ListRequests        Action = "access_request.list"
+	DecideRequest       Action = "access_request.decide"
+	CancelRequest       Action = "access_request.cancel"
+	ReadCampaigns       Action = "review_campaign.read"
+	ManageCampaigns     Action = "review_campaign.manage"
+	DecideReview        Action = "review_item.decide"
+	ReadSoD             Action = "sod.read"
+	ManageSoD           Action = "sod.manage"
+	ReadLogin           Action = "login.read"
+	ManageLogin         Action = "login.manage"
+	ReadVault           Action = "vault.read"
+	ManageVault         Action = "vault.manage"
+	CheckoutVault       Action = "vault_account.checkout"
+	BreakGlassVault     Action = "vault_account.break_glass"
+	ReviewBreakGlass    Action = "break_glass_use.review"
+	ConnectSSH          Action = "ssh_target.connect"
+	ConnectGateway      Action = "gateway_target.connect"
+	ManageAccess        Action = "access.manage"
+	ActivateAccess      Action = "access.activate"
+	ReadServiceTokens   Action = "service_token.read"
+	ManageServiceTokens Action = "service_token.manage"
 )
 
 var actionGroup = map[Action]string{
-	ReadIdentity:       "read",
-	ListIdentities:     "read",
-	ReadAuditLog:       "read",
-	ReadPlatformRole:   "read",
-	GrantPlatformRole:  "write",
-	RevokePlatformRole: "write",
-	ReadSources:        "read",
-	ManageSources:      "write",
-	SyncSource:         "write",
-	ReadLifecycle:      "read",
-	ReadCatalog:        "read",
-	ManageCatalog:      "write",
-	ReadAccessRules:    "read",
-	ManageAccessRules:  "write",
-	ReadRequestable:    "read",
-	CreateRequest:      "write",
-	ReadRequest:        "read",
-	ListRequests:       "read",
-	DecideRequest:      "write",
-	CancelRequest:      "write",
-	ReadCampaigns:      "read",
-	ManageCampaigns:    "write",
-	DecideReview:       "write",
-	ReadSoD:            "read",
-	ManageSoD:          "write",
-	ReadLogin:          "read",
-	ManageLogin:        "write",
-	ReadVault:          "read",
-	ManageVault:        "write",
-	CheckoutVault:      "write",
-	BreakGlassVault:    "write",
-	ReviewBreakGlass:   "write",
-	ConnectSSH:         "write",
-	ConnectGateway:     "write",
-	ManageAccess:       "write",
-	ActivateAccess:     "write",
+	ReadIdentity:        "read",
+	ListIdentities:      "read",
+	ReadAuditLog:        "read",
+	ReadPlatformRole:    "read",
+	GrantPlatformRole:   "write",
+	RevokePlatformRole:  "write",
+	ReadSources:         "read",
+	ManageSources:       "write",
+	SyncSource:          "write",
+	ReadLifecycle:       "read",
+	ReadCatalog:         "read",
+	ManageCatalog:       "write",
+	ReadAccessRules:     "read",
+	ManageAccessRules:   "write",
+	ReadRequestable:     "read",
+	CreateRequest:       "write",
+	ReadRequest:         "read",
+	ListRequests:        "read",
+	DecideRequest:       "write",
+	CancelRequest:       "write",
+	ReadCampaigns:       "read",
+	ManageCampaigns:     "write",
+	DecideReview:        "write",
+	ReadSoD:             "read",
+	ManageSoD:           "write",
+	ReadLogin:           "read",
+	ManageLogin:         "write",
+	ReadVault:           "read",
+	ManageVault:         "write",
+	CheckoutVault:       "write",
+	BreakGlassVault:     "write",
+	ReviewBreakGlass:    "write",
+	ConnectSSH:          "write",
+	ConnectGateway:      "write",
+	ManageAccess:        "write",
+	ActivateAccess:      "write",
+	ReadServiceTokens:   "read",
+	ManageServiceTokens: "write",
 }
 
 // Writes reports whether the action changes something.
@@ -194,6 +198,11 @@ func LifecycleResource() Resource { return Resource{uid: cedar.NewEntityUID("Lif
 // CatalogResource is the tenant's catalog of applications, entitlements and
 // business roles, with the birthright rules that hand them out.
 func CatalogResource() Resource { return Resource{uid: cedar.NewEntityUID("Catalog", "tenant")} }
+
+// ServiceTokensResource is the tokens scripts use to feed Grantra.
+func ServiceTokensResource() Resource {
+	return Resource{uid: cedar.NewEntityUID("ServiceTokens", "tenant")}
+}
 
 // RequestsResource is every access request of the tenant.
 func RequestsResource() Resource { return Resource{uid: cedar.NewEntityUID("Requests", "tenant")} }

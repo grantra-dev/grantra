@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
@@ -137,8 +136,7 @@ func Launch(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (C
 		`INSERT INTO review_campaigns (tenant_id, name, reviewer, application_ids, on_missing, due_at, created_by)
 		 VALUES ($1, $2, $3, $4, $5, now() + make_interval(days => $6), $7) RETURNING id`,
 		tenantID, in.Name, in.Reviewer, in.ApplicationIDs, in.OnMissing, in.DueInDays, actor).Scan(&id)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if db.IsUniqueViolation(err) {
 		return Campaign{}, apperr.Conflictf("a campaign named %q already exists", in.Name)
 	}
 	if err != nil {

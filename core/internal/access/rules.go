@@ -170,8 +170,7 @@ func saveRule(ctx context.Context, tx pgx.Tx, tenantID, id string, in RuleInput)
 			return Rule{}, apperr.ErrNotFound
 		}
 	}
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && pe.Code == "23505" {
+	if db.IsUniqueViolation(err) {
 		return Rule{}, apperr.Conflictf("a rule named %q already exists", in.Name)
 	}
 	if err != nil {
