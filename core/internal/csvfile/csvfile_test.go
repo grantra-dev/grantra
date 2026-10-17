@@ -120,7 +120,7 @@ func TestValidateMapping(t *testing.T) {
 	if err := ValidateMapping(map[string]string{"id": "Worker ID"}, fields); err != nil {
 		t.Error(err)
 	}
-	for _, bad := range []map[string]string{{"nope": "x"}, {"id": " "}, {"id": "--"}} {
+	for _, bad := range []map[string]string{{"nope": "x"}, {"id": " "}, {"id": ""}} {
 		if err := ValidateMapping(bad, fields); err == nil {
 			t.Errorf("%v: no error", bad)
 		}

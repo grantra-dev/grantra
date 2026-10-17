@@ -158,7 +158,7 @@ func ValidateMapping(mapping map[string]string, fields []string) error {
 		if !slices.Contains(fields, field) {
 			return fmt.Errorf("columns: unknown field %q (known: %s)", field, strings.Join(fields, ", "))
 		}
-		if Normalize(col) == "" {
+		if strings.TrimSpace(col) == "" {
 			return fmt.Errorf("columns: empty column name for %q", field)
 		}
 	}

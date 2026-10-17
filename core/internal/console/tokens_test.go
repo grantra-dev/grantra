@@ -82,6 +82,10 @@ func TestServiceTokens(t *testing.T) {
 	if n := e.count(`SELECT count(*) FROM identity_source_runs WHERE actor = $1`, actor); n != 1 {
 		t.Errorf("runs by token = %d", n)
 	}
+	// The scheme is case insensitive, as HTTP says.
+	if rec := e.do("", http.MethodPost, "/api/v1/identity-sources/"+hr.ID+"/runs?dry_run=true", feed, "Authorization", "bearer "+tok.Secret); rec.Code != http.StatusOK {
+		t.Errorf("lower-case scheme = %d", rec.Code)
+	}
 	if n := e.count(`SELECT count(*) FROM service_tokens WHERE last_used_at IS NOT NULL`); n != 1 {
 		t.Errorf("last use not noted")
 	}

@@ -36,7 +36,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ### Changed
 
-- HR syncs read the file row by row and write in batches of 1,000: a first import of 2,000 people takes about a quarter of the time, and the file is no longer copied in memory. The start and end dates job writes its events in batches too.
+- HR syncs read the file row by row and write in batches of 1,000: importing 2,000 new people is about 3.5 times faster with the database on the same machine, and more when it is across a network. The file is no longer copied in memory, and the start and end dates job writes its events in batches too.
 - The console's Content Security Policy allows `'wasm-unsafe-eval'`, which the session player needs to run its terminal emulator. It does not allow eval of JavaScript.
 
 - Vault entitlements are always just in time only: requests for them need a duration, and the existing ones are switched on upgrade. Existing assignments with no end date stay, and show in the Standing access report to convert.

@@ -58,8 +58,8 @@ type tokenKey struct{}
 func (a *API) sessionOrToken(require func(http.Handler) http.Handler, next http.Handler) http.Handler {
 	withSession := require(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
+		scheme, secret, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		if !strings.EqualFold(scheme, "Bearer") {
 			withSession.ServeHTTP(w, r)
 			return
 		}

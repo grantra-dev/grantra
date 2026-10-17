@@ -357,4 +357,20 @@ func TestSyncLargeFeed(t *testing.T) {
 			t.Errorf("%s audit events = %d, want %d", kind, got, want)
 		}
 	}
+
+	// Managers are taken away in the same single statement that sets them.
+	var b strings.Builder
+	b.WriteString(header)
+	for i := range n - 5 {
+		fmt.Fprintf(&b, "E%d,Person %d,p%d@example.com,,Eng,,,\n", i, i, i)
+	}
+	res = e.sync(b.String(), Options{Actor: "identity:tester", Now: day1.AddDate(0, 0, 2)})
+	// Everyone with a manager moves, and so do E1998 and E2001, back from
+	// Sales to Eng.
+	if res.Status != RunApplied || res.Counts[Mover] != n-10+2 {
+		t.Fatalf("third sync = %s %v %v", res.Status, res.Counts, res.Errors)
+	}
+	if got := e.count(`SELECT count(*) FROM identities WHERE manager_id IS NOT NULL`); got != 0 {
+		t.Errorf("with a manager after removing them all = %d", got)
+	}
 }
