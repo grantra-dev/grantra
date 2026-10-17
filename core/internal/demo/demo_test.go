@@ -105,12 +105,16 @@ func TestSeedWithVault(t *testing.T) {
 	var entitlement string
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
 		list, err := vault.List(ctx, tx, "")
-		if err != nil || len(list) != 1 {
+		if err != nil || len(list) != 2 {
 			t.Fatalf("vault accounts = %+v, %v", list, err)
 		}
-		version, entitlement = list[0].Version, list[0].EntitlementName
+		root := list[0]
+		if root.Name != "Production database root" {
+			root = list[1]
+		}
+		version, entitlement = root.Version, root.EntitlementName
 		// Luis, on call, is its only break-glass responder.
-		ids, glass, err := vault.Responders(ctx, tx, list[0].ID)
+		ids, glass, err := vault.Responders(ctx, tx, root.ID)
 		var luis string
 		if err == nil {
 			err = tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis)
@@ -125,8 +129,8 @@ func TestSeedWithVault(t *testing.T) {
 	if version != 1 || entitlement != "Use Production database root" {
 		t.Fatalf("version %d, entitlement %q", version, entitlement)
 	}
-	// Luis may activate GitHub org admin and SSH to the production database
-	// server, which nobody holds for good.
+	// Luis may activate GitHub org admin, SSH to the production database
+	// server and the shop database, which nobody holds for good.
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
 		var luis string
 		if err := tx.QueryRow(ctx, `SELECT id FROM identities WHERE email = 'luis.perez@example.com'`).Scan(&luis); err != nil {
@@ -137,7 +141,8 @@ func TestSeedWithVault(t *testing.T) {
 		for _, el := range list {
 			names[el.Name] = el.MaxActivationHours
 		}
-		if err != nil || len(list) != 2 || names["Org admins"] != 2 || names["Log in to prod-db as postgres"] == 0 {
+		if err != nil || len(list) != 3 || names["Org admins"] != 2 || names["Log in to prod-db as postgres"] == 0 ||
+			names["Connect to the shop-db database"] == 0 {
 			t.Fatalf("luis's eligibilities = %+v, %v", list, err)
 		}
 		return nil

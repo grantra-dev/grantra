@@ -518,6 +518,35 @@ func (v *Vault) openVersion(ctx context.Context, tx pgx.Tx, tenantID, id string,
 	return string(out), nil
 }
 
+// GatewaySecret opens the current secret of a password account for the
+// gateway to log in with on someone's behalf. Nobody sees it, so it is no
+// check-out: the gateway session it opens is in the audit log instead.
+func (v *Vault) GatewaySecret(ctx context.Context, tx pgx.Tx, tenantID, id string) (username, secret string, err error) {
+	if !v.Enabled() {
+		return "", "", ErrDisabled
+	}
+	var kind string
+	var version int
+	err = tx.QueryRow(ctx,
+		`SELECT va.username, va.kind, coalesce(s.version, 0)
+		 FROM vault_accounts va LEFT JOIN vault_secret_versions s ON s.vault_account_id = va.id AND s.status = 'current'
+		 WHERE va.id = $1`, id).Scan(&username, &kind, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", apperr.ErrNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if kind != KindPassword {
+		return "", "", apperr.Conflictf("the gateway logs in with password accounts only")
+	}
+	if version == 0 {
+		return "", "", apperr.Conflictf("the vault account has no secret yet")
+	}
+	secret, err = v.openVersion(ctx, tx, tenantID, id, version)
+	return username, secret, err
+}
+
 // holds is true when c.identity_id, active, holds va's access right now:
 // an unexpired assignment of its entitlement, directly or through a role.
 const holds = `EXISTS (

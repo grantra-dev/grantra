@@ -103,6 +103,15 @@ when { resource.holders.contains(principal) };
 forbid (principal, action == Action::"ssh_target.connect", resource is SSHTarget)
 unless { resource.holders.contains(principal) };
 
+// The same for clusters and databases behind the gateway.
+@id("gateway-connect-holders")
+permit (principal, action == Action::"gateway_target.connect", resource is GatewayTarget)
+when { resource.holders.contains(principal) };
+
+@id("gateway-connect-holders-only")
+forbid (principal, action == Action::"gateway_target.connect", resource is GatewayTarget)
+unless { resource.holders.contains(principal) };
+
 // Break-glass accounts open without approval for their responders, and for
 // nobody else, admins included unless they are responders.
 @id("vault-break-glass-responders")

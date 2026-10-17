@@ -1,6 +1,6 @@
 # Credential vault
 
-The vault keeps the passwords and SSH keys of privileged accounts (root on a database, a domain admin, a break-glass user), hands them to the people allowed to use them for a limited time, and changes the passwords in the target system so that a password someone saw stops working. To log in to servers without handing out keys at all, see [SSH access](ssh.md).
+The vault keeps the passwords and SSH keys of privileged accounts (root on a database, a domain admin, a break-glass user), hands them to the people allowed to use them for a limited time, and changes the passwords in the target system so that a password someone saw stops working. To log in to servers without handing out keys at all, see [SSH access](ssh.md); to reach databases and Kubernetes clusters without anyone seeing the password, see [Databases and Kubernetes clusters](gateways.md).
 
 ## Turning it on
 
@@ -18,7 +18,7 @@ openssl rand -base64 32
 
 ## Key providers
 
-Instead of `GRANTRA_VAULT_KEY`, the master key can live in a key service, so that Grantra never holds it: a copy of the database or of Grantra's configuration then opens nothing without access to that key. Set `GRANTRA_VAULT_KEY_PROVIDER` and `GRANTRA_VAULT_KMS_KEY` (with Helm, `vault.provider` and `vault.kmsKey`) on the server, the [SSH gateway](ssh.md) and wherever you run `grantra vault rewrap`.
+Instead of `GRANTRA_VAULT_KEY`, the master key can live in a key service, so that Grantra never holds it: a copy of the database or of Grantra's configuration then opens nothing without access to that key. Set `GRANTRA_VAULT_KEY_PROVIDER` and `GRANTRA_VAULT_KMS_KEY` (with Helm, `vault.provider` and `vault.kmsKey`) on the server, the [gateway](ssh.md#the-gateway) and wherever you run `grantra vault rewrap`.
 
 | `GRANTRA_VAULT_KEY_PROVIDER` | `GRANTRA_VAULT_KMS_KEY` | Credentials |
 |---|---|---|
@@ -46,7 +46,7 @@ and run it where the vendor's PKCS#11 module is installed. CI tests it against S
 ### Moving to another key or provider
 
 1. Set the new provider and key, and keep the old one for unwrapping only: leave `GRANTRA_VAULT_KEY` set when moving from the local key, or set `GRANTRA_VAULT_OLD_KEY_PROVIDER` and `GRANTRA_VAULT_OLD_KMS_KEY` when moving from another provider or key, back to the local key included (the connection settings above are shared, so two transit keys must live in the same engine and two HSM keys in the same token). New secrets go to the new key.
-2. Run `grantra vault rewrap` once, with the same environment (with Helm, `kubectl exec deploy/<release>-grantra -- /grantra vault rewrap` after the upgrade). It unwraps every data key the old key wrapped and wraps it with the new one, for vault secrets and the [SSH certificate authorities](ssh.md); secrets themselves are not decrypted. It is safe to run again, and the audit log records it as `vault.rewrapped`.
+2. Run `grantra vault rewrap` once, with the same environment (with Helm, `kubectl exec deploy/<release>-grantra -- /grantra vault rewrap` after the upgrade). It unwraps every data key the old key wrapped and wraps it with the new one, for vault secrets, the [SSH certificate authorities](ssh.md) and the [gateway's TLS CA](gateways.md#the-gateway); secrets themselves are not decrypted. It is safe to run again, and the audit log records it as `vault.rewrapped`.
 3. Remove the old key's settings and restart. A secret still wrapped by a key Grantra no longer has fails to open with a message naming that key.
 
 Each provider unwraps only with its own key (any version of it): a key id written into the database cannot make Grantra call another KMS key, vault or server with its credentials.

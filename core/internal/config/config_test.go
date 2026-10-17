@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -134,5 +135,29 @@ func TestFromEnvMigration(t *testing.T) {
 	t.Setenv("GRANTRA_MIGRATE_ON_START", "later")
 	if _, err := FromEnv(); err == nil {
 		t.Error("expected error for GRANTRA_MIGRATE_ON_START=later")
+	}
+}
+
+func TestFromEnvGateway(t *testing.T) {
+	t.Setenv("GRANTRA_DATABASE_URL", "postgres://localhost/grantra")
+	t.Setenv("GRANTRA_SSH_GATEWAY_ADDRESS", "gw.example.com:2222")
+	t.Setenv("GRANTRA_GATEWAY_MYSQL_ADDRESS", "db.example.com:3306")
+	t.Setenv("GRANTRA_GATEWAY_TLS_NAMES", "gw.example.com, ,10.0.0.9")
+	t.Setenv("GRANTRA_GATEWAY_POSTGRES_ADDR", "off")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Gateway
+	// The listeners people reach default to the SSH gateway's host.
+	if g.KubernetesAddress != "gw.example.com:8443" || g.PostgresAddress != "gw.example.com:15432" || g.MySQLAddress != "db.example.com:3306" {
+		t.Errorf("addresses = %q %q %q", g.KubernetesAddress, g.PostgresAddress, g.MySQLAddress)
+	}
+	if strings.Join(g.TLSNames, "|") != "gw.example.com|10.0.0.9" || g.PostgresAddr != Off || g.KubernetesAddr != ":8443" {
+		t.Errorf("gateway = %+v", g)
+	}
+	t.Setenv("GRANTRA_GATEWAY_TLS_CERT_FILE", "/etc/gw/tls.crt")
+	if _, err := FromEnv(); err == nil {
+		t.Error("a certificate without its key")
 	}
 }

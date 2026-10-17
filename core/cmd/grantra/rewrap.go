@@ -9,6 +9,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
@@ -33,7 +34,7 @@ func rewrap(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	var secrets, cas int
+	var secrets, cas, gatewayCAs int
 	err = db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) (err error) {
 		if secrets, err = vault.Rewrap(ctx, tx, tenantID, keys); err != nil {
 			return err
@@ -41,12 +42,16 @@ func rewrap(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 		if cas, err = sshaccess.Rewrap(ctx, tx, tenantID, keys); err != nil {
 			return err
 		}
+		if gatewayCAs, err = gateways.Rewrap(ctx, tx, tenantID, keys); err != nil {
+			return err
+		}
 		return db.Audit(ctx, tx, tenantID, "system:rewrap", "vault.rewrapped", "tenant", tenantID,
-			map[string]any{"key": keys.KeyID(), "secret_versions": secrets, "ssh_cas": cas})
+			map[string]any{"key": keys.KeyID(), "secret_versions": secrets, "ssh_cas": cas, "gateway_tls_cas": gatewayCAs})
 	})
 	if err != nil {
 		return err
 	}
-	log.Info("re-wrapped every data key with the current vault key", "key", keys.KeyID(), "secret_versions", secrets, "ssh_cas", cas)
+	log.Info("re-wrapped every data key with the current vault key", "key", keys.KeyID(), "secret_versions", secrets, "ssh_cas", cas,
+		"gateway_tls_cas", gatewayCAs)
 	return nil
 }

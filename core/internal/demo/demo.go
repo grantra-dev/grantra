@@ -21,6 +21,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
@@ -250,6 +251,26 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 		}); err != nil {
 			return err
 		}
+		// Luis can also activate the shop database through the gateway,
+		// which logs in as its owner and logs every query. In the Docker
+		// Compose stack it is the shop database on the demo's own Postgres.
+		owner, err := opts.Vault.Create(ctx, tx, tenantID, actor, vault.Input{
+			Name: "Shop database owner", Username: "shop_owner", Secret: "shop-demo-password",
+			Settings: vault.Settings{Address: "postgres:5432", Notes: "The gateway logs in with it: nobody needs to check it out."},
+		})
+		if err != nil {
+			return err
+		}
+		shop, err := gateways.Create(ctx, tx, tenantID, actor, gateways.Input{Name: "shop-db", Kind: gateways.Postgres,
+			Settings: gateways.Settings{Address: ptr("postgres:5432"), Database: ptr("shop"), TLSMode: ptr(gateways.TLSDisable),
+				VaultAccountID: &owner.ID, MaxTokenHours: ptr(4), Notes: ptr("The online shop's orders. Every query is logged.")}})
+		if err != nil {
+			return err
+		}
+		if _, err := access.MakeEligible(ctx, tx, tenantID, actor, people["luis.perez@example.com"],
+			access.Target{EntitlementID: shop.EntitlementID}, nil, ""); err != nil {
+			return err
+		}
 	}
 
 	_, err = sod.Save(ctx, tx, tenantID, "", sod.Input{
@@ -265,3 +286,5 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 	}
 	return db.Audit(ctx, tx, tenantID, actor, "demo.seeded", "tenant", tenantID, nil)
 }
+
+func ptr[T any](v T) *T { return &v }

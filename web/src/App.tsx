@@ -23,6 +23,10 @@ import { Vault } from "@/pages/Vault";
 
 // Pages few people open load when first visited.
 const Servers = lazy(() => import("@/pages/Servers").then((m) => ({ default: m.Servers })));
+const Databases = lazy(() => import("@/pages/Databases").then((m) => ({ default: m.Databases })));
+const GatewaySessionLog = lazy(() =>
+  import("@/pages/GatewaySessionLog").then((m) => ({ default: m.GatewaySessionLog })),
+);
 const SessionPlayback = lazy(() =>
   import("@/pages/SessionPlayback").then((m) => ({ default: m.SessionPlayback })),
 );
@@ -56,6 +60,11 @@ export function App() {
         <Servers me={me} />
       </Suspense>
     ),
+    "/databases": (
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <Databases me={me} />
+      </Suspense>
+    ),
     "/approvals": <Approvals me={me} />,
     "/reviews": <AccessReviews me={me} />,
     "/people": <People />,
@@ -70,6 +79,12 @@ export function App() {
       "/servers/sessions/:id",
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
         <SessionPlayback />
+      </Suspense>,
+    ],
+    "/databases": [
+      "/databases/sessions/:id",
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <GatewaySessionLog />
       </Suspense>,
     ],
   };
