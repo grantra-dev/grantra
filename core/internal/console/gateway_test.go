@@ -278,6 +278,22 @@ func TestRemoteAccessAPI(t *testing.T) {
 	if _, resp, err := dial(ana, aws.ID); err == nil || resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("aws as a desktop = %v %v", resp, err)
 	}
+	// Another site's page gets nothing, not even a token; nor does a plain
+	// request.
+	tokens := func() int { return e.count(`SELECT count(*) FROM gateway_tokens WHERE target_id = $1`, desk.ID) }
+	before := tokens()
+	_, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1/gateway/targets/"+desk.ID+"/rdp",
+		&websocket.DialOptions{Subprotocols: []string{"guacamole"},
+			HTTPHeader: http.Header{"X-Test-Identity": {ana}, "Origin": {"https://evil.example"}}})
+	if err == nil || resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("from another site = %v %v", resp, err)
+	}
+	if rec := e.do(ana, http.MethodGet, "/api/v1/gateway/targets/"+desk.ID+"/rdp", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("plain GET = %d", rec.Code)
+	}
+	if n := tokens(); n != before {
+		t.Errorf("tokens issued: %d, then %d", before, n)
+	}
 	ws, _, err := dial(ana, desk.ID)
 	if err != nil {
 		t.Fatal(err)

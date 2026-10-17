@@ -70,6 +70,10 @@ export function Desktop() {
     const keyboard = new Guacamole.Keyboard(el);
     keyboard.onkeydown = (keysym) => c.sendKeyEvent(1, keysym);
     keyboard.onkeyup = (keysym) => c.sendKeyEvent(0, keysym);
+    // Keys held when focus leaves (Alt+Tab) would stay down on the desktop.
+    const release = () => keyboard.reset();
+    window.addEventListener("blur", release);
+    el.addEventListener("blur", release);
     el.focus();
 
     const size = () => ({
@@ -98,7 +102,10 @@ export function Desktop() {
     );
     return () => {
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("blur", release);
+      el.removeEventListener("blur", release);
       clearTimeout(resizing);
+      keyboard.reset();
       keyboard.onkeydown = null;
       keyboard.onkeyup = null;
       c.disconnect();

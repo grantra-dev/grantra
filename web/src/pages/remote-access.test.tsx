@@ -285,6 +285,82 @@ describe("Remote access", () => {
     expect(tab.location.href).toBe("");
   });
 
+  it("keeps the AWS credentials on the page when pop-ups are blocked", async () => {
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => null),
+    );
+    serve({
+      "GET /api/v1/me": ok(ana),
+      "GET /api/v1/gateway": ok(info),
+      "GET /api/v1/gateway/targets": ok({ targets: [aws] }),
+      "POST /api/v1/gateway/targets/t4/console": () => ({
+        status: 201,
+        body: {
+          session_id: "s9",
+          url: "https://signin.aws.amazon.com/federation?Action=login",
+          valid_before: "2026-10-17T11:00:00Z",
+          credentials: {
+            access_key_id: "ASIAEXAMPLE",
+            secret_access_key: "secret",
+            session_token: "token",
+            expiration: "2026-10-17T11:00:00Z",
+          },
+        },
+      }),
+    });
+    renderAt("/remote-access");
+    await userEvent.click(await screen.findByRole("button", { name: "Open console" }));
+    expect(await screen.findByText(/export AWS_ACCESS_KEY_ID=ASIAEXAMPLE/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open it again" })).toHaveAttribute(
+      "href",
+      "https://signin.aws.amazon.com/federation?Action=login",
+    );
+  });
+
+  it("lets admins add a desktop without NLA", async () => {
+    let sent: unknown;
+    serve({
+      "GET /api/v1/me": ok(admin),
+      "GET /api/v1/gateway": ok(info),
+      "GET /api/v1/gateway/targets": ok({ targets: [] }),
+      "GET /api/v1/vault/accounts": ok({
+        enabled: true,
+        accounts: [{ id: "v1", name: "desk", username: "ubuntu", kind: "password" }],
+      }),
+      "POST /api/v1/gateway/targets": (init) => {
+        sent = body(init);
+        return { status: 201, body: desktop };
+      },
+    });
+    renderAt("/remote-access");
+    await userEvent.click(await screen.findByRole("button", { name: "Add a target" }));
+    await userEvent.selectOptions(screen.getByLabelText("Kind"), "rdp");
+    // A desktop is always reached over TLS.
+    expect(screen.getByLabelText("TLS to the desktop")).not.toHaveTextContent("No TLS");
+    await userEvent.type(screen.getByLabelText("Name"), "linux-box");
+    await userEvent.type(screen.getByLabelText("Address"), "10.0.0.9");
+    await userEvent.selectOptions(screen.getByLabelText("Security"), "tls");
+    await userEvent.selectOptions(screen.getByLabelText("TLS to the desktop"), "require");
+    const account = screen.getByLabelText("Logs in with");
+    await waitFor(() => expect(account).toHaveTextContent("desk"));
+    await userEvent.selectOptions(account, "v1");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() =>
+      expect(sent).toEqual({
+        name: "linux-box",
+        kind: "rdp",
+        risk: "high",
+        address: "10.0.0.9",
+        tls_mode: "require",
+        vault_account_id: "v1",
+        max_token_hours: 8,
+        clipboard: "paste",
+        rdp_security: "tls",
+      }),
+    );
+  });
+
   it("lets admins add a Google Cloud project, sending only what it takes", async () => {
     let sent: unknown;
     serve({
@@ -368,14 +444,17 @@ describe("Remote access", () => {
     expect(screen.getByText(/ends by/)).toBeInTheDocument();
   });
 
-  it("sends the old address to the new one", async () => {
+  it("sends the old addresses to the new ones", async () => {
     serve({
-      "GET /api/v1/me": ok(ana),
-      "GET /api/v1/gateway": ok(info),
-      "GET /api/v1/gateway/targets": ok({ targets: [db] }),
+      "GET /api/v1/me": ok(auditor),
+      "GET /api/v1/gateway/sessions?limit=200": ok({ sessions: [session] }),
+      "GET /api/v1/gateway/sessions/s1": ok({ ...session, log: [event] }),
     });
-    renderAt("/databases");
-    expect(await screen.findByRole("heading", { name: "Remote access" })).toBeInTheDocument();
+    const { unmount } = renderAt("/databases?tab=sessions");
+    expect(await screen.findByText("Running")).toBeInTheDocument();
+    unmount();
+    renderAt("/databases/sessions/s1");
+    expect(await screen.findByText("DELETE FROM orders WHERE id = 1")).toBeInTheDocument();
   });
 
   it("shows auditors sessions and their logs", async () => {

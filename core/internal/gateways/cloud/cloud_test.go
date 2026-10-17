@@ -446,6 +446,11 @@ func TestGoogleCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.must(func(tx pgx.Tx) error { return gateways.Terminate(e.ctx, tx, e.tenant, "identity:admin", out.SessionID) })
+	// Until it has ended, she waits: a new session would share its grant.
+	var cf *apperr.Conflict
+	if _, err := e.c.Open(e.ctx, ana, tg.ID, "1.2.3.4:5"); !errors.As(err, &cf) || !strings.Contains(err.Error(), "still ending") {
+		t.Errorf("open while ending = %v", err)
+	}
 	if n := e.endSessions(); n != 1 || len(e.clouds.bindings()) != 1 {
 		t.Errorf("%d ended, bindings %v", n, e.clouds.bindings())
 	}

@@ -4,8 +4,11 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -213,6 +216,23 @@ func (a *API) checkConnect(ctx context.Context, tx pgx.Tx, me authz.Subject, id 
 
 // connectDesktop opens a desktop session on a WebSocket, for the console's
 // Guacamole client: ?width=&height=&dpi=&timezone= describe the screen.
+// sameOrigin says whether r comes from Grantra's own pages, or from no page
+// at all (a browser always says which page it comes from).
+func (d Desktops) sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	return slices.ContainsFunc(d.Origins, func(o string) bool { return strings.EqualFold(o, u.Host) })
+}
+
 func (a *API) connectDesktop(w http.ResponseWriter, r *http.Request) {
 	var g gateways.Grant
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
@@ -221,6 +241,11 @@ func (a *API) connectDesktop(w http.ResponseWriter, r *http.Request) {
 		}
 		if !a.Gateways.Enabled() {
 			return gateways.ErrDisabled
+		}
+		// Only the console's own pages open a desktop: nothing else gets a
+		// token issued. The WebSocket handshake checks the origin again.
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") || !a.Desktops.sameOrigin(r) {
+			return apperr.Invalidf("a desktop opens from Grantra's console, over a WebSocket")
 		}
 		t, err := a.checkConnect(r.Context(), tx, me, r.PathValue("id"))
 		if err != nil {
@@ -271,9 +296,17 @@ func (a *API) openConsole(w http.ResponseWriter, r *http.Request) {
 // gatewayRecording returns a desktop session's screen recording, in the
 // Guacamole protocol, for the console's player. Watching one is audited.
 func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
-	started := false
+	id := r.PathValue("id")
 	err := a.guardedOn(r, authz.ReadVault, authz.VaultResource(), func(tx pgx.Tx, me authz.Subject) error {
-		return gateways.WriteRecording(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), func() {
+		return gateways.RecordingViewed(r.Context(), tx, a.tenantID, me.Actor(), id)
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	started := false
+	err = a.inTenant(r, func(tx pgx.Tx, _ authz.Subject) error {
+		return gateways.WriteRecording(r.Context(), tx, id, func() {
 			started = true
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Header().Set("Cache-Control", "no-store")
@@ -283,7 +316,7 @@ func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if started {
 			// Too late to say so: the client sees a recording cut short.
-			a.log.ErrorContext(r.Context(), "could not send a desktop recording", "session", r.PathValue("id"), "err", err)
+			a.log.ErrorContext(r.Context(), "could not send a desktop recording", "session", id, "err", err)
 			return
 		}
 		a.fail(w, r, err)

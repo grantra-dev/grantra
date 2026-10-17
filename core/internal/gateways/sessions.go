@@ -367,12 +367,10 @@ func AppendRecording(ctx context.Context, tx pgx.Tx, tenantID, sessionID string,
 	return err
 }
 
-// WriteRecording writes a desktop session's screen recording to w, piece
-// by piece (it can be large), after checking the session exists; start is
-// called before the first byte, to set headers. A running session's
-// recording is what was stored so far. Whoever watched it is in the audit
-// log.
-func WriteRecording(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, start func(), w io.Writer) error {
+// RecordingViewed checks that a desktop session exists and records in the
+// audit log that actor is watching its recording. Callers commit it before
+// sending the recording, so a download cut short is still in the log.
+func RecordingViewed(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	s, err := GetSession(ctx, tx, id)
 	if err != nil {
 		return err
@@ -380,9 +378,14 @@ func WriteRecording(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, 
 	if s.Kind != RDP {
 		return apperr.Invalidf("only desktop sessions are recorded; see the session's log")
 	}
-	if err := db.Audit(ctx, tx, tenantID, actor, "gateway.recording_viewed", "gateway_session", id, nil); err != nil {
-		return err
-	}
+	return db.Audit(ctx, tx, tenantID, actor, "gateway.recording_viewed", "gateway_session", id, nil)
+}
+
+// WriteRecording writes a desktop session's screen recording to w, piece
+// by piece (it can be large); start is called before the first byte, to
+// set headers. A running session's recording is what was stored so far.
+// See RecordingViewed.
+func WriteRecording(ctx context.Context, tx pgx.Tx, id string, start func(), w io.Writer) error {
 	start()
 	rows, err := tx.Query(ctx, `SELECT data FROM gateway_recordings WHERE session_id = $1 ORDER BY seq`, id)
 	if err != nil {

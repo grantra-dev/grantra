@@ -22,7 +22,7 @@ func TestDesktopAndCloudTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rdp.Address != "10.0.0.9:3389" || rdp.TLSMode != TLSVerify || rdp.Clipboard != ClipboardPaste || rdp.MaxTokenHours != 8 ||
+	if rdp.Address != "10.0.0.9:3389" || rdp.TLSMode != TLSVerify || rdp.Clipboard != ClipboardPaste || rdp.RDPSecurity != SecurityNLA || rdp.MaxTokenHours != 8 ||
 		rdp.EntitlementName != "Use the win-1 desktop" {
 		t.Errorf("desktop = %+v", rdp)
 	}
@@ -60,6 +60,8 @@ func TestDesktopAndCloudTargets(t *testing.T) {
 		{"rdp with a CA", Input{Name: "x", Kind: RDP, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, CACertificate: ptr(testCA(t))}}, "ca_certificate is for"},
 		{"rdp bad clipboard", Input{Name: "x", Kind: RDP, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, Clipboard: ptr("copy")}}, "clipboard must be"},
 		{"rdp host with comma", Input{Name: "x", Kind: RDP, Settings: Settings{Address: ptr("a,b"), VaultAccountID: &acct}}, "host name or IP"},
+		{"rdp legacy security", Input{Name: "x", Kind: RDP, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, RDPSecurity: ptr("any")}}, "rdp_security must be nla or tls"},
+		{"rdp security on a database", Input{Name: "x", Kind: Postgres, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, RDPSecurity: ptr("tls")}}, "rdp_security is for desktops"},
 		{"clipboard on a database", Input{Name: "x", Kind: Postgres, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, Clipboard: ptr("both")}}, "clipboard is for desktops"},
 		{"database on a desktop", Input{Name: "x", Kind: RDP, Settings: Settings{Address: ptr("h"), VaultAccountID: &acct, Database: ptr("d")}}, "database is for"},
 		{"aws bad arn", Input{Name: "x", Kind: AWS, Settings: Settings{Address: ptr("arn:aws:iam::1:user/bob"), VaultAccountID: &acct}}, "ARN of the IAM role"},
@@ -84,10 +86,10 @@ func TestDesktopAndCloudTargets(t *testing.T) {
 	// Settings change, and stay checked.
 	var up Target
 	e.must(func(tx pgx.Tx) (err error) {
-		up, err = Update(e.ctx, tx, e.tenant, "identity:admin", rdp.ID, Settings{Clipboard: ptr(ClipboardNone), TLSMode: ptr(TLSRequire)})
+		up, err = Update(e.ctx, tx, e.tenant, "identity:admin", rdp.ID, Settings{Clipboard: ptr(ClipboardNone), TLSMode: ptr(TLSRequire), RDPSecurity: ptr(SecurityTLS)})
 		return err
 	})
-	if up.Clipboard != ClipboardNone || up.TLSMode != TLSRequire || up.Address != rdp.Address {
+	if up.Clipboard != ClipboardNone || up.TLSMode != TLSRequire || up.RDPSecurity != SecurityTLS || up.Address != rdp.Address {
 		t.Errorf("updated = %+v", up)
 	}
 	err = e.tx(func(tx pgx.Tx) error {
@@ -116,6 +118,22 @@ func TestDesktopAndCloudTargets(t *testing.T) {
 	var cf *apperr.Conflict
 	if !errors.As(err, &cf) || !strings.Contains(err.Error(), "1 console sessions running") {
 		t.Errorf("delete with a session = %v", err)
+	}
+	// Nor does it move: the grant is taken back from the project it is in.
+	err = e.tx(func(tx pgx.Tx) error {
+		_, err := Update(e.ctx, tx, e.tenant, "identity:admin", gcp.ID, Settings{Address: ptr("shop-other-123")})
+		return err
+	})
+	if !errors.As(err, &cf) {
+		t.Errorf("move with a session = %v", err)
+	}
+	// Its notes and hours can still change.
+	err = e.tx(func(tx pgx.Tx) error {
+		_, err := Update(e.ctx, tx, e.tenant, "identity:admin", gcp.ID, Settings{Notes: ptr("still here")})
+		return err
+	})
+	if err != nil {
+		t.Errorf("notes with a session = %v", err)
 	}
 	// Nor are console sessions lost: the gateway does not touch them.
 	e.exec(`UPDATE gateway_sessions SET last_seen_at = now() - interval '1 hour' WHERE id = $1`, session)
@@ -174,8 +192,9 @@ func TestRecording(t *testing.T) {
 	})
 	var out bytes.Buffer
 	started := false
+	e.must(func(tx pgx.Tx) error { return RecordingViewed(e.ctx, tx, e.tenant, "identity:auditor", session) })
 	e.must(func(tx pgx.Tx) error {
-		return WriteRecording(e.ctx, tx, e.tenant, "identity:auditor", session, func() { started = true }, &out)
+		return WriteRecording(e.ctx, tx, session, func() { started = true }, &out)
 	})
 	if out.String() != "4.sync,1.1;4.sync,1.2;" || !started {
 		t.Errorf("recording = %q", out.String())
@@ -197,7 +216,7 @@ func TestRecording(t *testing.T) {
 		return err
 	})
 	err = e.tx(func(tx pgx.Tx) error {
-		return WriteRecording(e.ctx, tx, e.tenant, "identity:auditor", session, func() { t.Error("started") }, &out)
+		return RecordingViewed(e.ctx, tx, e.tenant, "identity:auditor", session)
 	})
 	if !isInvalid(err) {
 		t.Errorf("database recording = %v", err)

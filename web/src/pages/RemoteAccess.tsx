@@ -38,6 +38,7 @@ import {
   updateGatewayTarget,
   usesToken,
   type Clipboard,
+  type RDPSecurity,
   type ConsoleSession,
   type GatewayInfo,
   type GatewayKind,
@@ -165,8 +166,10 @@ function describe(t: GatewayTarget) {
 function newTab() {
   const w = window.open("", "_blank");
   return {
+    // With pop-ups blocked, the panel's link opens it: leaving the page
+    // would lose what it shows only once.
     go: (url: string) => {
-      if (!w) return window.location.assign(url);
+      if (!w) return;
       w.opener = null;
       w.location.href = url;
     },
@@ -540,18 +543,31 @@ function KindFields({
       );
     case "rdp":
       return (
-        <div>
-          <Label htmlFor={`${idPrefix}-clip`}>Clipboard</Label>
-          <Select
-            id={`${idPrefix}-clip`}
-            value={s.clipboard ?? "paste"}
-            onChange={(e) => set({ clipboard: e.target.value as Clipboard })}
-          >
-            <option value="paste">Paste into the desktop only</option>
-            <option value="both">Copy and paste both ways</option>
-            <option value="none">Off</option>
-          </Select>
-        </div>
+        <>
+          <div>
+            <Label htmlFor={`${idPrefix}-sec`}>Security</Label>
+            <Select
+              id={`${idPrefix}-sec`}
+              value={s.rdp_security ?? "nla"}
+              onChange={(e) => set({ rdp_security: e.target.value as RDPSecurity })}
+            >
+              <option value="nla">Network Level Authentication (Windows)</option>
+              <option value="tls">TLS only (desktops without NLA, such as xrdp)</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor={`${idPrefix}-clip`}>Clipboard</Label>
+            <Select
+              id={`${idPrefix}-clip`}
+              value={s.clipboard ?? "paste"}
+              onChange={(e) => set({ clipboard: e.target.value as Clipboard })}
+            >
+              <option value="paste">Paste into the desktop only</option>
+              <option value="both">Copy and paste both ways</option>
+              <option value="none">Off</option>
+            </Select>
+          </div>
+        </>
       );
     case "aws":
       return null;
@@ -602,6 +618,7 @@ function settingsFor(kind: GatewayKind, s: GatewayTargetSettings, groups: string
     out.database = s.database;
   } else if (kind === "rdp") {
     out.clipboard = s.clipboard;
+    out.rdp_security = s.rdp_security;
   } else if (kind !== "aws") {
     out.cloud_role = s.cloud_role;
     if (kind === "azure") out.cloud_directory = s.cloud_directory;
@@ -621,6 +638,7 @@ function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => void })
     ca_certificate: t.ca_certificate ?? "",
     vault_account_id: t.vault_account_id ?? "",
     clipboard: t.clipboard,
+    rdp_security: t.rdp_security,
     cloud_role: t.cloud_role ?? "",
     cloud_directory: t.cloud_directory ?? "",
     max_token_hours: t.max_token_hours,
@@ -773,6 +791,7 @@ function NewTarget({ onDone }: { onDone: () => void }) {
     ca_certificate: "",
     vault_account_id: "",
     clipboard: "paste",
+    rdp_security: "nla",
     cloud_role: "",
     cloud_directory: "",
     max_token_hours: 8,

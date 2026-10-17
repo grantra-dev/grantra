@@ -9,6 +9,8 @@ import type { SessionEnd } from "./ssh";
 
 export type GatewayKind = "kubernetes" | "postgres" | "mysql" | "rdp" | "aws" | "azure" | "gcp";
 export type Clipboard = "both" | "paste" | "none";
+/** How a desktop is reached: Network Level Authentication, or TLS alone. */
+export type RDPSecurity = "nla" | "tls";
 
 export const isCloud = (k: GatewayKind) => k === "aws" || k === "azure" || k === "gcp";
 /** Targets reached with a token, from the person's own tools. */
@@ -44,6 +46,7 @@ export interface GatewayTarget {
   kube_groups: string[];
   /** Desktops: which way the clipboard works. */
   clipboard?: Clipboard;
+  rdp_security?: RDPSecurity;
   /** Azure and Google Cloud: the role people get; Azure: the directory. */
   cloud_role?: string;
   cloud_directory?: string;
@@ -66,6 +69,7 @@ export interface GatewayTargetSettings {
   vault_account_id?: string;
   kube_groups?: string[];
   clipboard?: Clipboard;
+  rdp_security?: RDPSecurity;
   cloud_role?: string;
   cloud_directory?: string;
   max_token_hours?: number;

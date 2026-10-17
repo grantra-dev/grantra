@@ -35,19 +35,32 @@ export function DesktopRecording({ sessionID }: { sessionID: string }) {
     display.onresize = (w) => {
       if (w) display.scale(Math.min(1, el.clientWidth / w));
     };
-    rec.onprogress = (d) => setDuration(d);
+    // The client says nothing when the network fails before any answer.
+    let heard = false;
+    rec.onprogress = (d) => {
+      heard = true;
+      setDuration(d);
+    };
     rec.onload = () => {
+      heard = true;
       setLoaded(true);
       setDuration(rec.getDuration());
     };
-    rec.onerror = (m) => setProblem(m || "Grantra could not load the recording.");
+    rec.onerror = (m) => {
+      heard = true;
+      setProblem(m || "Grantra could not load the recording.");
+    };
     rec.onplay = () => setPlaying(true);
     rec.onpause = () => setPlaying(false);
     rec.onseek = (p) => setPosition(p);
     const timer = setInterval(() => setPosition(rec.getPosition()), 250);
+    const silent = setTimeout(() => {
+      if (!heard) setProblem("Grantra could not load the recording.");
+    }, 30000);
     rec.connect();
     return () => {
       clearInterval(timer);
+      clearTimeout(silent);
       rec.pause();
       rec.abort();
       rec.disconnect();

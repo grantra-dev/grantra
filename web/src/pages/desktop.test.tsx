@@ -11,6 +11,7 @@ const g = vi.hoisted(() => {
     tunnelURL: "",
     connected: "",
     disconnected: 0,
+    resets: 0,
     clipboard: [] as string[],
     client: null as null | {
       onstatechange: ((s: number) => void) | null;
@@ -73,6 +74,9 @@ const g = vi.hoisted(() => {
     Keyboard: class {
       onkeydown = null;
       onkeyup = null;
+      reset() {
+        state.resets++;
+      }
     },
     StringWriter,
     StringReader: class {},
@@ -117,6 +121,11 @@ describe("Desktop", () => {
     // Guacamole's "connected" state.
     act(() => g.state.client!.onstatechange!(3));
     expect(screen.getByText(/the screen is recorded/)).toBeInTheDocument();
+
+    // Keys held when the tab loses focus are let go.
+    const resets = g.state.resets;
+    act(() => window.dispatchEvent(new Event("blur")));
+    expect(g.state.resets).toBe(resets + 1);
 
     // Text pasted in Grantra goes to the desktop's clipboard.
     await userEvent.click(screen.getByRole("button", { name: "Clipboard" }));

@@ -79,6 +79,15 @@ const (
 	ClipboardNone  = "none"
 )
 
+// Security a desktop is reached with: Network Level Authentication (the
+// login checked over TLS before the session starts, what Windows asks for
+// by default), or TLS alone (desktops without NLA, such as xrdp). Never
+// the legacy RDP encryption, whose key nothing checks.
+const (
+	SecurityNLA = "nla"
+	SecurityTLS = "tls"
+)
+
 // TLS modes: how the gateway talks to a target.
 const (
 	TLSVerify  = "verify"
@@ -103,6 +112,8 @@ type Target struct {
 	KubeGroups       []string `json:"kube_groups"`
 	// Clipboard is which way the clipboard works on a desktop.
 	Clipboard string `json:"clipboard,omitempty"`
+	// RDPSecurity is how a desktop is reached: nla or tls.
+	RDPSecurity string `json:"rdp_security,omitempty"`
 	// CloudRole is the role a cloud console signs people in with on Azure
 	// and Google Cloud (on AWS the address is the role).
 	CloudRole string `json:"cloud_role,omitempty"`
@@ -132,6 +143,7 @@ type Settings struct {
 	VaultAccountID *string  `json:"vault_account_id"`
 	KubeGroups     []string `json:"kube_groups"`
 	Clipboard      *string  `json:"clipboard"`
+	RDPSecurity    *string  `json:"rdp_security"`
 	CloudRole      *string  `json:"cloud_role"`
 	CloudDirectory *string  `json:"cloud_directory"`
 	MaxTokenHours  *int     `json:"max_token_hours"`
@@ -154,7 +166,7 @@ var (
 // config is a target's settings once merged and checked.
 type config struct {
 	address, database, tlsMode, caCert, vaultAccountID, notes string
-	clipboard, cloudRole, cloudDirectory                      string
+	clipboard, rdpSecurity, cloudRole, cloudDirectory         string
 	kubeGroups                                                []string
 	maxTokenHours                                             int
 }
@@ -172,6 +184,7 @@ func (c *config) apply(s Settings) {
 	set(&c.vaultAccountID, s.VaultAccountID)
 	set(&c.notes, s.Notes)
 	set(&c.clipboard, s.Clipboard)
+	set(&c.rdpSecurity, s.RDPSecurity)
 	set(&c.cloudRole, s.CloudRole)
 	set(&c.cloudDirectory, s.CloudDirectory)
 	if s.KubeGroups != nil {
@@ -211,6 +224,7 @@ func (c *config) check(ctx context.Context, tx pgx.Tx, kind, name string) error 
 		{"database", c.database != "", kind == Postgres || kind == MySQL, "databases"},
 		{"kube_groups", len(c.kubeGroups) > 0, kind == Kubernetes, "clusters"},
 		{"clipboard", c.clipboard != "", kind == RDP, "desktops"},
+		{"rdp_security", c.rdpSecurity != "", kind == RDP, "desktops"},
 		{"cloud_role", c.cloudRole != "", kind == Azure || kind == GCP, "Azure and Google Cloud"},
 		{"cloud_directory", c.cloudDirectory != "", kind == Azure, "Azure"},
 		{"ca_certificate", c.caCert != "", kind == Kubernetes || kind == Postgres || kind == MySQL, "clusters and databases"},
@@ -333,6 +347,12 @@ func (c *config) checkHost(kind string) error {
 		}
 		if c.clipboard != ClipboardBoth && c.clipboard != ClipboardPaste && c.clipboard != ClipboardNone {
 			return apperr.Invalidf("clipboard must be both, paste or none")
+		}
+		if c.rdpSecurity == "" {
+			c.rdpSecurity = SecurityNLA
+		}
+		if c.rdpSecurity != SecurityNLA && c.rdpSecurity != SecurityTLS {
+			return apperr.Invalidf("rdp_security must be nla or tls")
 		}
 	}
 	return nil
@@ -508,10 +528,10 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (T
 	var id string
 	err = tx.QueryRow(ctx,
 		`INSERT INTO gateway_targets (tenant_id, name, kind, address, database, tls_mode, ca_certificate, vault_account_id,
-		                              kube_groups, notes, entitlement_id, max_token_hours, created_by, clipboard, cloud_role, cloud_directory)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) ON CONFLICT DO NOTHING RETURNING id`,
+		                              kube_groups, notes, entitlement_id, max_token_hours, created_by, clipboard, rdp_security, cloud_role, cloud_directory)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT DO NOTHING RETURNING id`,
 		tenantID, name, in.Kind, c.address, db.Nullable(c.database), c.tlsMode, db.Nullable(c.caCert), db.Nullable(c.vaultAccountID),
-		c.kubeGroups, db.Nullable(c.notes), ent.ID, c.maxTokenHours, actor, db.Nullable(c.clipboard), db.Nullable(c.cloudRole),
+		c.kubeGroups, db.Nullable(c.notes), ent.ID, c.maxTokenHours, actor, db.Nullable(c.clipboard), db.Nullable(c.rdpSecurity), db.Nullable(c.cloudRole),
 		db.Nullable(c.cloudDirectory)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Target{}, apperr.Conflictf("a target named %q already exists", name)
@@ -521,7 +541,7 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (T
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "gateway.target_created", "gateway_target", id,
 		map[string]any{"name": name, "kind": in.Kind, "address": c.address, "tls_mode": c.tlsMode,
-			"vault_account_id": c.vaultAccountID, "kube_groups": c.kubeGroups, "clipboard": c.clipboard, "cloud_role": c.cloudRole,
+			"vault_account_id": c.vaultAccountID, "kube_groups": c.kubeGroups, "clipboard": c.clipboard, "rdp_security": c.rdpSecurity, "cloud_role": c.cloudRole,
 			"cloud_directory": c.cloudDirectory, "entitlement_id": ent.ID}); err != nil {
 		return Target{}, err
 	}
@@ -556,18 +576,25 @@ func Update(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, s Settin
 	}
 	c := config{address: cur.Address, database: cur.Database, tlsMode: cur.TLSMode, caCert: cur.CACertificate,
 		vaultAccountID: cur.VaultAccountID, notes: cur.Notes, kubeGroups: cur.KubeGroups, maxTokenHours: cur.MaxTokenHours,
-		clipboard: cur.Clipboard, cloudRole: cur.CloudRole, cloudDirectory: cur.CloudDirectory}
+		clipboard: cur.Clipboard, rdpSecurity: cur.RDPSecurity, cloudRole: cur.CloudRole, cloudDirectory: cur.CloudDirectory}
 	c.apply(s)
 	if err := c.check(ctx, tx, cur.Kind, cur.Name); err != nil {
 		return Target{}, err
 	}
+	if (cur.Kind == Azure || cur.Kind == GCP) &&
+		(c.address != cur.Address || c.cloudRole != cur.CloudRole || c.cloudDirectory != cur.CloudDirectory) {
+		// Running sessions' grants are taken back where they were made.
+		if err := refuseRunning(ctx, tx, cur, "changing where and what it grants"); err != nil {
+			return Target{}, err
+		}
+	}
 	_, err = tx.Exec(ctx,
 		`UPDATE gateway_targets SET address = $2, database = $3, tls_mode = $4, ca_certificate = $5, vault_account_id = $6,
-		        kube_groups = $7, notes = $8, max_token_hours = $9, clipboard = $10, cloud_role = $11, cloud_directory = $12,
+		        kube_groups = $7, notes = $8, max_token_hours = $9, clipboard = $10, cloud_role = $11, cloud_directory = $12, rdp_security = $13,
 		        updated_at = now()
 		 WHERE id = $1`, id, c.address, db.Nullable(c.database), c.tlsMode, db.Nullable(c.caCert), db.Nullable(c.vaultAccountID),
 		c.kubeGroups, db.Nullable(c.notes), c.maxTokenHours, db.Nullable(c.clipboard), db.Nullable(c.cloudRole),
-		db.Nullable(c.cloudDirectory))
+		db.Nullable(c.cloudDirectory), db.Nullable(c.rdpSecurity))
 	if err != nil {
 		return Target{}, err
 	}
@@ -578,7 +605,7 @@ func Update(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, s Settin
 	if err := db.Audit(ctx, tx, tenantID, actor, "gateway.target_updated", "gateway_target", id,
 		map[string]any{"address": c.address, "database": c.database, "tls_mode": c.tlsMode,
 			"ca_certificate_changed": c.caCert != cur.CACertificate, "vault_account_id": c.vaultAccountID,
-			"kube_groups": c.kubeGroups, "clipboard": c.clipboard, "cloud_role": c.cloudRole, "cloud_directory": c.cloudDirectory,
+			"kube_groups": c.kubeGroups, "clipboard": c.clipboard, "rdp_security": c.rdpSecurity, "cloud_role": c.cloudRole, "cloud_directory": c.cloudDirectory,
 			"max_token_hours": c.maxTokenHours}); err != nil {
 		return Target{}, err
 	}
@@ -597,13 +624,8 @@ func Delete(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if Cloud(cur.Kind) {
 		// What their sessions granted in the cloud is taken back with the
 		// target's settings and account.
-		var running int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM gateway_sessions WHERE target_id = $1 AND ended_at IS NULL`, id).
-			Scan(&running); err != nil {
+		if err := refuseRunning(ctx, tx, cur, "deleting it"); err != nil {
 			return err
-		}
-		if running > 0 {
-			return apperr.Conflictf("%s has %d console sessions running: end them first, so Grantra takes back what it granted in the cloud", cur.Name, running)
 		}
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM gateway_targets WHERE id = $1`, id); err != nil {
@@ -614,6 +636,21 @@ func Delete(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	}
 	return db.Audit(ctx, tx, tenantID, actor, "gateway.target_deleted", "gateway_target", id,
 		map[string]any{"name": cur.Name, "kind": cur.Kind})
+}
+
+// refuseRunning refuses what would keep Grantra from taking back what a
+// cloud target's running console sessions granted.
+func refuseRunning(ctx context.Context, tx pgx.Tx, t Target, what string) error {
+	var running int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM gateway_sessions WHERE target_id = $1 AND ended_at IS NULL`, t.ID).
+		Scan(&running); err != nil {
+		return err
+	}
+	if running > 0 {
+		return apperr.Conflictf("%s has %d console sessions running: end them before %s, so Grantra takes back what it granted in the cloud",
+			t.Name, running, what)
+	}
+	return nil
 }
 
 func lockTarget(ctx context.Context, tx pgx.Tx, id string) (Target, error) {
@@ -628,7 +665,7 @@ func lockTarget(ctx context.Context, tx pgx.Tx, id string) (Target, error) {
 
 const targetSelect = `SELECT t.id, t.name, t.kind, t.address, coalesce(t.database, ''), t.tls_mode, coalesce(t.ca_certificate, ''),
 	coalesce(t.vault_account_id::text, ''), coalesce(va.name, ''), t.kube_groups, coalesce(t.notes, ''), t.entitlement_id, e.name,
-	e.risk, t.max_token_hours, t.created_at, t.updated_at, coalesce(t.clipboard, ''), coalesce(t.cloud_role, ''),
+	e.risk, t.max_token_hours, t.created_at, t.updated_at, coalesce(t.clipboard, ''), coalesce(t.rdp_security, ''), coalesce(t.cloud_role, ''),
 	coalesce(t.cloud_directory, '')
 	FROM gateway_targets t JOIN entitlements e ON e.id = t.entitlement_id
 	LEFT JOIN vault_accounts va ON va.id = t.vault_account_id`
@@ -637,7 +674,7 @@ func scanTarget(row pgx.CollectableRow) (Target, error) {
 	var t Target
 	err := row.Scan(&t.ID, &t.Name, &t.Kind, &t.Address, &t.Database, &t.TLSMode, &t.CACertificate, &t.VaultAccountID,
 		&t.VaultAccountName, &t.KubeGroups, &t.Notes, &t.EntitlementID, &t.EntitlementName, &t.Risk, &t.MaxTokenHours,
-		&t.CreatedAt, &t.UpdatedAt, &t.Clipboard, &t.CloudRole, &t.CloudDirectory)
+		&t.CreatedAt, &t.UpdatedAt, &t.Clipboard, &t.RDPSecurity, &t.CloudRole, &t.CloudDirectory)
 	return t, err
 }
 

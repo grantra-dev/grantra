@@ -272,8 +272,8 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 			return err
 		}
 		// And a desktop in the browser, recorded. In the Docker Compose
-		// stack it is the test desktop of the rdp profile, whose
-		// self-signed certificate the gateway cannot verify.
+		// stack it is the test desktop of the rdp profile: xrdp, without
+		// NLA and with a self-signed certificate.
 		desk, err := opts.Vault.Create(ctx, tx, tenantID, actor, vault.Input{
 			Name: "Office desktop login", Username: "ubuntu", Secret: "ubuntu",
 			Settings: vault.Settings{Address: "desktop:3389", Notes: "The gateway logs in with it: nobody needs to check it out."},
@@ -283,7 +283,7 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 		}
 		office, err := gateways.Create(ctx, tx, tenantID, actor, gateways.Input{Name: "office-pc", Kind: gateways.RDP,
 			Settings: gateways.Settings{Address: ptr("desktop:3389"), TLSMode: ptr(gateways.TLSRequire),
-				VaultAccountID: &desk.ID, MaxTokenHours: ptr(4), Notes: ptr("A shared office desktop. The screen is recorded.")}})
+				RDPSecurity: ptr(gateways.SecurityTLS), VaultAccountID: &desk.ID, MaxTokenHours: ptr(4), Notes: ptr("A shared office desktop. The screen is recorded.")}})
 		if err != nil {
 			return err
 		}

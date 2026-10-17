@@ -127,7 +127,9 @@ func rdpParameters(t gateways.Target, username, password, width, height, dpi, ti
 	p := map[string]string{
 		"hostname": host, "port": port, "domain": domain, "username": user, "password": password,
 		"width": width, "height": height, "dpi": dpi, "timezone": timezone,
-		"security": "any", "ignore-cert": strconv.FormatBool(t.TLSMode == gateways.TLSRequire),
+		// Never "any": it lets whoever sits in between pick the legacy RDP
+		// encryption and read the password.
+		"security": t.RDPSecurity, "ignore-cert": strconv.FormatBool(t.TLSMode == gateways.TLSRequire),
 		"client-name":   "Grantra",
 		"resize-method": "display-update",
 		// Nothing leaves or enters the desktop but the screen, input and

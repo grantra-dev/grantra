@@ -253,7 +253,7 @@ func TestDesktop(t *testing.T) {
 	params, setup := guacd.params, guacd.setup
 	guacd.mu.Unlock()
 	want := map[string]string{"version": "VERSION_1_5_0", "hostname": "10.0.0.9", "port": "3389", "domain": "CORP", "username": "admin",
-		"password": "desk-pw", "width": "8192", "height": "768", "dpi": "96", "timezone": "Europe/Madrid", "security": "any",
+		"password": "desk-pw", "width": "8192", "height": "768", "dpi": "96", "timezone": "Europe/Madrid", "security": "nla",
 		"ignore-cert": "false", "disable-copy": "true", "disable-paste": "false", "enable-drive": "false", "enable-sftp": "false",
 		"disable-upload": "true", "recording-path": ""}
 	for k, v := range want {
@@ -297,7 +297,7 @@ func TestDesktop(t *testing.T) {
 	// What the person saw is what was recorded.
 	var rec bytes.Buffer
 	e.must(func(tx pgx.Tx) error {
-		return gateways.WriteRecording(e.ctx, tx, e.tenant, "identity:auditor", s.ID, func() {}, &rec)
+		return gateways.WriteRecording(e.ctx, tx, s.ID, func() {}, &rec)
 	})
 	guacd.mu.Lock()
 	sent := guacd.sent.String()
@@ -426,12 +426,12 @@ func ptrTo[T any](v T) *T { return &v }
 func TestDesktopWithGuacd(t *testing.T) {
 	guacdAddr, host := os.Getenv("GRANTRA_TEST_GUACD_ADDR"), os.Getenv("GRANTRA_TEST_RDP_HOST")
 	if guacdAddr == "" || host == "" {
-		t.Skip("set GRANTRA_TEST_GUACD_ADDR and GRANTRA_TEST_RDP_HOST to test against a real guacd and desktop")
+		t.Skip("set GRANTRA_TEST_GUACD_ADDR and GRANTRA_TEST_RDP_HOST to test against a real guacd and desktop (and GRANTRA_TEST_RDP_SECURITY=tls for one without NLA, such as xrdp)")
 	}
 	e := newEnv(t)
 	acct := e.vaultAccount("desktop", os.Getenv("GRANTRA_TEST_RDP_LOGIN"), os.Getenv("GRANTRA_TEST_RDP_PASSWORD"))
 	tg := e.target(gateways.Input{Name: "desktop", Kind: gateways.RDP, Settings: gateways.Settings{Address: &host, VaultAccountID: &acct,
-		TLSMode: ptrTo(gateways.TLSRequire)}})
+		TLSMode: ptrTo(gateways.TLSRequire), RDPSecurity: ptrTo(os.Getenv("GRANTRA_TEST_RDP_SECURITY"))}})
 	ana := e.identity("ana")
 	e.grant(ana, tg)
 	srv := e.server()

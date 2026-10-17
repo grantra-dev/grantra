@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "@/components/Layout";
 import { ApiError, getMe } from "@/lib/api";
 import { visibleSections } from "@/lib/sections";
@@ -33,6 +33,12 @@ const GatewaySessionLog = lazy(() =>
 const SessionPlayback = lazy(() =>
   import("@/pages/SessionPlayback").then((m) => ({ default: m.SessionPlayback })),
 );
+
+/** Sends Databases & clusters' old addresses to Remote access. */
+function OldRemoteAccess() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={pathname.replace(/^\/databases/, "/remote-access") + search} replace />;
+}
 
 export function App() {
   const { data: me, error, isPending } = useQuery({ queryKey: ["me"], queryFn: getMe });
@@ -111,7 +117,7 @@ export function App() {
           return sub ? [<Route key={sub[0]} path={sub[0]} element={sub[1]} />] : [];
         })}
         {/* Where remote access was before desktops and clouds joined it. */}
-        <Route path="/databases" element={<Navigate to="/remote-access" replace />} />
+        <Route path="/databases/*" element={<OldRemoteAccess />} />
         <Route path="/settings/notifications" element={<NotificationSettings me={me} />} />
         <Route path="*" element={<NotFound />} />
       </Route>

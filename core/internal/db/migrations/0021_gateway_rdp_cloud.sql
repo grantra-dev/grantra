@@ -18,6 +18,9 @@ ALTER TABLE gateway_targets ADD CONSTRAINT gateway_targets_tls_check
 -- On a desktop, which way the clipboard works: both ways, only pasting
 -- into the desktop, or not at all.
 ALTER TABLE gateway_targets ADD COLUMN clipboard text CHECK (clipboard IN ('both', 'paste', 'none'));
+-- On a desktop, its security: Network Level Authentication, or TLS alone.
+-- Never the legacy RDP encryption, whose server key nothing verifies.
+ALTER TABLE gateway_targets ADD COLUMN rdp_security text CHECK (rdp_security IN ('nla', 'tls'));
 -- On a cloud console, the role people get: an IAM role's ARN is the
 -- address on AWS; here an Azure role (name or id) or a Google Cloud role
 -- (roles/...).

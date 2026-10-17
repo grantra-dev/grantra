@@ -157,7 +157,7 @@ func definite(status int) bool { return status >= 400 && status < 500 }
 // Open signs identityID in to the cloud console target, who must hold
 // access to it (the caller checks the policies). On Azure and Google Cloud,
 // a session of theirs still running there is reused: the cloud holds one
-// grant per person and role.
+// grant per person and role. One that is ending makes them wait for it.
 func (c *Consoles) Open(ctx context.Context, identityID, targetID, clientAddress string) (Opened, error) {
 	var (
 		t        gateways.Target
@@ -188,10 +188,17 @@ func (c *Consoles) Open(ctx context.Context, identityID, targetID, clientAddress
 			if err != nil {
 				return err
 			}
-			if len(running) == 1 && running[0].ValidBefore != nil && time.Until(*running[0].ValidBefore) > time.Minute &&
-				!running[0].TerminateRequested {
-				existing = &running[0]
-				return nil
+			if len(running) == 1 {
+				s := running[0]
+				if s.Error == "" && !s.TerminateRequested && s.ValidBefore != nil && time.Until(*s.ValidBefore) > time.Minute {
+					existing = &s
+					return nil
+				}
+				// It is ending, or failed and its grant is still being
+				// taken back. The cloud holds one grant per person and
+				// role, which a second session would share and lose with
+				// this one's end.
+				return apperr.Conflictf("your last session on %s is still ending: open it again in a minute", t.Name)
 			}
 		}
 		if user, secret, err = c.credentials(ctx, tx, t); err != nil {
@@ -222,6 +229,8 @@ func (c *Consoles) Open(ctx context.Context, identityID, targetID, clientAddress
 		return Opened{SessionID: existing.ID, URL: pr.url(p), ValidBefore: *existing.ValidBefore}, nil
 	}
 
+	// Recording what happened must outlive the person closing the tab.
+	bg := context.WithoutCancel(ctx)
 	pr, err := c.provider(t, user, secret)
 	if err == nil {
 		var g granted
@@ -229,8 +238,8 @@ func (c *Consoles) Open(ctx context.Context, identityID, targetID, clientAddress
 		g, err = pr.open(octx, p, tok.ValidBefore, grant)
 		cancel()
 		if err == nil {
-			err = db.InTenant(ctx, c.Pool, c.TenantID, func(tx pgx.Tx) error {
-				_, err := tx.Exec(ctx, `UPDATE gateway_sessions SET account = $2, cloud_grant = $3 WHERE id = $1`,
+			err = db.InTenant(bg, c.Pool, c.TenantID, func(tx pgx.Tx) error {
+				_, err := tx.Exec(bg, `UPDATE gateway_sessions SET account = $2, cloud_grant = $3 WHERE id = $1`,
 					p.sessionID, db.Nullable(g.account), db.Nullable(g.grant))
 				return err
 			})
@@ -246,20 +255,20 @@ func (c *Consoles) Open(ctx context.Context, identityID, targetID, clientAddress
 	var ng notGranted
 	cleaned := grant == "" || pr == nil || errors.As(err, &ng)
 	if !cleaned {
-		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		cctx, cancel := context.WithTimeout(bg, time.Minute)
 		cleaned = pr.close(cctx, grant) == nil
 		cancel()
 	}
 	errText := gateways.CleanText(err.Error())
-	endErr := db.InTenant(context.WithoutCancel(ctx), c.Pool, c.TenantID, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE gateway_tokens SET revoked_at = now(), revoked_by = 'grantra' WHERE id = $1`, tok.ID); err != nil {
+	endErr := db.InTenant(bg, c.Pool, c.TenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(bg, `UPDATE gateway_tokens SET revoked_at = now(), revoked_by = 'grantra' WHERE id = $1`, tok.ID); err != nil {
 			return err
 		}
 		if !cleaned {
-			_, err := tx.Exec(ctx, `UPDATE gateway_sessions SET error = $2 WHERE id = $1`, p.sessionID, errText)
+			_, err := tx.Exec(bg, `UPDATE gateway_sessions SET error = $2 WHERE id = $1`, p.sessionID, errText)
 			return err
 		}
-		return gateways.EndSession(ctx, tx, c.TenantID, p.sessionID, gateways.EndFailed, errText)
+		return gateways.EndSession(bg, tx, c.TenantID, p.sessionID, gateways.EndFailed, errText)
 	})
 	if endErr != nil {
 		c.log().ErrorContext(ctx, "could not record a failed cloud console session", "session", p.sessionID, "err", endErr)

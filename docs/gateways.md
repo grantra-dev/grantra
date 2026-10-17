@@ -177,10 +177,15 @@ installed on people's computers and the desktop's port never faces them.
    - **Copy and paste both ways**.
    - **Off**.
 
-   TLS is always on: **TLS, verified** checks the desktop's certificate
-   against guacd's trusted CAs; **TLS, not verified** accepts any (most
-   desktops have a self-signed one). Grantra lets the desktop pick its
-   security (NLA, TLS or RDP).
+   Pick its **security**: **Network Level Authentication** (the default,
+   what Windows asks for), or **TLS only** for desktops without NLA, such
+   as xrdp on Linux. Either way the connection is TLS: Grantra never uses
+   the legacy RDP encryption, which would let someone in between read the
+   password. **TLS, verified** checks the desktop's certificate against
+   guacd's trusted CAs; **TLS, not verified** accepts any (most desktops
+   have a self-signed one).
+   A desktop that says *Security negotiation failed (wrong security type?)*
+   does not do NLA: switch it to **TLS only**.
 
 The screen is **recorded**, all of it, from the first frame: admins and
 auditors play it back from **Sessions** (click **Recording**). Recordings
@@ -280,6 +285,10 @@ predefined or custom role.
 Without a vault account, Grantra uses its own credentials (workload identity
 or `GOOGLE_APPLICATION_CREDENTIALS`).
 
+While a cloud target has sessions running, Grantra refuses to delete it or
+to change its address, role or tenant: what the sessions granted is taken
+back where it was granted.
+
 The job **end cloud console sessions** (every 30 seconds) takes back what
 the sessions granted once access ends or time runs out; when a cloud refuses,
 it tries again on the next run and the session shows the error.
@@ -340,7 +349,7 @@ within a few minutes by the job **end lost gateway sessions**.
 | `GET /api/v1/gateway` | Everyone: whether the gateway is on, its addresses and CA certificate |
 | `GET /api/v1/gateway/ca.pem` | Anyone, without signing in: the CA certificate clients verify the gateway with |
 | `GET /api/v1/gateway/targets` | Admins and auditors see all; everyone else the targets they hold, without the vault account |
-| `POST /api/v1/gateway/targets`, `PUT`/`DELETE /api/v1/gateway/targets/{id}` | `vault.manage` (admins). Fields: `name`, `kind` (`postgres`, `mysql`, `kubernetes`, `rdp`, `aws`, `azure`, `gcp`), `risk`, `address`, `database`, `tls_mode` (`verify`, `require`, `disable`), `ca_certificate`, `vault_account_id`, `kube_groups`, `clipboard` (`both`, `paste`, `none`), `cloud_role`, `cloud_directory`, `max_token_hours`, `notes`. A cloud with sessions running cannot be deleted |
+| `POST /api/v1/gateway/targets`, `PUT`/`DELETE /api/v1/gateway/targets/{id}` | `vault.manage` (admins). Fields: `name`, `kind` (`postgres`, `mysql`, `kubernetes`, `rdp`, `aws`, `azure`, `gcp`), `risk`, `address`, `database`, `tls_mode` (`verify`, `require`, `disable`), `ca_certificate`, `vault_account_id`, `kube_groups`, `clipboard` (`both`, `paste`, `none`), `rdp_security` (`nla`, `tls`), `cloud_role`, `cloud_directory`, `max_token_hours`, `notes`. A cloud with sessions running cannot be deleted, nor its address, role or tenant changed |
 | `POST /api/v1/gateway/targets/{id}/tokens` | Only people holding the target's access, admins included: the token, and for a cluster the kubeconfig. Databases and clusters only |
 | `GET /api/v1/gateway/targets/{id}/rdp?width=&height=&dpi=&timezone=` | People holding a desktop's access: the WebSocket (subprotocol `guacamole`) the desktop runs on |
 | `POST /api/v1/gateway/targets/{id}/console` | People holding a cloud's access: the sign-in `url`, `valid_before`, and on AWS `credentials` for the CLI |
