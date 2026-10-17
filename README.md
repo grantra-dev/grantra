@@ -55,9 +55,9 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 
 | | |
 |---|---|
-| **Joiner, mover, leaver** | Reads people from an HR source (CSV) and gives or removes access when someone joins, changes team or leaves. A safety brake refuses a sync that would remove too many people at once. [Docs](docs/identity-lifecycle.md) |
+| **Joiner, mover, leaver** | Reads people from an HR source (CSV) and gives or removes access when someone joins, changes team or leaves. A safety brake refuses a sync that would remove too many people at once. Nightly jobs can send the export with a scoped [service token](docs/service-tokens.md). [Docs](docs/identity-lifecycle.md) |
 | **Catalog and birthright access** | Applications, entitlements and business roles, plus rules such as "Engineering gets the Engineer role". [Docs](docs/access.md) |
-| **Connectors** | SCIM and LDAP / Active Directory: reads accounts, links them to people, flags orphans, and can provision changes back (off by default, with a dry run). [Docs](docs/connectors.md) |
+| **Connectors** | SCIM and LDAP / Active Directory: reads accounts, links them to people, flags orphans, and can provision changes back (off by default, with a dry run). Applications with no API load their accounts from a CSV export. [Docs](docs/connectors.md) |
 | **Access requests** | People ask for access from the catalog; their manager and the application owner approve it, optionally until a date. [Docs](docs/access-requests.md) |
 | **Access reviews** | Campaigns where managers or owners keep or revoke the access their people hold. [Docs](docs/access-reviews.md) |
 | **Separation of duties** | Policies such as "nobody both creates and approves payments", detected every 30 minutes or prevented at request time, with time-boxed exceptions. [Docs](docs/separation-of-duties.md) |

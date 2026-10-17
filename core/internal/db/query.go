@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 )
@@ -59,4 +60,11 @@ func WriteRows(ctx context.Context, tx pgx.Tx, w io.Writer, start func(), sql st
 		}
 	}
 	return rows.Err()
+}
+
+// IsUniqueViolation reports whether err is Postgres refusing a row that
+// breaks a unique constraint, such as a name already in use.
+func IsUniqueViolation(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "23505"
 }

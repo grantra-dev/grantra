@@ -29,6 +29,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/connector"
+	_ "github.com/grantra-dev/grantra/core/internal/connector/flatfile"     // registers the csv connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/grantralogin" // registers the grantra-login connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap"         // registers the ldap connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"         // registers the scim connector

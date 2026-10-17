@@ -64,6 +64,10 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, require(sameOrigin(h)))
 	}
+	// Uploads that scripts make with a service token instead of a session.
+	tokenRoute := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, a.sessionOrToken(require, sameOrigin(h)))
+	}
 	route("GET /api/v1/me", a.me)
 	route("GET /api/v1/me/notifications", a.getNotifications)
 	route("PUT /api/v1/me/notifications/{kind}", a.setNotification)
@@ -76,8 +80,9 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/identity-sources", a.listSources)
 	route("POST /api/v1/identity-sources", a.createSource)
 	route("GET /api/v1/identity-sources/{id}", a.getSource)
+	route("PUT /api/v1/identity-sources/{id}", a.updateSource)
 	route("GET /api/v1/identity-sources/{id}/runs", a.listRuns)
-	route("POST /api/v1/identity-sources/{id}/runs", a.syncSource)
+	tokenRoute("POST /api/v1/identity-sources/{id}/runs", a.syncSource)
 	route("GET /api/v1/lifecycle-events", a.listLifecycleEvents)
 	route("GET /api/v1/identities/{id}/access", a.identityAccess)
 	route("GET /api/v1/applications", a.listApplications)
@@ -96,6 +101,7 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)
 	route("PUT /api/v1/applications/{id}/connector", a.setConnector)
 	route("POST /api/v1/applications/{id}/aggregations", a.aggregate)
+	tokenRoute("POST /api/v1/applications/{id}/account-imports", a.importAccounts)
 	route("PUT /api/v1/applications/{id}/provisioning", a.setProvisioning)
 	route("POST /api/v1/applications/{id}/provisioning-runs", a.provision)
 	route("GET /api/v1/applications/{id}/runs", a.listConnectorRuns)
@@ -180,6 +186,9 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/eligibilities/{id}/deactivate", a.deactivateEligibility)
 	route("PUT /api/v1/entitlements/{id}/jit", a.setEntitlementJIT)
 	route("GET /api/v1/standing-access", a.standingAccess)
+	route("GET /api/v1/service-tokens", a.listServiceTokens)
+	route("POST /api/v1/service-tokens", a.createServiceToken)
+	route("DELETE /api/v1/service-tokens/{id}", a.revokeServiceToken)
 	route("POST /api/v1/assignments/{id}/eligibility", a.convertToEligibility)
 
 	// Apps' backends ask with an API key, not a session.

@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/access"
@@ -295,8 +294,7 @@ func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		tenantID, requesterID, in.BeneficiaryID, db.Nullable(in.RoleID), db.Nullable(in.EntitlementID), in.Justification,
 		in.Kind, in.DurationDays, in.DurationHours).Scan(&id)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if db.IsUniqueViolation(err) {
 		return Request{}, apperr.Conflictf("there is already an open request for this access")
 	}
 	if err != nil {

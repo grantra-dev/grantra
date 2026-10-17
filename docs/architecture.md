@@ -32,6 +32,7 @@ People sign in through OpenID Connect, either with **Grantra Login** (the bundle
 - **Who you are**: a login is linked to an identity by `(issuer, subject)` in `identity_logins`. The first login links by *verified* email; later ones go by subject. Logins never create identities: someone the IdP knows but Grantra does not gets a 403.
 - **Sessions**: server-side, in `sessions`. The browser holds only an opaque `HttpOnly`, `SameSite=Lax` cookie; the database holds its SHA-256. Sessions end after `GRANTRA_SESSION_IDLE` of inactivity (30 min), after `GRANTRA_SESSION_MAX` (8 h), on logout (which also ends the IdP session), or as soon as the identity stops being `active`, so offboarding cuts access at the next request.
 - **Audit**: `auth.login`, `auth.login_denied` and `auth.logout` land in `audit_events`.
+- **Scripts**: the two upload endpoints (HR syncs and account files) also take a [service token](service-tokens.md) as `Authorization: Bearer`, limited to its scopes, with an expiry date, stored as a SHA-256 like sessions.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -77,7 +78,8 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `DELETE /api/v1/platform-roles/{role}/members/{identity}` | `platform_role.revoke` |
 | `/api/v1/identity-sources`, `/api/v1/lifecycle-events` | HR sources and joiner/mover/leaver events, see [identity-lifecycle.md](identity-lifecycle.md) |
 | `/api/v1/applications`, `/api/v1/roles`, `/api/v1/access-rules`, `/api/v1/identities/{id}/access` | Catalog, birthright rules and assigned access, see [access.md](access.md) |
-| `/api/v1/applications/{id}/connector`, `/aggregations`, `/accounts`, `/provisioning`, `/provisioning-runs`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation, correlation and provisioning, see [connectors.md](connectors.md) |
+| `/api/v1/applications/{id}/connector`, `/aggregations`, `/account-imports`, `/accounts`, `/provisioning`, `/provisioning-runs`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation, account files, correlation and provisioning, see [connectors.md](connectors.md) |
+| `/api/v1/service-tokens` | Tokens scripts use to send HR exports and account files, see [service-tokens.md](service-tokens.md) |
 | `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
 | `/api/v1/review-campaigns`, `/api/v1/review-items` | Access reviews, see [access-reviews.md](access-reviews.md) |
 | `/api/v1/sod-policies`, `/api/v1/sod-violations` | Separation of duties, see [separation-of-duties.md](separation-of-duties.md) |

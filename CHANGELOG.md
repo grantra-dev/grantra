@@ -28,8 +28,15 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - Vault check-outs end no later than the access they come from, and within a minute once it is gone.
 - Access reviews certify eligibilities as their own items (*Eligible to activate*), with the same reviewers; revoking one removes it and ends any activation running with it. Activations themselves, which last hours, are no longer review items.
 
+### Bringing data in
+
+- **Column mapping in the console**: HR sources can be edited, and the source form has a box per field to name the column that holds it, with a sample file to pick from that shows which fields it already has (`PUT /api/v1/identity-sources/{id}`) ([docs](docs/identity-lifecycle.md#the-csv-file)).
+- **Account files**: the `csv` connector loads the accounts of applications with no SCIM or LDAP from a CSV export, one row per account or per account and role, checked first with a dry run and refused whole on any error (`POST /api/v1/applications/{id}/account-imports`) ([docs](docs/connectors.md#csv-files)).
+- **Service tokens**: scripts and scheduled jobs feed HR sources and account files without a session, with a token that can only do what its scopes say (optionally one source or application), expires within a year, can be revoked, and is audited under its own name. Administration has an **API tokens** tab ([docs](docs/service-tokens.md)).
+
 ### Changed
 
+- HR syncs read the file row by row and write in batches of 1,000: importing 2,000 new people is about 3.5 times faster with the database on the same machine, and more when it is across a network. The file is no longer copied in memory, and the start and end dates job writes its events in batches too.
 - The console's Content Security Policy allows `'wasm-unsafe-eval'`, which the session player needs to run its terminal emulator. It does not allow eval of JavaScript.
 
 - Vault entitlements are always just in time only: requests for them need a duration, and the existing ones are switched on upgrade. Existing assignments with no end date stay, and show in the Standing access report to convert.

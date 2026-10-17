@@ -154,8 +154,7 @@ func Save(ctx context.Context, tx pgx.Tx, tenantID, id string, in Input) (Policy
 			_, err = tx.Exec(ctx, `DELETE FROM sod_policy_sides WHERE policy_id = $1`, id)
 		}
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if db.IsUniqueViolation(err) {
 		return Policy{}, apperr.Conflictf("a policy named %q already exists", in.Name)
 	}
 	if err != nil {

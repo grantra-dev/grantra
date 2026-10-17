@@ -1,0 +1,5 @@
+account_id,username,email,display_name,employee_id,status,entitlements,branch
+1001,ana.garcia,ana.garcia@example.com,Ana García,E001,active,Admin;Accounts payable,Madrid
+1002,luis.perez,luis.perez@example.com,Luis Pérez,E002,active,Accounts payable,Madrid
+1003,marta.ruiz,,Marta Ruiz,E003,disabled,Sales,Barcelona
+1004,erp_batch,,Nightly batch,,active,Admin,

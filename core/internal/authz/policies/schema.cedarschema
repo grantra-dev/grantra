@@ -21,6 +21,9 @@ entity AuditLog;
 // events they produce.
 entity Lifecycle;
 
+// The tokens scripts and scheduled jobs use to feed Grantra.
+entity ServiceTokens;
+
 // The catalog of applications, entitlements and business roles, and the
 // birthright rules that give them out.
 entity Catalog;
@@ -285,5 +288,19 @@ action "access.manage" in ["write"] appliesTo {
 action "access.activate" in ["write"] appliesTo {
   principal: Identity,
   resource: Identity,
+  context: {},
+};
+
+// manage creates and revokes the tokens scripts use to feed HR sources and
+// account files without a person signing in.
+action "service_token.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: ServiceTokens,
+  context: {},
+};
+
+action "service_token.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: ServiceTokens,
   context: {},
 };

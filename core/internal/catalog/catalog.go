@@ -107,11 +107,6 @@ func checkOwner(ctx context.Context, tx pgx.Tx, ownerID string) (*string, error)
 	return &ownerID, nil
 }
 
-func uniqueViolation(err error) bool {
-	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "23505"
-}
-
 // CreateApplication adds an application governed by hand.
 func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID string) (Application, error) {
 	name, err := checkName(name)
@@ -392,7 +387,7 @@ func saveRole(ctx context.Context, tx pgx.Tx, tenantID, id string, in RoleInput)
 			return Role{}, apperr.ErrNotFound
 		}
 	}
-	if uniqueViolation(err) {
+	if db.IsUniqueViolation(err) {
 		return Role{}, apperr.Conflictf("a role named %q already exists", name)
 	}
 	if err != nil {

@@ -27,6 +27,8 @@ Thanks for your interest! Grantra is young, so this is a great moment to shape i
   - Audit events name a person acting with `authz.Subject.Actor()` or `db.IdentityActor(id)`.
   - Queries use the helpers in `core/internal/db`: `QueryOne` for a row that may not exist (it answers `apperr.ErrNotFound`), `SearchPattern` for a search box, `SendBatch` with `QueueAudit` for many changes at once (one round trip per 1,000), and `WriteRows` to stream something large such as a recording.
   - "Does this person hold this access right now?" is `catalog.HeldSQL` (or `HeldWindowSQL` for how long), and who does is `catalog.Holders`; Grantra's own applications (vault, SSH, remote access) come from `catalog.EnsureApplication`.
+  - `db.IsUniqueViolation(err)` turns a duplicate name into an `apperr.Conflict`; uploaded CSV files are read with `core/internal/csvfile` (loose column names, mappings, row by row); secrets for programs (API keys, service tokens) come from `core/internal/apikey`.
+  - Endpoints that scripts call take a service token through `sessionOrToken` and check the caller with `caller` (`core/internal/console/tokens.go`).
   - Compare a uuid column with a uuid (`col = $1::uuid`, or `nullif($1, '')::uuid` for an optional filter), never `col::text = $1`: the cast keeps Postgres from using the column's index.
   - Web console calls go through `api` and `send` in `web/src/lib/api.ts`.
 - Sign off your commits (`git commit -s`) to certify the [Developer Certificate of Origin](https://developercertificate.org/).

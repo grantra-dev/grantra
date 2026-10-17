@@ -25,26 +25,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  accountFields,
   accountsPageSize,
   aggregate,
   connectorLabels,
   createEntitlement,
+  importAccounts,
   listAccounts,
   listCatalogApplications,
   listConnectorRuns,
   listEntitlements,
   provision,
+  setConnector,
   setProvisioning,
   type CatalogApplication,
   type ConnectorRun,
   type Entitlement,
+  type FileConnectorConfig,
   type ProvisioningRun,
   type ProvisioningSettings,
 } from "@/lib/admin";
+import { cleanColumns } from "@/lib/csv";
 import { setEntitlementJIT, type JITSettings } from "@/lib/jit";
 import { formatDate, formatTime } from "@/lib/utils";
 import { NotFound } from "../NotFound";
 import { Authorization } from "./Authorization";
+import { ColumnMapping } from "./ColumnMapping";
 import { Counts, RunStatus } from "./shared";
 
 type Tab = "entitlements" | "accounts" | "runs" | "authorization";
@@ -108,6 +114,7 @@ export function Application() {
 function Connector({ app }: { app: CatalogApplication }) {
   const client = useQueryClient();
   const [run, setRun] = useState<ConnectorRun | null>(null);
+  const [settingUp, setSettingUp] = useState(false);
   const read = useMutation({
     mutationFn: () => aggregate(app.id),
     onSuccess: (r) => {
@@ -117,6 +124,7 @@ function Connector({ app }: { app: CatalogApplication }) {
       void client.invalidateQueries({ queryKey: ["entitlements", app.id] });
     },
   });
+  if (settingUp) return <FileConnector app={app} onDone={() => setSettingUp(false)} />;
   const settings = Object.entries(app.config ?? {});
   return (
     <Card>
@@ -134,17 +142,29 @@ function Connector({ app }: { app: CatalogApplication }) {
             {settings.map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-slate-500">{k}</dt>
-                <dd className="font-mono text-xs break-all">{String(v)}</dd>
+                <dd className="font-mono text-xs break-all">
+                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                </dd>
               </div>
             ))}
           </dl>
         )}
-        {app.connector === "manual" ? (
-          <p className="text-slate-500">
-            Nothing to read: access to this application is managed by hand. Set a connector through
-            the API to read it.
-          </p>
-        ) : (
+        {app.connector === "manual" && (
+          <>
+            <p className="text-slate-500">
+              Nothing to read: access to this application is managed by hand. SCIM and LDAP
+              connectors are set up through the API. An application with no API can load its
+              accounts from a CSV export.
+            </p>
+            <div>
+              <Button variant="outline" onClick={() => setSettingUp(true)}>
+                Load accounts from a file
+              </Button>
+            </div>
+          </>
+        )}
+        {app.connector === "csv" && <AccountFile app={app} onEdit={() => setSettingUp(true)} />}
+        {app.connector !== "manual" && app.connector !== "csv" && (
           <div>
             <Button variant="outline" disabled={read.isPending} onClick={() => read.mutate()}>
               {read.isPending ? "Reading…" : "Read accounts now"}
@@ -152,17 +172,140 @@ function Connector({ app }: { app: CatalogApplication }) {
           </div>
         )}
         {read.error && <Alert variant="error">{read.error.message}</Alert>}
-        {run && (
-          <Alert variant={run.status === "failed" ? "error" : "success"}>
-            {run.status === "failed" ? (
-              <>Could not read the application: {run.error}</>
-            ) : (
-              <>
-                Read: <Counts counts={run.counts} />
-              </>
-            )}
-          </Alert>
-        )}
+        {run && <ReadOutcome run={run} />}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReadOutcome({ run, fromFile }: { run: ConnectorRun; fromFile?: boolean }) {
+  if (run.status === "failed") {
+    return (
+      <Alert variant="error">
+        {fromFile ? "The file was not imported: " : "Could not read the application: "}
+        {run.error}
+      </Alert>
+    );
+  }
+  return (
+    <Alert variant={run.status === "planned" ? "info" : "success"}>
+      {run.status === "planned" ? "Nothing has changed yet. Importing would bring: " : "Read: "}
+      <Counts counts={run.counts} />
+    </Alert>
+  );
+}
+
+/** Uploads an account file: checked first, then imported. */
+function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => void }) {
+  const client = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [run, setRun] = useState<ConnectorRun | null>(null);
+  const upload = useMutation({
+    mutationFn: (dryRun: boolean) => importAccounts(app.id, file!, { dryRun }),
+    onSuccess: (r) => {
+      setRun(r);
+      void client.invalidateQueries({ queryKey: ["connector-runs", app.id] });
+      if (r.status === "succeeded") {
+        void client.invalidateQueries({ queryKey: ["accounts", app.id] });
+        void client.invalidateQueries({ queryKey: ["entitlements", app.id] });
+      }
+    },
+  });
+  const checked = run?.status === "planned";
+  return (
+    <>
+      <p className="text-slate-500">
+        Upload the application&apos;s user list as CSV, one row per account, or one per account and
+        role. Accounts missing from a file are marked as gone.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          aria-label={`Account file for ${app.name}`}
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            setRun(null);
+          }}
+          className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
+        />
+        <Button
+          variant="outline"
+          disabled={!file || upload.isPending}
+          onClick={() => upload.mutate(true)}
+        >
+          Check file
+        </Button>
+        <Button
+          disabled={!file || !checked || upload.isPending}
+          onClick={() => {
+            if (window.confirm(`Import this file into ${app.name}?`)) upload.mutate(false);
+          }}
+        >
+          Import
+        </Button>
+        <Button variant="ghost" onClick={onEdit}>
+          Edit columns
+        </Button>
+      </div>
+      {upload.error && <Alert variant="error">{upload.error.message}</Alert>}
+      {run && <ReadOutcome run={run} fromFile />}
+    </>
+  );
+}
+
+/** Sets an application up to read its accounts from files. */
+function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () => void }) {
+  const client = useQueryClient();
+  const current = (app.connector === "csv" ? app.config : null) as FileConnectorConfig | null;
+  const [columns, setColumns] = useState<Record<string, string>>(current?.columns ?? {});
+  const [separator, setSeparator] = useState(current?.separator ?? ";");
+  const save = useMutation({
+    mutationFn: () => setConnector(app.id, "csv", { columns: cleanColumns(columns), separator }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["catalog-applications"] });
+      onDone();
+    },
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Accounts from a file</CardTitle>
+        <p className="text-sm text-slate-500">
+          How Grantra reads {app.name}&apos;s account files. Every other column is kept as an
+          attribute of the account.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form
+          aria-label="Accounts from a file"
+          className="flex flex-col gap-4 text-sm"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <ColumnMapping fields={accountFields} value={columns} onChange={setColumns} />
+          <div className="max-w-xs">
+            <Label htmlFor="file-separator">Between several entitlements in one cell</Label>
+            <Input
+              id="file-separator"
+              required
+              maxLength={3}
+              value={separator}
+              onChange={(e) => setSeparator(e.target.value)}
+            />
+          </div>
+          {save.error && <Alert variant="error">{save.error.message}</Alert>}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={save.isPending}>
+              Save
+            </Button>
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+          </div>
+        </form>
       </CardContent>
     </Card>
   );
@@ -201,6 +344,11 @@ function Provisioning({ app, connected }: { app: CatalogApplication; connected: 
       <CardContent className="flex flex-col gap-3 text-sm">
         {!connected ? (
           <p className="text-slate-500">Needs a connector first.</p>
+        ) : app.connector === "csv" ? (
+          <p className="text-slate-500">
+            Accounts come from files, so Grantra cannot write to this application. Changes are made
+            by hand and show up with the next file.
+          </p>
         ) : (
           <>
             <form

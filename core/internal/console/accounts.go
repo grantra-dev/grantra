@@ -1,6 +1,7 @@
 package console
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
+	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
 
 // setConnector configures how Grantra reads an application:
@@ -47,6 +49,36 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if run.Status == accounts.RunFailed {
 		status = http.StatusBadGateway
+	}
+	a.respond(w, r, status, run, err)
+}
+
+// importAccounts loads the accounts of an application with the csv
+// connector from a file, the request body. ?dry_run=true reports what would
+// change without changing it. 200 with the run when it went through, 422
+// with the run when the file was refused (nothing is changed then). Scripts
+// call it with a service token holding the application.import_accounts
+// scope.
+func (a *API) importAccounts(w http.ResponseWriter, r *http.Request) {
+	dryRun, err := parseBool(r.URL.Query().Get("dry_run"))
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "dry_run must be true or false")
+		return
+	}
+	appID := r.PathValue("id")
+	actor, err := a.caller(r, authz.ManageCatalog, authz.CatalogResource(), servicetoken.ScopeImportAccounts, appID)
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	file, ok := readUpload(w, r)
+	if !ok {
+		return
+	}
+	run, err := accounts.Import(r.Context(), a.pool, a.tenantID, appID, actor, bytes.NewReader(file), dryRun)
+	status := http.StatusOK
+	if run.Status == accounts.RunFailed {
+		status = http.StatusUnprocessableEntity
 	}
 	a.respond(w, r, status, run, err)
 }

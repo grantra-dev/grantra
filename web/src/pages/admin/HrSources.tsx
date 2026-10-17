@@ -18,12 +18,16 @@ import {
   createSource,
   listSourceRuns,
   listSources,
+  hrFields,
   syncSource,
+  updateSource,
   type IdentitySource,
   type Issue,
   type SyncResult,
 } from "@/lib/admin";
+import { cleanColumns } from "@/lib/csv";
 import { formatTime } from "@/lib/utils";
+import { ColumnMapping } from "./ColumnMapping";
 import { Counts, RunStatus } from "./shared";
 
 export function HrSources() {
@@ -42,7 +46,7 @@ export function HrSources() {
           </Button>
         )}
       </div>
-      {adding && <NewSource onDone={() => setAdding(false)} />}
+      {adding && <SourceForm onDone={() => setAdding(false)} />}
       <Loaded
         loading={isPending}
         error={error}
@@ -58,29 +62,39 @@ export function HrSources() {
   );
 }
 
-function NewSource({ onDone }: { onDone: () => void }) {
+/** Creates a source, or edits one when given. */
+function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () => void }) {
   const client = useQueryClient();
-  const [name, setName] = useState("");
-  const [missing, setMissing] = useState<"leave" | "ignore">("leave");
-  const [maxLeavers, setMaxLeavers] = useState(10);
-  const create = useMutation({
-    mutationFn: () => createSource({ name, config: { missing, max_leaver_percent: maxLeavers } }),
+  const [name, setName] = useState(source?.name ?? "");
+  const [missing, setMissing] = useState<"leave" | "ignore">(source?.config.missing ?? "leave");
+  const [maxLeavers, setMaxLeavers] = useState(source?.config.max_leaver_percent ?? 10);
+  const [columns, setColumns] = useState<Record<string, string>>(source?.config.columns ?? {});
+  const save = useMutation({
+    mutationFn: () => {
+      const s = {
+        name,
+        config: { columns: cleanColumns(columns), missing, max_leaver_percent: maxLeavers },
+      };
+      return source ? updateSource(source.id, s) : createSource(s);
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["sources"] });
       onDone();
     },
   });
+  const title = source ? `Edit ${source.name}` : "New HR source";
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New HR source</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
         <form
+          aria-label={title}
           className="grid gap-4 md:grid-cols-3"
           onSubmit={(e) => {
             e.preventDefault();
-            create.mutate();
+            save.mutate();
           }}
         >
           <div>
@@ -115,19 +129,21 @@ function NewSource({ onDone }: { onDone: () => void }) {
               onChange={(e) => setMaxLeavers(Number(e.target.value))}
             />
           </div>
+          <div className="md:col-span-3">
+            <ColumnMapping fields={hrFields} value={columns} onChange={setColumns} />
+          </div>
           <p className="text-sm text-slate-500 md:col-span-3">
-            Files are CSV with a header row and an <code>employee_id</code> column; see the identity
-            lifecycle docs for every column. Sources whose columns have other names are set up
-            through the API for now.
+            Files are CSV with a header row and one person per line; see the identity lifecycle docs
+            for every column. Any other column is kept as an attribute of the person.
           </p>
-          {create.error && (
+          {save.error && (
             <Alert variant="error" className="md:col-span-3">
-              {create.error.message}
+              {save.error.message}
             </Alert>
           )}
           <div className="flex gap-2 md:col-span-3">
-            <Button type="submit" disabled={create.isPending}>
-              Add source
+            <Button type="submit" disabled={save.isPending}>
+              {source ? "Save" : "Add source"}
             </Button>
             <Button type="button" variant="ghost" onClick={onDone}>
               Cancel
@@ -144,6 +160,7 @@ function Source({ source }: { source: IdentitySource }) {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [showRuns, setShowRuns] = useState(false);
+  const [editing, setEditing] = useState(false);
   const sync = useMutation({
     mutationFn: (o: { dryRun: boolean; force?: boolean }) => syncSource(source.id, file!, o),
     onSuccess: (r) => {
@@ -155,7 +172,15 @@ function Source({ source }: { source: IdentitySource }) {
   });
   const last = source.last_run;
   const checked = result?.dry_run && result.status === "planned";
+  const mapped = Object.entries(source.config.columns ?? {});
 
+  if (editing) {
+    return (
+      <div className="p-5">
+        <SourceForm source={source} onDone={() => setEditing(false)} />
+      </div>
+    );
+  }
   return (
     <div className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -168,6 +193,11 @@ function Source({ source }: { source: IdentitySource }) {
               : "people missing from a file become leavers"}{" "}
             · stops above {source.config.max_leaver_percent ?? 10}% leavers
           </p>
+          {mapped.length > 0 && (
+            <p className="text-sm text-slate-500">
+              Columns: {mapped.map(([field, column]) => `${field} from “${column}”`).join(", ")}
+            </p>
+          )}
         </div>
         <div className="text-right text-sm">
           {last ? (
@@ -213,6 +243,9 @@ function Source({ source }: { source: IdentitySource }) {
         </Button>
         <Button variant="ghost" onClick={() => setShowRuns((v) => !v)}>
           {showRuns ? "Hide history" : "History"}
+        </Button>
+        <Button variant="ghost" onClick={() => setEditing(true)}>
+          Edit
         </Button>
       </div>
       {sync.error && (

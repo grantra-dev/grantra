@@ -83,6 +83,25 @@ export const listSources = () =>
 export const createSource = (s: { name: string; config: SourceConfig }) =>
   send<IdentitySource>("POST", "/api/v1/identity-sources", { ...s, kind: "csv" });
 
+export const updateSource = (sourceId: string, s: { name: string; config: SourceConfig }) =>
+  send<IdentitySource>("PUT", `/api/v1/identity-sources/${id(sourceId)}`, s);
+
+/** The columns Grantra reads from an HR export, in the order people think of them. */
+export const hrFields = [
+  ["employee_id", "Employee id", "required"],
+  ["display_name", "Full name", "or first and last name"],
+  ["first_name", "First name", ""],
+  ["last_name", "Last name", ""],
+  ["email", "Work email", ""],
+  ["manager_id", "Manager's employee id", ""],
+  ["department", "Department", ""],
+  ["title", "Job title", ""],
+  ["location", "Location", ""],
+  ["status", "Status", "active or terminated"],
+  ["start_date", "Start date", "YYYY-MM-DD"],
+  ["end_date", "End date", "YYYY-MM-DD"],
+] as const satisfies readonly (readonly [string, string, string])[];
+
 export const listSourceRuns = (sourceId: string) =>
   api<{ runs: SourceRun[] }>(`/api/v1/identity-sources/${id(sourceId)}/runs?limit=20`).then(
     (r) => r.runs,
@@ -191,8 +210,29 @@ export const connectorLabels: Record<string, string> = {
   scim: "SCIM",
   ldap: "LDAP / Active Directory",
   "grantra-login": "Grantra Login",
+  csv: "CSV file",
   grantra: "Built in",
 };
+
+/** How an application with the csv connector reads its files. */
+export interface FileConnectorConfig {
+  columns?: Record<string, string>;
+  separator?: string;
+}
+
+/** The columns Grantra reads from an account file. */
+export const accountFields = [
+  ["account_id", "Account id", "or the user name"],
+  ["username", "User name", ""],
+  ["email", "Email", ""],
+  ["display_name", "Name", ""],
+  ["employee_id", "Employee id", "links the account to its person"],
+  ["status", "Status", "active or disabled"],
+  ["entitlements", "Entitlements", "roles or groups"],
+] as const satisfies readonly (readonly [string, string, string])[];
+
+export const setConnector = (appId: string, kind: string, config: object) =>
+  send<void>("PUT", `/api/v1/applications/${id(appId)}/connector`, { kind, config });
 
 export interface ConnectorRun {
   id: string;
@@ -256,6 +296,14 @@ export const aggregate = (appId: string) =>
     `/api/v1/applications/${id(appId)}/aggregations`,
     { method: "POST" },
     [502],
+  );
+
+/** Sends an account file. A refused file (422) still returns its run. */
+export const importAccounts = (appId: string, file: Blob, o: { dryRun: boolean }) =>
+  outcome<ConnectorRun>(
+    `/api/v1/applications/${id(appId)}/account-imports?dry_run=${o.dryRun}`,
+    { method: "POST", headers: { "Content-Type": "text/csv" }, body: file },
+    [422],
   );
 
 /** Plans (dry run) or writes the changes an application needs. */
@@ -344,3 +392,37 @@ export const exceptSoDViolation = (violationId: string, reason: string, days: nu
     reason,
     days,
   });
+
+// Service tokens
+
+export const tokenScopes = {
+  "identity_source.sync": "Feed an HR source",
+  "application.import_accounts": "Load an application's account file",
+} as const;
+
+export type TokenScope = keyof typeof tokenScopes;
+
+export interface ServiceToken {
+  id: string;
+  name: string;
+  prefix: string;
+  /** An action, alone or pinned to one source or application: "identity_source.sync:<id>". */
+  scopes: string[];
+  created_by: string;
+  created_at: string;
+  expires_at: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+export const listServiceTokens = () =>
+  api<{ tokens: ServiceToken[] }>("/api/v1/service-tokens").then((r) => r.tokens);
+
+export const createServiceToken = (t: {
+  name: string;
+  scopes: string[];
+  expires_in_days: number;
+}) => send<{ token: ServiceToken; secret: string }>("POST", "/api/v1/service-tokens", t);
+
+export const revokeServiceToken = (tokenId: string) =>
+  send<void>("DELETE", `/api/v1/service-tokens/${id(tokenId)}`);
