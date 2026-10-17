@@ -328,6 +328,9 @@ type auditEvent struct {
 	Details    json.RawMessage `json:"details"`
 }
 
+// uuidRegexp matches a row id, for SQL that must not cast anything else.
+const uuidRegexp = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
+
 // listAuditEvents pages backwards from the newest event: ?limit=50&before=<id>.
 // ?identity=<id> keeps the events that identity did or that were done to it.
 func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
@@ -345,14 +348,23 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	var out []auditEvent
 	err := a.guardedOn(r, authz.ReadAuditLog, authz.AuditLogResource(), func(tx pgx.Tx, _ authz.Subject) error {
+		// With ?identity= the page is the newest of what they did and what
+		// was done to them, each read from its own index.
 		rows, err := tx.Query(r.Context(),
-			`SELECT e.id, e.occurred_at, e.actor, e.action, coalesce(e.target_type, ''), coalesce(e.target_id, ''),
+			`WITH page AS (
+			   (SELECT * FROM audit_events WHERE $3 = '' AND ($1 = 0 OR id < $1) ORDER BY id DESC LIMIT $2)
+			   UNION ALL
+			   (SELECT * FROM audit_events WHERE $3 <> '' AND actor = 'identity:' || $3 AND ($1 = 0 OR id < $1)
+			    ORDER BY id DESC LIMIT $2)
+			   UNION ALL
+			   (SELECT * FROM audit_events WHERE $3 <> '' AND target_type = 'identity' AND target_id = $3
+			      AND actor <> 'identity:' || $3 AND ($1 = 0 OR id < $1)
+			    ORDER BY id DESC LIMIT $2))
+			 SELECT e.id, e.occurred_at, e.actor, e.action, coalesce(e.target_type, ''), coalesce(e.target_id, ''),
 			        coalesce(ai.display_name, ''), coalesce(ti.display_name, ''), e.details
-			 FROM audit_events e
-			 LEFT JOIN identities ai ON e.actor = 'identity:' || ai.id::text
-			 LEFT JOIN identities ti ON e.target_type = 'identity' AND e.target_id = ti.id::text
-			 WHERE ($1 = 0 OR e.id < $1)
-			   AND ($3 = '' OR e.actor = 'identity:' || $3 OR (e.target_type = 'identity' AND e.target_id = $3))
+			 FROM page e
+			 LEFT JOIN identities ai ON ai.id = CASE WHEN e.actor ~ '^identity:`+uuidRegexp+`$' THEN substr(e.actor, 10)::uuid END
+			 LEFT JOIN identities ti ON ti.id = CASE WHEN e.target_type = 'identity' AND e.target_id ~ '^`+uuidRegexp+`$' THEN e.target_id::uuid END
 			 ORDER BY e.id DESC LIMIT $2`, before, limit, identityID)
 		if err != nil {
 			return err

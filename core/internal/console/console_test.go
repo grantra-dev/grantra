@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +228,45 @@ func TestAuditEventsByIdentity(t *testing.T) {
 	all := decode[struct{ Events []auditEvent }](t, e.do(admin, http.MethodGet, "/api/v1/audit-events?identity="+admin, ""))
 	if len(all.Events) != 2 {
 		t.Errorf("events by admin = %d, want 2", len(all.Events))
+	}
+
+	// What luis did, what was done to him, and both at once (listed once),
+	// newest first and paged across the two; actors and targets that are
+	// not people have no name.
+	for _, ev := range [][3]string{
+		{"identity:" + luis, "identity", ana}, {"grantra", "identity", luis}, {"identity:" + luis, "identity", luis},
+		{"identity:tester", "identity", "not-a-uuid"}, {"identity:" + luis, "application", "x"},
+	} {
+		e.exec(`INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id) VALUES ($1, $2, 'test.event', $3, $4)`,
+			e.tenant, ev[0], ev[1], ev[2])
+	}
+	page := func(query string) []auditEvent {
+		return decode[struct{ Events []auditEvent }](t, e.do(admin, http.MethodGet, "/api/v1/audit-events?"+query, "")).Events
+	}
+	mine := page("identity=" + luis)
+	var seen []string
+	for _, ev := range mine {
+		seen = append(seen, ev.Actor+">"+ev.TargetID+":"+ev.ActorName+">"+ev.TargetName)
+	}
+	want := []string{
+		"identity:" + luis + ">x:luis>", "identity:" + luis + ">" + luis + ":luis>luis", "grantra>" + luis + ":>luis",
+		"identity:" + luis + ">" + ana + ":luis>ana",
+	}
+	if len(mine) < 4 || !slices.Equal(seen[:4], want) {
+		t.Errorf("events for luis = %q", seen)
+	}
+	for i := 1; i < len(mine); i++ {
+		if mine[i].ID >= mine[i-1].ID {
+			t.Errorf("not newest first: %d then %d", mine[i-1].ID, mine[i].ID)
+		}
+	}
+	first := page("identity=" + luis + "&limit=2")
+	rest := page("identity=" + luis + "&limit=2&before=" + strconv.FormatInt(first[1].ID, 10))
+	if len(first) != 2 || len(rest) != 2 || first[0].ID != mine[0].ID || rest[0].ID != mine[2].ID || rest[1].ID != mine[3].ID {
+		t.Errorf("pages = %+v then %+v", first, rest)
+	}
+	if odd := page("limit=5"); len(odd) != 5 || odd[1].Actor != "identity:tester" || odd[1].ActorName != "" || odd[1].TargetName != "" {
+		t.Errorf("newest events = %+v", odd)
 	}
 }
 

@@ -508,7 +508,7 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (T
 	if err := c.check(ctx, tx, in.Kind, name); err != nil {
 		return Target{}, err
 	}
-	appID, err := ensureApplication(ctx, tx, tenantID)
+	appID, err := catalog.EnsureApplication(ctx, tx, tenantID, ApplicationName, "gateway access")
 	if err != nil {
 		return Target{}, err
 	}
@@ -546,25 +546,6 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (T
 		return Target{}, err
 	}
 	return Get(ctx, tx, id)
-}
-
-// ensureApplication returns the "Remote access" application,
-// creating it the first time. It is governed by hand: there is nothing to
-// read or provision, only access to grant.
-func ensureApplication(ctx context.Context, tx pgx.Tx, tenantID string) (string, error) {
-	var id, kind string
-	err := tx.QueryRow(ctx, `SELECT id, connector FROM applications WHERE name = $1`, ApplicationName).Scan(&id, &kind)
-	if errors.Is(err, pgx.ErrNoRows) {
-		app, err := catalog.CreateApplication(ctx, tx, tenantID, ApplicationName, "")
-		return app.ID, err
-	}
-	if err != nil {
-		return "", err
-	}
-	if kind != catalog.ManualConnector {
-		return "", apperr.Conflictf("the application %q has a connector; gateway access needs that name for its own application, so rename the other one", ApplicationName)
-	}
-	return id, nil
 }
 
 // Update changes a target's settings. Its name and kind stay: they are what
@@ -678,14 +659,9 @@ func scanTarget(row pgx.CollectableRow) (Target, error) {
 	return t, err
 }
 
-// heldBy is true when $1, an active identity, holds the target t's access
-// right now: an unexpired assignment of its entitlement, directly or
-// through a role.
-const heldBy = `EXISTS (
-	SELECT 1 FROM access_assignments x JOIN identities i ON i.id = x.identity_id
-	WHERE x.identity_id::text = $1 AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
-	  AND (x.entitlement_id = t.entitlement_id
-	       OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = t.entitlement_id)))`
+// heldBy is true when $1, an active identity (empty for nobody), holds
+// the target t's access right now.
+var heldBy = catalog.HeldSQL(`nullif($1, '')::uuid`, `t.entitlement_id`)
 
 // List returns every target, or with holder set only the ones that identity
 // holds access to right now.
@@ -702,33 +678,15 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Target, error) {
 	if !db.ValidUUID(id) {
 		return Target{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, targetSelect+` WHERE t.id = $1`, id)
-	if err != nil {
-		return Target{}, err
-	}
-	t, err := pgx.CollectExactlyOneRow(rows, scanTarget)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Target{}, apperr.ErrNotFound
-	}
-	return t, err
+	return db.QueryOne(ctx, tx, scanTarget, targetSelect+` WHERE t.id = $1`, id)
 }
 
 // Holders returns the active identities who hold access to a target right
 // now.
 func Holders(ctx context.Context, tx pgx.Tx, id string) ([]string, error) {
-	if _, err := Get(ctx, tx, id); err != nil {
-		return nil, err
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT x.identity_id::text
-		FROM gateway_targets t
-		JOIN access_assignments x ON x.entitlement_id = t.entitlement_id
-		   OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = t.entitlement_id)
-		JOIN identities i ON i.id = x.identity_id
-		WHERE t.id = $1 AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
-		ORDER BY 1`, id)
+	t, err := Get(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	return catalog.Holders(ctx, tx, t.EntitlementID)
 }

@@ -269,7 +269,7 @@ func TestAggregateDue(t *testing.T) {
 // fit in one batch, then drops some, so every batch boundary is crossed.
 func TestAggregateLargeApplication(t *testing.T) {
 	e := newEnv(t)
-	n := batchSize*2 + 7
+	n := db.BatchSize*2 + 7
 	snap := connector.Snapshot{}
 	for i := range n {
 		snap.Entitlements = append(snap.Entitlements, connector.Entitlement{NativeID: fmt.Sprintf("g%d", i), Name: fmt.Sprintf("Group %d", i)})

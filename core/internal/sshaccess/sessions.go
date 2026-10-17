@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -341,7 +342,7 @@ func ListSessions(ctx context.Context, tx pgx.Tx, f SessionFilter) ([]Session, e
 		return []Session{}, nil
 	}
 	rows, err := tx.Query(ctx, sessionSelect+`
-		WHERE ($1 = '' OR s.target_id::text = $1) AND ($2 = '' OR s.identity_id::text = $2) AND (NOT $3 OR s.ended_at IS NULL)
+		WHERE ($1 = '' OR s.target_id = nullif($1, '')::uuid) AND ($2 = '' OR s.identity_id = nullif($2, '')::uuid) AND (NOT $3 OR s.ended_at IS NULL)
 		ORDER BY s.started_at DESC LIMIT $4`, f.TargetID, f.IdentityID, f.Active, f.Limit)
 	if err != nil {
 		return nil, err
@@ -354,15 +355,7 @@ func GetSession(ctx context.Context, tx pgx.Tx, id string) (Session, error) {
 	if !db.ValidUUID(id) {
 		return Session{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, sessionSelect+` WHERE s.id = $1`, id)
-	if err != nil {
-		return Session{}, err
-	}
-	s, err := pgx.CollectExactlyOneRow(rows, scanSession)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, apperr.ErrNotFound
-	}
-	return s, err
+	return db.QueryOne(ctx, tx, scanSession, sessionSelect+` WHERE s.id = $1`, id)
 }
 
 // SessionCommands returns the commands typed in a session, in order.
@@ -378,19 +371,21 @@ func SessionCommands(ctx context.Context, tx pgx.Tx, id string) ([]Command, erro
 	})
 }
 
-// Recording returns a session's recording as an asciicast v2 file. Whoever
-// watched it is in the audit log.
-func Recording(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) ([]byte, error) {
+// RecordingViewed checks that a session exists and records in the audit
+// log that actor is watching its recording. Callers commit it before
+// sending the recording, so a download cut short is still in the log.
+func RecordingViewed(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if _, err := GetSession(ctx, tx, id); err != nil {
-		return nil, err
+		return err
 	}
-	var out []byte
-	err := tx.QueryRow(ctx, `SELECT coalesce(string_agg(data, ''::bytea ORDER BY seq), ''::bytea) FROM ssh_session_chunks WHERE session_id = $1`, id).
-		Scan(&out)
-	if err != nil {
-		return nil, err
-	}
-	return out, db.Audit(ctx, tx, tenantID, actor, "ssh.recording_viewed", "ssh_session", id, nil)
+	return db.Audit(ctx, tx, tenantID, actor, "ssh.recording_viewed", "ssh_session", id, nil)
+}
+
+// WriteRecording writes a session's recording, an asciicast v2 file, to w
+// piece by piece (it can be up to 100 MB); start is called before the
+// first byte, to set headers. See RecordingViewed.
+func WriteRecording(ctx context.Context, tx pgx.Tx, id string, start func(), w io.Writer) error {
+	return db.WriteRows(ctx, tx, w, start, `SELECT data FROM ssh_session_chunks WHERE session_id = $1 ORDER BY seq`, id)
 }
 
 // Terminate asks the gateway to end a running session; it does within 30
@@ -418,18 +413,17 @@ func Terminate(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error
 // SearchCommands finds typed commands containing q (any case), newest
 // first, optionally on one target.
 func SearchCommands(ctx context.Context, tx pgx.Tx, q, targetID string, limit int) ([]Command, error) {
-	q = strings.TrimSpace(q)
-	if q == "" || len(q) > 500 {
-		return nil, apperr.Invalidf("q must be between 1 and 500 characters")
+	pattern, err := db.SearchPattern(q)
+	if err != nil {
+		return nil, err
 	}
 	if targetID != "" && !db.ValidUUID(targetID) {
 		return []Command{}, nil
 	}
-	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
 	rows, err := tx.Query(ctx,
 		`SELECT c.id, c.session_id, c.at, c.offset_seconds, c.command, s.target_name, s.login, s.identity_id, i.display_name
 		 FROM ssh_commands c JOIN ssh_sessions s ON s.id = c.session_id JOIN identities i ON i.id = s.identity_id
-		 WHERE c.command ILIKE $1 AND ($2 = '' OR s.target_id::text = $2)
+		 WHERE c.command ILIKE $1 AND ($2 = '' OR s.target_id = nullif($2, '')::uuid)
 		 ORDER BY c.at DESC, c.id DESC LIMIT $3`, pattern, targetID, limit)
 	if err != nil {
 		return nil, err

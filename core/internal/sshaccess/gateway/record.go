@@ -148,12 +148,6 @@ func (r *recorder) drain(final bool) (data []byte, commands []sshaccess.Command,
 	return data, commands, r.truncated
 }
 
-func (r *recorder) pending() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.buf.Len()
-}
-
 // completeUTF8 returns how much of p ends on a whole character: at most the
 // last three bytes can be the start of one still arriving.
 func completeUTF8(p []byte) int {

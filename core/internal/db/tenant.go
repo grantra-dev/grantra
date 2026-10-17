@@ -69,6 +69,14 @@ func Nullable(s string) *string {
 // Audit appends an event to the tenant's audit log. targetType and targetID
 // may be empty when the event has no target.
 func Audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, targetType, targetID string, details map[string]any) error {
+	sql, args := auditInsert(tenantID, actor, action, targetType, targetID, details)
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf("audit %s: %w", action, err)
+	}
+	return nil
+}
+
+func auditInsert(tenantID, actor, action, targetType, targetID string, details map[string]any) (string, []any) {
 	if details == nil {
 		details = map[string]any{}
 	}
@@ -76,13 +84,8 @@ func Audit(ctx context.Context, tx pgx.Tx, tenantID, actor, action, targetType, 
 	if targetID != "" {
 		tt, ti = &targetType, &targetID
 	}
-	_, err := tx.Exec(ctx,
-		`INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id, details)
-		 VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, actor, action, tt, ti, details)
-	if err != nil {
-		return fmt.Errorf("audit %s: %w", action, err)
-	}
-	return nil
+	return `INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id, details)
+		 VALUES ($1, $2, $3, $4, $5, $6)`, []any{tenantID, actor, action, tt, ti, details}
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)

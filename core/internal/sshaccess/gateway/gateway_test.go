@@ -411,15 +411,16 @@ func TestShellIsRecorded(t *testing.T) {
 	if id := <-srv.logins; id != "grantra-gateway:"+got.ID {
 		t.Errorf("gateway logged in as %q", id)
 	}
-	var rec []byte
+	var buf bytes.Buffer
 	var cmds []sshaccess.Command
 	e.must(func(tx pgx.Tx) (err error) {
-		if rec, err = sshaccess.Recording(e.ctx, tx, e.tenant, "identity:auditor", got.ID); err != nil {
+		if err = sshaccess.WriteRecording(e.ctx, tx, got.ID, func() {}, &buf); err != nil {
 			return err
 		}
 		cmds, err = sshaccess.SessionCommands(e.ctx, tx, got.ID)
 		return err
 	})
+	rec := buf.Bytes()
 	lines := strings.Split(strings.TrimSpace(string(rec)), "\n")
 	if !strings.HasPrefix(lines[0], `{"version":2,"width":120,"height":40,`) || !strings.Contains(string(rec), "you said uptime") {
 		t.Errorf("recording = %q", rec)

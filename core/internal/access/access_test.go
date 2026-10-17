@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -162,6 +163,9 @@ func TestBirthrightFollowsLifecycle(t *testing.T) {
 		}
 		ruleID = r.ID
 		ch, err := Reconcile(ctx, tx, e.tenant, "identity:tester", nil)
+		if err != nil {
+			return err
+		}
 		if ch.Added != 1 || ch.Removed != 0 {
 			t.Errorf("reconcile after create = %+v", ch)
 		}
@@ -292,4 +296,78 @@ func TestRuleValidation(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// Reconciling sends its changes in batches; every change, in every batch,
+// still gets its own audit event naming the assignment.
+func TestReconcileInBatches(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	var ent string
+	e.tx(func(tx pgx.Tx) error {
+		app, err := catalog.CreateApplication(ctx, tx, e.tenant, "Wiki", "")
+		if err != nil {
+			return err
+		}
+		en, err := catalog.CreateEntitlement(ctx, tx, e.tenant, app.ID, catalog.EntitlementInput{NativeID: "reader", Name: "Reader"})
+		ent = en.ID
+		return err
+	})
+	n := db.BatchSize + 5
+	var feed strings.Builder
+	feed.WriteString(header)
+	for i := range n {
+		fmt.Fprintf(&feed, "E%04d,Person %d,Sales,Madrid,active\n", i, i)
+	}
+	e.sync(feed.String())
+
+	var ruleID string
+	e.tx(func(tx pgx.Tx) error {
+		r, err := CreateRule(ctx, tx, e.tenant, RuleInput{Name: "Madrid readers", Conditions: Conditions{"location": {"Madrid"}}, EntitlementIDs: []string{ent}})
+		if err != nil {
+			return err
+		}
+		ruleID = r.ID
+		ch, err := Reconcile(ctx, tx, e.tenant, "identity:tester", nil)
+		if err == nil && (ch.Added != n || ch.Removed != 0) {
+			t.Errorf("reconcile = %+v, want %d added", ch, n)
+		}
+		return err
+	})
+	if got := e.count(`SELECT count(*) FROM access_assignments WHERE entitlement_id = $1`, ent); got != n {
+		t.Errorf("assignments = %d, want %d", got, n)
+	}
+	// Each event names its own assignment, person, rule and origin.
+	if got := e.count(`SELECT count(*) FROM audit_events ev JOIN access_assignments x ON x.id::text = ev.details->>'assignment_id'
+		WHERE ev.action = 'access.assigned' AND ev.target_id = x.identity_id::text AND ev.actor = 'identity:tester'
+		  AND ev.details->>'entitlement_id' = $1 AND ev.details->>'rule_id' = $2 AND ev.details->>'rule' = 'Madrid readers'
+		  AND ev.details->>'origin' = 'birthright'`, ent, ruleID); got != n {
+		t.Errorf("access.assigned events = %d, want %d", got, n)
+	}
+	// Nothing new: a second pass changes and audits nothing.
+	e.tx(func(tx pgx.Tx) error {
+		ch, err := Reconcile(ctx, tx, e.tenant, "identity:tester", nil)
+		if err == nil && (ch.Added != 0 || ch.Removed != 0) {
+			t.Errorf("second reconcile = %+v", ch)
+		}
+		return err
+	})
+	if got := e.count(`SELECT count(*) FROM audit_events WHERE action = 'access.assigned'`); got != n {
+		t.Errorf("access.assigned events after a second pass = %d, want %d", got, n)
+	}
+
+	e.tx(func(tx pgx.Tx) error {
+		ch, err := DeleteRule(ctx, tx, e.tenant, "identity:tester", ruleID)
+		if err == nil && ch.Removed != n {
+			t.Errorf("delete rule = %+v, want %d removed", ch, n)
+		}
+		return err
+	})
+	if got := e.count(`SELECT count(*) FROM access_assignments WHERE entitlement_id = $1`, ent); got != 0 {
+		t.Errorf("assignments left = %d", got)
+	}
+	if got := e.count(`SELECT count(*) FROM audit_events WHERE action = 'access.removed' AND details->>'reason' = 'rule deleted'
+		AND details->>'rule_id' = $1 AND details->>'entitlement_id' = $2 AND details ? 'assignment_id'`, ruleID, ent); got != n {
+		t.Errorf("access.removed events = %d, want %d", got, n)
+	}
 }

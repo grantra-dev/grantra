@@ -205,14 +205,7 @@ func GetEligibility(ctx context.Context, tx pgx.Tx, id string, lock bool) (Eligi
 			return Eligibility{}, err
 		}
 	}
-	rows, err := tx.Query(ctx, `SELECT `+eligibilityColumns+eligibilityFrom+` WHERE el.id = $1`, id)
-	if err != nil {
-		return Eligibility{}, err
-	}
-	el, err := pgx.CollectExactlyOneRow(rows, scanEligibility)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Eligibility{}, apperr.ErrNotFound
-	}
+	el, err := db.QueryOne(ctx, tx, scanEligibility, `SELECT `+eligibilityColumns+eligibilityFrom+` WHERE el.id = $1`, id)
 	if err != nil {
 		return Eligibility{}, err
 	}

@@ -677,14 +677,7 @@ func Get(ctx context.Context, tx pgx.Tx, id string, lock bool) (Request, error) 
 			return Request{}, err
 		}
 	}
-	rows, err := tx.Query(ctx, selectRequests+` WHERE r.id = $1`, id)
-	if err != nil {
-		return Request{}, err
-	}
-	r, err := pgx.CollectExactlyOneRow(rows, scan)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Request{}, apperr.ErrNotFound
-	}
+	r, err := db.QueryOne(ctx, tx, scan, selectRequests+` WHERE r.id = $1`, id)
 	if err != nil {
 		return Request{}, err
 	}

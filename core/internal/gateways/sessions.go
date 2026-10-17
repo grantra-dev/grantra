@@ -245,7 +245,7 @@ func ListSessions(ctx context.Context, tx pgx.Tx, f SessionFilter) ([]Session, e
 		return []Session{}, nil
 	}
 	rows, err := tx.Query(ctx, sessionSelect+`
-		WHERE ($1 = '' OR s.target_id::text = $1) AND ($2 = '' OR s.identity_id::text = $2) AND (NOT $3 OR s.ended_at IS NULL)
+		WHERE ($1 = '' OR s.target_id = nullif($1, '')::uuid) AND ($2 = '' OR s.identity_id = nullif($2, '')::uuid) AND (NOT $3 OR s.ended_at IS NULL)
 		ORDER BY s.started_at DESC LIMIT $4`, f.TargetID, f.IdentityID, f.Active, f.Limit)
 	if err != nil {
 		return nil, err
@@ -258,15 +258,7 @@ func GetSession(ctx context.Context, tx pgx.Tx, id string) (Session, error) {
 	if !db.ValidUUID(id) {
 		return Session{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, sessionSelect+` WHERE s.id = $1`, id)
-	if err != nil {
-		return Session{}, err
-	}
-	s, err := pgx.CollectExactlyOneRow(rows, scanSession)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, apperr.ErrNotFound
-	}
-	return s, err
+	return db.QueryOne(ctx, tx, scanSession, sessionSelect+` WHERE s.id = $1`, id)
 }
 
 // SessionEvents returns the queries or requests of a session, in order, at
@@ -331,18 +323,17 @@ func Terminate(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error
 // SearchEvents finds queries and requests containing q (any case), newest
 // first, optionally on one target.
 func SearchEvents(ctx context.Context, tx pgx.Tx, q, targetID string, limit int) ([]Event, error) {
-	q = strings.TrimSpace(q)
-	if q == "" || len(q) > 500 {
-		return nil, apperr.Invalidf("q must be between 1 and 500 characters")
+	pattern, err := db.SearchPattern(q)
+	if err != nil {
+		return nil, err
 	}
 	if targetID != "" && !db.ValidUUID(targetID) {
 		return []Event{}, nil
 	}
-	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
 	rows, err := tx.Query(ctx,
 		`SELECT e.id, e.session_id, e.at, e.kind, e.text, e.status, s.target_name, s.identity_id, i.display_name
 		 FROM gateway_events e JOIN gateway_sessions s ON s.id = e.session_id JOIN identities i ON i.id = s.identity_id
-		 WHERE e.text ILIKE $1 AND ($2 = '' OR s.target_id::text = $2)
+		 WHERE e.text ILIKE $1 AND ($2 = '' OR s.target_id = nullif($2, '')::uuid)
 		 ORDER BY e.at DESC, e.id DESC LIMIT $3`, pattern, targetID, limit)
 	if err != nil {
 		return nil, err
@@ -386,20 +377,5 @@ func RecordingViewed(ctx context.Context, tx pgx.Tx, tenantID, actor, id string)
 // set headers. A running session's recording is what was stored so far.
 // See RecordingViewed.
 func WriteRecording(ctx context.Context, tx pgx.Tx, id string, start func(), w io.Writer) error {
-	start()
-	rows, err := tx.Query(ctx, `SELECT data FROM gateway_recordings WHERE session_id = $1 ORDER BY seq`, id)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
-			return err
-		}
-		if _, err := w.Write(data); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
+	return db.WriteRows(ctx, tx, w, start, `SELECT data FROM gateway_recordings WHERE session_id = $1 ORDER BY seq`, id)
 }

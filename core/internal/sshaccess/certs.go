@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -71,12 +72,7 @@ func (s *Service) Issue(ctx context.Context, tx pgx.Tx, tenantID, identityID, ta
 		 SELECT $1, t.id, $3::uuid, $4, $5, now() - make_interval(secs => $6),
 		        CASE WHEN a.n > 0 THEN least(now() + make_interval(hours => t.max_certificate_hours),
 		                                     CASE WHEN NOT a.forever THEN a.until END) END
-		 FROM ssh_targets t, LATERAL (
-		   SELECT count(*) AS n, max(x.expires_at) AS until, bool_or(x.expires_at IS NULL) AS forever
-		   FROM access_assignments x
-		   WHERE x.identity_id = $3::uuid AND (x.expires_at IS NULL OR x.expires_at > now())
-		     AND (x.entitlement_id = t.entitlement_id
-		          OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = t.entitlement_id))) a
+		 FROM ssh_targets t, LATERAL (`+catalog.HeldWindowSQL(`$3::uuid`, `t.entitlement_id`)+`) a
 		 WHERE t.id = $2
 		 RETURNING id, serial, valid_after, valid_before, issued_at`,
 		tenantID, t.ID, identityID, c.Principal, c.Fingerprint, clockSkew.Seconds()).

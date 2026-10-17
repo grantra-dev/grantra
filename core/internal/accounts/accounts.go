@@ -194,32 +194,6 @@ type pendingAccount struct {
 	want         []string
 }
 
-// batchSize caps how many statements go to Postgres in one batch.
-const batchSize = 1000
-
-// sendBatch queues a statement per item and reads the results back in
-// order, batchSize at a time.
-func sendBatch[T any](ctx context.Context, tx pgx.Tx, items []T, queue func(*pgx.Batch, T), read func(pgx.BatchResults, T) error) error {
-	for start := 0; start < len(items); start += batchSize {
-		chunk := items[start:min(start+batchSize, len(items))]
-		b := &pgx.Batch{}
-		for _, it := range chunk {
-			queue(b, it)
-		}
-		br := tx.SendBatch(ctx, b)
-		for _, it := range chunk {
-			if err := read(br, it); err != nil {
-				br.Close() //nolint:errcheck
-				return err
-			}
-		}
-		if err := br.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 type candidate struct {
 	byExternal map[string]string
 	byEmail    map[string][]string
@@ -272,7 +246,7 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 	// Entitlements, sent as one batch: a round trip per entitlement adds up
 	// on applications with thousands of groups.
 	entID := map[string]string{}
-	err := sendBatch(ctx, tx, snap.Entitlements, func(b *pgx.Batch, e connector.Entitlement) {
+	err := db.SendBatch(ctx, tx, snap.Entitlements, func(b *pgx.Batch, e connector.Entitlement) {
 		b.Queue(`INSERT INTO entitlements (tenant_id, application_id, native_id, name, description)
 			 VALUES ($1, $2, $3, $4, nullif($5, ''))
 			 ON CONFLICT (application_id, native_id)
@@ -392,7 +366,7 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		}
 		pending = append(pending, p)
 	}
-	err = sendBatch(ctx, tx, pending, func(b *pgx.Batch, p pendingAccount) {
+	err = db.SendBatch(ctx, tx, pending, func(b *pgx.Batch, p pendingAccount) {
 		// The memberships the account should no longer hold are deleted and
 		// the missing ones added in the same statement as the account. The
 		// two touch different rows, so they cannot step on each other.

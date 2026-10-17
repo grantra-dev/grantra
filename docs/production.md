@@ -30,6 +30,8 @@ ALTER SCHEMA public OWNER TO grantra_owner;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 ```
 
+The migrations also create the `pg_trgm` extension, which ships with PostgreSQL (and managed services such as RDS, Cloud SQL and Azure Database), for fast searches of gateway queries and SSH commands. The database owner can create it; where it cannot, Grantra starts anyway and those searches are slower.
+
 Then give the chart both connection strings, either as values or, better, in a Secret you manage:
 
 ```sh
