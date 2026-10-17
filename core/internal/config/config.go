@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/mail"
 	"net/url"
 	"os"
@@ -57,17 +58,43 @@ type Config struct {
 	Gateway Gateway
 }
 
-// Gateway configures the SSH gateway (grantra gateway).
+// Gateway configures the gateway (grantra gateway): SSH, and the Kubernetes,
+// PostgreSQL and MySQL listeners.
 type Gateway struct {
-	// Addr is where the gateway listens.
+	// Addr is where the SSH gateway listens.
 	Addr string
 	// HostKeyFile holds the gateway's own SSH host key. It is created the
 	// first time; keep it, or people see a host key warning.
 	HostKeyFile string
-	// PublicAddress is how people reach the gateway (host or host:port),
-	// shown in the console with the command to connect. Optional.
+	// PublicAddress is how people reach the SSH gateway (host or
+	// host:port), shown in the console with the command to connect.
+	// Optional.
 	PublicAddress string
+
+	// KubernetesAddr, PostgresAddr and MySQLAddr are where the other
+	// listeners listen; "off" turns one off.
+	KubernetesAddr string
+	PostgresAddr   string
+	MySQLAddr      string
+	// TLSNames are the host names and IPs the gateway's TLS certificate is
+	// for (signed by the tenant's gateway CA), unless TLSCertFile and
+	// TLSKeyFile give a certificate of the operator's own.
+	TLSNames    []string
+	TLSCertFile string
+	TLSKeyFile  string
+	// KubernetesAddress, PostgresAddress and MySQLAddress are how people
+	// reach those listeners (host:port), shown in the console. They default
+	// to PublicAddress's host with the listeners' default ports.
+	KubernetesAddress string
+	PostgresAddress   string
+	MySQLAddress      string
+	// CAFile (on the server) holds the PEM certificate clients verify the
+	// gateway with when TLSCertFile is the operator's own certificate.
+	CAFile string
 }
+
+// Off turns a gateway listener off.
+const Off = "off"
 
 // SMTP configures the server Grantra sends notification emails through.
 // Email is off when Host is empty.
@@ -123,6 +150,17 @@ func FromEnv() (Config, error) {
 			Addr:          getenv("GRANTRA_GATEWAY_ADDR", ":2222"),
 			HostKeyFile:   getenv("GRANTRA_GATEWAY_HOST_KEY_FILE", "gateway_host_key"),
 			PublicAddress: os.Getenv("GRANTRA_SSH_GATEWAY_ADDRESS"),
+
+			KubernetesAddr:    getenv("GRANTRA_GATEWAY_KUBERNETES_ADDR", ":8443"),
+			PostgresAddr:      getenv("GRANTRA_GATEWAY_POSTGRES_ADDR", ":15432"),
+			MySQLAddr:         getenv("GRANTRA_GATEWAY_MYSQL_ADDR", ":13306"),
+			TLSNames:          splitList(os.Getenv("GRANTRA_GATEWAY_TLS_NAMES")),
+			TLSCertFile:       os.Getenv("GRANTRA_GATEWAY_TLS_CERT_FILE"),
+			TLSKeyFile:        os.Getenv("GRANTRA_GATEWAY_TLS_KEY_FILE"),
+			KubernetesAddress: os.Getenv("GRANTRA_GATEWAY_KUBERNETES_ADDRESS"),
+			PostgresAddress:   os.Getenv("GRANTRA_GATEWAY_POSTGRES_ADDRESS"),
+			MySQLAddress:      os.Getenv("GRANTRA_GATEWAY_MYSQL_ADDRESS"),
+			CAFile:            os.Getenv("GRANTRA_GATEWAY_CA_FILE"),
 		},
 		SessionIdle: 30 * time.Minute,
 		SessionMax:  8 * time.Hour,
@@ -181,7 +219,42 @@ func FromEnv() (Config, error) {
 	if err := cfg.SMTP.load(); err != nil {
 		return Config{}, err
 	}
+	if (cfg.Gateway.TLSCertFile == "") != (cfg.Gateway.TLSKeyFile == "") {
+		return Config{}, errors.New("set both GRANTRA_GATEWAY_TLS_CERT_FILE and GRANTRA_GATEWAY_TLS_KEY_FILE, or neither")
+	}
+	cfg.Gateway.publicDefaults()
 	return cfg, nil
+}
+
+// publicDefaults fills in the addresses people reach the listeners at from
+// the SSH gateway's host.
+func (g *Gateway) publicDefaults() {
+	host := g.PublicAddress
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if host == "" {
+		return
+	}
+	for _, a := range []struct {
+		dst  *string
+		port string
+	}{{&g.KubernetesAddress, "8443"}, {&g.PostgresAddress, "15432"}, {&g.MySQLAddress, "13306"}} {
+		if *a.dst == "" {
+			*a.dst = net.JoinHostPort(host, a.port)
+		}
+	}
+}
+
+// splitList splits a comma-separated list, dropping empty items.
+func splitList(v string) []string {
+	var out []string
+	for _, item := range strings.Split(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func (s *SMTP) load() error {

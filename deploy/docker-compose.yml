@@ -71,7 +71,8 @@ services:
       # The vault's master key. A fixed one is fine for the demo; generate
       # your own (openssl rand -base64 32) for anything real.
       GRANTRA_VAULT_KEY: Z3JhbnRyYS1kZW1vLXZhdWx0LWtleS0wMDAwMDAwMDA=
-      # Shown in the console with the command to connect through the gateway.
+      # Shown in the console with the command to connect through the gateway
+      # (the database and cluster listeners default to the same host).
       GRANTRA_SSH_GATEWAY_ADDRESS: localhost:2222
     ports:
       - "8080:8080"
@@ -79,8 +80,11 @@ services:
       postgres:
         condition: service_healthy
 
-  # The SSH gateway: ssh -p 2222 <server>@localhost with a certificate from
-  # the console's Servers page. It records every session; see docs/ssh.md.
+  # The gateway: ssh -p 2222 <server>@localhost with a certificate from the
+  # console's Servers page (docs/ssh.md), and databases and Kubernetes
+  # clusters on 15432 (PostgreSQL), 13306 (MySQL) and 8443 (Kubernetes) with
+  # a token from Databases & clusters (docs/gateways.md). It records every
+  # session.
   gateway:
     build:
       context: ..
@@ -96,6 +100,9 @@ services:
       - gatewaykey:/home/nonroot
     ports:
       - "2222:2222"
+      - "8443:8443"
+      - "15432:15432"
+      - "13306:13306"
     restart: unless-stopped
     depends_on:
       grantra:

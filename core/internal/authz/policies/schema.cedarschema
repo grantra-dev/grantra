@@ -76,6 +76,12 @@ entity SSHTarget {
   holders: Set<Identity>,
 };
 
+// One cluster or database behind the gateway: holders hold access to it
+// right now.
+entity GatewayTarget {
+  holders: Set<Identity>,
+};
+
 // Action groups.
 action "read";
 action "write";
@@ -247,6 +253,15 @@ action "vault_account.break_glass" in ["write"] appliesTo {
 action "ssh_target.connect" in ["write"] appliesTo {
   principal: Identity,
   resource: SSHTarget,
+  context: {},
+};
+
+// connect issues a token for a cluster or database behind the gateway.
+// Targets, sessions and their logs are managed and read with vault.manage
+// and vault.read.
+action "gateway_target.connect" in ["write"] appliesTo {
+  principal: Identity,
+  resource: GatewayTarget,
   context: {},
 };
 

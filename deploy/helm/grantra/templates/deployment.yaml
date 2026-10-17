@@ -115,9 +115,27 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
-            {{- if and .Values.gateway.enabled .Values.gateway.publicAddress }}
+            {{- if .Values.gateway.enabled }}
+            {{- with .Values.gateway.publicAddress }}
             - name: GRANTRA_SSH_GATEWAY_ADDRESS
-              value: {{ .Values.gateway.publicAddress | quote }}
+              value: {{ . | quote }}
+            {{- end }}
+            {{- $host := regexReplaceAll ":[0-9]+$" .Values.gateway.publicAddress "" }}
+            {{- range $kind, $port := .Values.gateway.ports }}
+            {{- $addr := index $.Values.gateway.publicAddresses $kind }}
+            {{- if and $port (not $addr) $host }}
+            {{- $addr = printf "%s:%v" $host $port }}
+            {{- end }}
+            {{- if and $port $addr }}
+            - name: GRANTRA_GATEWAY_{{ upper $kind }}_ADDRESS
+              value: {{ $addr | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.gateway.tls.existingSecret }}
+            # Handed out in the console: clients verify the gateway with it.
+            - name: GRANTRA_GATEWAY_CA_FILE
+              value: /etc/grantra-gateway-tls/ca.crt
+            {{- end }}
             {{- end }}
             {{- include "grantra.vaultEnv" . | nindent 12 }}
             {{- with .Values.extraEnv }}
@@ -146,6 +164,11 @@ spec:
             # Large uploads (HR files) spill to disk.
             - name: tmp
               mountPath: /tmp
+            {{- if and .Values.gateway.enabled .Values.gateway.tls.existingSecret }}
+            - name: gateway-ca
+              mountPath: /etc/grantra-gateway-tls
+              readOnly: true
+            {{- end }}
             {{- with .Values.vault.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -154,6 +177,15 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if and .Values.gateway.enabled .Values.gateway.tls.existingSecret }}
+        # Only the CA: the server never holds the gateway's key.
+        - name: gateway-ca
+          secret:
+            secretName: {{ .Values.gateway.tls.existingSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
         {{- with .Values.vault.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

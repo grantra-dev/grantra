@@ -26,8 +26,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      # The database gateway's MySQL tests log in to it.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pmysql"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
     env:
       GRANTRA_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      GRANTRA_TEST_MYSQL_DSN: root:mysql@tcp(127.0.0.1:3306)/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -91,6 +104,10 @@ jobs:
             --set postgresql.auth.loginPassword=l,login.enabled=true,login.admin.password=p,login.ingress.enabled=true,ingress.enabled=true,vault.key=k,gateway.enabled=true > /dev/null
           helm template t deploy/helm/grantra --set database.existingSecret=grantra-db \
             --set vault.provider=transit,vault.kmsKey=grantra,gateway.enabled=true > /dev/null
+          helm template t deploy/helm/grantra --set database.existingSecret=grantra-db,vault.key=k,gateway.enabled=true \
+            --set gateway.publicAddress=gw.example.com:2222,gateway.kubernetes.inCluster=true,gateway.ports.mysql=0 > /dev/null
+          helm template t deploy/helm/grantra --set database.existingSecret=grantra-db,vault.key=k,gateway.enabled=true \
+            --set gateway.tls.existingSecret=gw-tls > /dev/null
 
   docker:
     runs-on: ubuntu-latest

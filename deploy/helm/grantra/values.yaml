@@ -78,22 +78,47 @@ vault:
   volumes: []
   volumeMounts: []
 
-# The SSH gateway (grantra gateway): people SSH through it to the servers
-# they hold access to, and it records every session. It needs the vault's
-# master key (vault.key, vault.existingSecret or vault.provider): it signs its
-# own short-lived certificates with the SSH certificate authority, which that
-# key seals. See docs/ssh.md.
+# The gateway (grantra gateway): people SSH through it to the servers they
+# hold access to, and connect through it to databases and Kubernetes
+# clusters; it records every session. It needs the vault's master key
+# (vault.key, vault.existingSecret or vault.provider): it signs its own
+# short-lived certificates with the certificate authorities that key seals.
+# See docs/ssh.md and docs/gateways.md.
 gateway:
   enabled: false
   replicaCount: 1
   # How people reach the gateway (host or host:port), shown in the console
-  # with the command to connect, such as ssh.example.com:2222.
+  # with the command to connect, such as gateway.example.com:2222. The
+  # database and cluster listeners default to the same host.
   publicAddress: ""
   service:
-    # SSH is not HTTP: expose it with a LoadBalancer or NodePort.
+    # SSH and database protocols are not HTTP: expose them with a
+    # LoadBalancer or NodePort.
     type: LoadBalancer
     port: 2222
     annotations: {}
+  # The database and cluster listeners: set a port to 0 to turn one off.
+  # The public addresses default to publicAddress's host with these ports.
+  ports:
+    kubernetes: 8443
+    postgres: 15432
+    mysql: 13306
+  publicAddresses:
+    kubernetes: ""
+    postgres: ""
+    mysql: ""
+  tls:
+    # Host names and IPs the gateway's certificate (from the tenant's
+    # gateway CA) is for. Empty: publicAddress's host and the service name.
+    names: []
+    # Or a certificate of your own: a Secret with tls.crt, tls.key and
+    # ca.crt (the CA clients verify it with, which the console hands out).
+    existingSecret: ""
+  kubernetes:
+    # Lets clusters added without a vault account use the gateway's own
+    # service account: the cluster the gateway runs in, with a ClusterRole
+    # that may only impersonate people.
+    inCluster: false
   # The gateway's own host key, which people's known_hosts remembers. An
   # existing Secret with the key host-key (an OpenSSH or PKCS#8 private key),
   # or leave empty and the chart creates one and keeps it across upgrades.

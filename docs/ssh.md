@@ -114,7 +114,7 @@ database, the vault key and its own host key:
 | `GRANTRA_SSH_GATEWAY_ADDRESS` (on the server) | | `host:port` people use to reach the gateway, shown in the console |
 
 docker-compose runs it on `localhost:2222`; Helm with `gateway.enabled=true`
-(see [production.md](production.md#ssh-gateway)). Its log prints the host
+(see [production.md](production.md#gateway)). Its log prints the host
 key fingerprint when it starts, for people to check the first time they
 connect.
 
@@ -160,7 +160,7 @@ not what goes in to it; a shell without a terminal (`ssh -T`) has every
 line it reads indexed, since nothing echoes. The recording is the record.
 
 A session whose gateway stops reporting (it crashed) is marked *lost*
-within a few minutes by the job **end lost SSH sessions**.
+within a few minutes by the job **end lost gateway sessions**.
 
 ## API
 

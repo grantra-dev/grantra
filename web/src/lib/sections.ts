@@ -1,5 +1,6 @@
 import {
   ClipboardCheck,
+  Database,
   FileSearch,
   House,
   Inbox,
@@ -77,6 +78,13 @@ export const sections: Section[] = [
     title: "Servers",
     description: "Log in to servers over SSH with a short-lived certificate.",
     icon: SquareTerminal,
+    visible: everyone,
+  },
+  {
+    path: "/databases",
+    title: "Databases & clusters",
+    description: "Connect to databases and Kubernetes clusters with a short-lived token.",
+    icon: Database,
     visible: everyone,
   },
   {

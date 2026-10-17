@@ -34,6 +34,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/demo"
+	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
@@ -220,6 +221,9 @@ func run() error {
 		api.Vault = vlt
 		api.SSH = sshSvc
 		api.GatewayAddress = cfg.Gateway.PublicAddress
+		api.Gateways = gateways.New(keys)
+		api.GatewayAddresses = console.GatewayAddresses{Kubernetes: cfg.Gateway.KubernetesAddress,
+			Postgres: cfg.Gateway.PostgresAddress, MySQL: cfg.Gateway.MySQLAddress, CAFile: cfg.Gateway.CAFile}
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
 	} else {
 		log.Warn("console login disabled: GRANTRA_OIDC_ISSUER is not set")
@@ -424,14 +428,17 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			return err
 		}},
 		// Sessions whose gateway went away without saying so.
-		{"end lost SSH sessions", time.Minute, func(ctx context.Context) error {
-			var n int
+		{"end lost gateway sessions", time.Minute, func(ctx context.Context) error {
+			var n, m int
 			err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) (err error) {
-				n, err = sshaccess.EndLostSessions(ctx, tx, tenantID)
+				if n, err = sshaccess.EndLostSessions(ctx, tx, tenantID); err != nil {
+					return err
+				}
+				m, err = gateways.EndLostSessions(ctx, tx, tenantID)
 				return err
 			})
-			if n > 0 {
-				log.WarnContext(ctx, "ended SSH sessions their gateway stopped reporting on", "sessions", n)
+			if n+m > 0 {
+				log.WarnContext(ctx, "ended sessions their gateway stopped reporting on", "ssh_sessions", n, "database_and_cluster_sessions", m)
 			}
 			return err
 		}},
