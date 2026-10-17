@@ -3,7 +3,6 @@ package access
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -200,39 +199,33 @@ func Reconcile(ctx context.Context, tx pgx.Tx, tenantID, actor string, ids []str
 	}
 
 	have := map[string]bool{}
+	var gone []removal
 	for _, h := range current {
 		switch {
 		case terminated[h.identity]:
-			if err := remove(ctx, tx, tenantID, actor, h, "identity terminated"); err != nil {
-				return ch, err
-			}
-			ch.Removed++
+			gone = append(gone, removal{h, "identity terminated"})
 		case h.origin != OriginBirthright:
 		case !wanted(want, h):
-			if err := remove(ctx, tx, tenantID, actor, h, "no longer matches the rule"); err != nil {
-				return ch, err
-			}
-			ch.Removed++
+			gone = append(gone, removal{h, "no longer matches the rule"})
 		default:
 			have[h.key()] = true
 		}
 	}
+	if err := remove(ctx, tx, tenantID, actor, gone); err != nil {
+		return ch, err
+	}
+	ch.Removed = len(gone)
 	if err := removeEligibilities(ctx, tx, tenantID, actor, terminated); err != nil {
 		return ch, err
 	}
+	var missing []held
 	for k, h := range want {
-		if have[k] {
-			continue
-		}
-		added, err := add(ctx, tx, tenantID, actor, h, ruleName[h.rule])
-		if err != nil {
-			return ch, err
-		}
-		if added {
-			ch.Added++
+		if !have[k] {
+			missing = append(missing, h)
 		}
 	}
-	return ch, nil
+	ch.Added, err = add(ctx, tx, tenantID, actor, missing, ruleName)
+	return ch, err
 }
 
 // removeEligibilities takes leavers' eligibilities away, so nothing comes
@@ -263,13 +256,12 @@ func removeEligibilities(ctx context.Context, tx pgx.Tx, tenantID, actor string,
 	if err != nil {
 		return err
 	}
-	for _, g := range list {
-		if err := db.Audit(ctx, tx, tenantID, actor, "access.eligibility_removed", "identity", g.identity,
-			g.t.details(map[string]any{"eligibility_id": g.id, "reason": "identity terminated"})); err != nil {
-			return err
-		}
-	}
-	return nil
+	return db.SendBatch(ctx, tx, list, func(b *pgx.Batch, g gone) {
+		db.QueueAudit(b, tenantID, actor, "access.eligibility_removed", "identity", g.identity,
+			g.t.details(map[string]any{"eligibility_id": g.id, "reason": "identity terminated"}))
+	}, func(br pgx.BatchResults, _ gone) error {
+		return db.ReadAudit(br, "access.eligibility_removed")
+	})
 }
 
 func wanted(want map[string]held, h held) bool {
@@ -284,40 +276,61 @@ func target(h held) (string, string) {
 	return "entitlement_id", h.entitlement
 }
 
-func add(ctx context.Context, tx pgx.Tx, tenantID, actor string, h held, rule string) (bool, error) {
-	var role, ent *string
-	if h.role != "" {
-		role = &h.role
-	} else {
-		ent = &h.entitlement
-	}
-	var id string
-	err := tx.QueryRow(ctx,
-		`INSERT INTO access_assignments (tenant_id, identity_id, role_id, entitlement_id, origin, rule_id, granted_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 ON CONFLICT DO NOTHING RETURNING id`,
-		tenantID, h.identity, role, ent, h.origin, h.rule, actor).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("assign: %w", err)
-	}
-	field, value := target(h)
-	return true, db.Audit(ctx, tx, tenantID, actor, "access.assigned", "identity", h.identity,
-		map[string]any{"assignment_id": id, field: value, "origin": h.origin, "rule_id": h.rule, "rule": rule})
+// add gives the access in list that its people do not have yet, with an
+// audit event each, and says how many it gave.
+func add(ctx context.Context, tx pgx.Tx, tenantID, actor string, list []held, ruleName map[string]string) (int, error) {
+	added := 0
+	err := db.SendBatch(ctx, tx, list, func(b *pgx.Batch, h held) {
+		var role, ent *string
+		if h.role != "" {
+			role = &h.role
+		} else {
+			ent = &h.entitlement
+		}
+		field, value := target(h)
+		details := map[string]any{field: value, "origin": h.origin, "rule_id": h.rule, "rule": ruleName[h.rule]}
+		b.Queue(`WITH a AS (
+			   INSERT INTO access_assignments (tenant_id, identity_id, role_id, entitlement_id, origin, rule_id, granted_by)
+			   VALUES ($1, $2, $3, $4, $5, $6, $7)
+			   ON CONFLICT DO NOTHING RETURNING id),
+			 audit AS (
+			   INSERT INTO audit_events (tenant_id, actor, action, target_type, target_id, details)
+			   SELECT $1, $7, 'access.assigned', 'identity', $2::text, $8::jsonb || jsonb_build_object('assignment_id', a.id) FROM a)
+			 SELECT count(*) FROM a`,
+			tenantID, h.identity, role, ent, h.origin, h.rule, actor, details)
+	}, func(br pgx.BatchResults, _ held) error {
+		var n int
+		if err := br.QueryRow().Scan(&n); err != nil {
+			return fmt.Errorf("assign: %w", err)
+		}
+		added += n
+		return nil
+	})
+	return added, err
 }
 
-func remove(ctx context.Context, tx pgx.Tx, tenantID, actor string, h held, reason string) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM access_assignments WHERE id = $1`, h.id); err != nil {
-		return fmt.Errorf("unassign: %w", err)
-	}
-	field, value := target(h)
-	details := map[string]any{"assignment_id": h.id, field: value, "origin": h.origin, "reason": reason}
-	if h.rule != "" {
-		details["rule_id"] = h.rule
-	}
-	return db.Audit(ctx, tx, tenantID, actor, "access.removed", "identity", h.identity, details)
+// removal is access to take away, and why.
+type removal struct {
+	h      held
+	reason string
+}
+
+// remove takes away access, with an audit event each.
+func remove(ctx context.Context, tx pgx.Tx, tenantID, actor string, list []removal) error {
+	return db.SendBatch(ctx, tx, list, func(b *pgx.Batch, r removal) {
+		b.Queue(`DELETE FROM access_assignments WHERE id = $1`, r.h.id)
+		field, value := target(r.h)
+		details := map[string]any{"assignment_id": r.h.id, field: value, "origin": r.h.origin, "reason": r.reason}
+		if r.h.rule != "" {
+			details["rule_id"] = r.h.rule
+		}
+		db.QueueAudit(b, tenantID, actor, "access.removed", "identity", r.h.identity, details)
+	}, func(br pgx.BatchResults, _ removal) error {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("unassign: %w", err)
+		}
+		return db.ReadAudit(br, "access.removed")
+	})
 }
 
 // DeleteRule removes a rule and, with an audit event each, the access it gave.
@@ -340,12 +353,14 @@ func DeleteRule(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) (Cha
 	if err != nil {
 		return ch, err
 	}
-	for _, h := range given {
-		if err := remove(ctx, tx, tenantID, actor, h, "rule deleted"); err != nil {
-			return ch, err
-		}
-		ch.Removed++
+	gone := make([]removal, len(given))
+	for i, h := range given {
+		gone[i] = removal{h, "rule deleted"}
 	}
+	if err := remove(ctx, tx, tenantID, actor, gone); err != nil {
+		return ch, err
+	}
+	ch.Removed = len(gone)
 	tag, err := tx.Exec(ctx, `DELETE FROM access_rules WHERE id = $1`, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ch, apperr.ErrNotFound

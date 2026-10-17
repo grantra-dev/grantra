@@ -277,6 +277,12 @@ func TestCreateAndCheckout(t *testing.T) {
 	if h := e.holders(a.ID); len(h) != 1 {
 		t.Fatalf("holders = %v, want suspended people left out", h)
 	}
+	for _, missing := range []string{"00000000-0000-0000-0000-000000000000", "nope"} {
+		err := db.InTenant(e.ctx, e.pool, e.tenant, func(tx pgx.Tx) error { _, err := Holders(e.ctx, tx, missing); return err })
+		if !errors.Is(err, apperr.ErrNotFound) {
+			t.Errorf("holders of %s = %v, want not found", missing, err)
+		}
+	}
 
 	// List: everything for readers, only what you hold for others.
 	e.must(func(tx pgx.Tx) error {

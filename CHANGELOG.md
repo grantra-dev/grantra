@@ -33,6 +33,8 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - The console's Content Security Policy allows `'wasm-unsafe-eval'`, which the session player needs to run its terminal emulator. It does not allow eval of JavaScript.
 
 - Vault entitlements are always just in time only: requests for them need a duration, and the existing ones are switched on upgrade. Existing assignments with no end date stay, and show in the Standing access report to convert.
+- Faster on large tenants: "does this person hold this access" checks (on every gateway connection, cluster request and session heartbeat) use their index; the audit log of one person, the job that ends expiring access, the notification cleanup and app account lookups get indexes; searches of gateway queries and SSH commands use trigram indexes (`pg_trgm`); apps' Cedar policies are parsed once per version instead of on every check; birthright changes are written in batches of 1,000; SSH recordings stream instead of loading whole; and the desktop gateway reads guacd's stream about 4 times faster.
+- An SSH certificate is only signed for a person who is active, as gateway tokens already were.
 
 ## [0.2.0] - 2026-10-15
 

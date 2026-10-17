@@ -17,14 +17,30 @@ import (
 // the opcode.
 
 // instruction is one Guacamole instruction, with the text it came as.
+// Only the opcode is copied out of it: the other elements, such as a
+// screen's image data, are read from raw when asked for.
 type instruction struct {
-	elems []string
-	raw   []byte
+	op  string
+	raw []byte
+	// bounds are where each element starts and ends in raw, in pairs.
+	bounds []int
 }
 
-func (i instruction) opcode() string { return i.elems[0] }
+func (i instruction) opcode() string { return i.op }
 
-func (i instruction) args() []string { return i.elems[1:] }
+// args are the elements after the opcode.
+func (i instruction) args() []string { return i.elemsFrom(2) }
+
+// elems are all the elements, opcode first.
+func (i instruction) elems() []string { return i.elemsFrom(0) }
+
+func (i instruction) elemsFrom(k int) []string {
+	out := make([]string, 0, (len(i.bounds)-k)/2)
+	for ; k < len(i.bounds); k += 2 {
+		out = append(out, string(i.raw[i.bounds[k]:i.bounds[k+1]]))
+	}
+	return out
+}
 
 // guacEncode writes an instruction.
 func guacEncode(elems ...string) []byte {
@@ -61,7 +77,7 @@ func newGuacReader(r *bufio.Reader) *guacReader { return &guacReader{r: r} }
 // read returns the next instruction.
 func (g *guacReader) read() (instruction, error) {
 	g.buf.Reset()
-	var elems []string
+	var bounds []int
 	for {
 		// The length, at most 6 digits.
 		n, digits := 0, 0
@@ -84,17 +100,10 @@ func (g *guacReader) read() (instruction, error) {
 			return instruction{}, fmt.Errorf("a Guacamole element of %d characters is too long", n)
 		}
 		start := g.buf.Len()
-		for range n {
-			r, size, err := g.r.ReadRune()
-			if err != nil {
-				return instruction{}, eofInside(err, true)
-			}
-			if r == utf8.RuneError && size == 1 {
-				return instruction{}, errGuacSyntax
-			}
-			g.buf.WriteRune(r)
+		if err := g.readChars(n); err != nil {
+			return instruction{}, err
 		}
-		elems = append(elems, string(g.buf.Bytes()[start:]))
+		bounds = append(bounds, start, g.buf.Len())
 		c, err := g.r.ReadByte()
 		if err != nil {
 			return instruction{}, eofInside(err, true)
@@ -102,13 +111,46 @@ func (g *guacReader) read() (instruction, error) {
 		g.buf.WriteByte(c)
 		switch {
 		case c == ';':
-			return instruction{elems: elems, raw: bytes.Clone(g.buf.Bytes())}, nil
+			raw := bytes.Clone(g.buf.Bytes())
+			return instruction{op: string(raw[bounds[0]:bounds[1]]), raw: raw, bounds: bounds}, nil
 		case c != ',':
 			return instruction{}, errGuacSyntax
-		case len(elems) == guacMaxElements:
+		case len(bounds) == 2*guacMaxElements:
 			return instruction{}, errors.New("a Guacamole instruction has too many elements")
 		}
 	}
+}
+
+// readChars copies the next n characters to buf. Runs of ASCII, most of
+// what guacd sends (image data is base64), go in one piece; anything else
+// one character at a time, checked to be UTF-8.
+func (g *guacReader) readChars(n int) error {
+	for n > 0 {
+		if _, err := g.r.Peek(1); err != nil {
+			return eofInside(err, true)
+		}
+		p, _ := g.r.Peek(min(n, g.r.Buffered()))
+		ascii := 0
+		for ascii < len(p) && p[ascii] < utf8.RuneSelf {
+			ascii++
+		}
+		if ascii > 0 {
+			g.buf.Write(p[:ascii])
+			g.r.Discard(ascii) //nolint:errcheck // what Peek returned is buffered
+			n -= ascii
+			continue
+		}
+		r, size, err := g.r.ReadRune()
+		if err != nil {
+			return eofInside(err, true)
+		}
+		if r == utf8.RuneError && size == 1 {
+			return errGuacSyntax
+		}
+		g.buf.WriteRune(r)
+		n--
+	}
+	return nil
 }
 
 // eofInside turns an end of input in the middle of an instruction into an

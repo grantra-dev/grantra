@@ -296,9 +296,19 @@ func (a *API) openConsole(w http.ResponseWriter, r *http.Request) {
 // gatewayRecording returns a desktop session's screen recording, in the
 // Guacamole protocol, for the console's player. Watching one is audited.
 func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
+	a.sendRecording(w, r, "application/octet-stream", gateways.RecordingViewed, gateways.WriteRecording)
+}
+
+// sendRecording sends the recording of the session in the path, for those
+// who may read the vault: viewed checks the session and audits the
+// viewing, committed before the first byte so a download cut short is
+// still in the log; write streams it.
+func (a *API) sendRecording(w http.ResponseWriter, r *http.Request, contentType string,
+	viewed func(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error,
+	write func(ctx context.Context, tx pgx.Tx, id string, start func(), w io.Writer) error) {
 	id := r.PathValue("id")
 	err := a.guardedOn(r, authz.ReadVault, authz.VaultResource(), func(tx pgx.Tx, me authz.Subject) error {
-		return gateways.RecordingViewed(r.Context(), tx, a.tenantID, me.Actor(), id)
+		return viewed(r.Context(), tx, a.tenantID, me.Actor(), id)
 	})
 	if err != nil {
 		a.fail(w, r, err)
@@ -306,9 +316,9 @@ func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
 	}
 	started := false
 	err = a.inTenant(r, func(tx pgx.Tx, _ authz.Subject) error {
-		return gateways.WriteRecording(r.Context(), tx, id, func() {
+		return write(r.Context(), tx, id, func() {
 			started = true
-			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Type", contentType)
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 		}, w)
@@ -316,7 +326,7 @@ func (a *API) gatewayRecording(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if started {
 			// Too late to say so: the client sees a recording cut short.
-			a.log.ErrorContext(r.Context(), "could not send a desktop recording", "session", id, "err", err)
+			a.log.ErrorContext(r.Context(), "could not send a session recording", "session", id, "err", err)
 			return
 		}
 		a.fail(w, r, err)

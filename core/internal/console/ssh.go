@@ -184,19 +184,7 @@ func (a *API) getSSHSession(w http.ResponseWriter, r *http.Request) {
 // sshRecording returns a session's recording as an asciicast v2 file.
 // Watching one is audited.
 func (a *API) sshRecording(w http.ResponseWriter, r *http.Request) {
-	var rec []byte
-	err := a.guardedOn(r, authz.ReadVault, authz.VaultResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		rec, err = sshaccess.Recording(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"))
-		return err
-	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-asciicast")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Write(rec) //nolint:errcheck
+	a.sendRecording(w, r, "application/x-asciicast", sshaccess.RecordingViewed, sshaccess.WriteRecording)
 }
 
 func (a *API) terminateSSHSession(w http.ResponseWriter, r *http.Request) {

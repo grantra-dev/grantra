@@ -10,11 +10,13 @@ package appauthz
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cedar-policy/cedar-go"
@@ -96,8 +98,11 @@ func SetPolicies(ctx context.Context, tx pgx.Tx, tenantID, appID, src, actor str
 }
 
 func appExists(ctx context.Context, tx pgx.Tx, appID string) error {
+	if !db.ValidUUID(appID) {
+		return apperr.ErrNotFound
+	}
 	var ok bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM applications WHERE id::text = $1)`, appID).Scan(&ok); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM applications WHERE id = $1::uuid)`, appID).Scan(&ok); err != nil {
 		return err
 	}
 	if !ok {
@@ -175,13 +180,16 @@ func FindPerson(ctx context.Context, tx pgx.Tx, appID string, p Principal) (*Per
 	var where, arg string
 	switch {
 	case p.ID != "":
-		where, arg = `i.id::text = $2`, p.ID
+		if !db.ValidUUID(p.ID) {
+			return nil, nil
+		}
+		where, arg = `i.id = $2::uuid`, p.ID
 	case p.Email != "":
 		where, arg = `lower(i.email) = lower($2)`, p.Email
 	case p.ExternalID != "":
 		where, arg = `i.external_id = $2`, p.ExternalID
 	case p.Username != "":
-		where, arg = `i.id = (SELECT identity_id FROM accounts WHERE application_id::text = $1 AND lower(username) = lower($2) AND status <> 'deleted' LIMIT 1)`, p.Username
+		where, arg = `i.id = (SELECT identity_id FROM accounts WHERE application_id = $1::uuid AND lower(username) = lower($2) AND status <> 'deleted' LIMIT 1)`, p.Username
 	default:
 		return nil, apperr.Invalidf("principal needs one of id, email, external_id or username")
 	}
@@ -219,12 +227,12 @@ func FindPerson(ctx context.Context, tx pgx.Tx, appID string, p Principal) (*Per
 		SELECT e.native_id FROM account_entitlements ae
 		JOIN accounts a ON a.id = ae.account_id
 		JOIN entitlements e ON e.id = ae.entitlement_id
-		WHERE a.identity_id = $1 AND a.application_id::text = $2 AND a.status = 'active'
+		WHERE a.identity_id = $1 AND a.application_id = $2::uuid AND a.status = 'active'
 		UNION
 		SELECT e.native_id FROM access_assignments x
 		LEFT JOIN role_entitlements re ON re.role_id = x.role_id
 		JOIN entitlements e ON e.id = coalesce(x.entitlement_id, re.entitlement_id)
-		WHERE x.identity_id = $1 AND e.application_id::text = $2 AND (x.expires_at IS NULL OR x.expires_at > now())
+		WHERE x.identity_id = $1 AND e.application_id = $2::uuid AND (x.expires_at IS NULL OR x.expires_at > now())
 		ORDER BY 1`, person.ID, appID)
 	if err != nil {
 		return nil, err
@@ -305,7 +313,7 @@ func Evaluate(set *cedar.PolicySet, person *Person, q Question) (Answer, error) 
 	}
 	// The person goes last, in case the resource is the person too.
 	entities[pe.UID] = pe
-	decision, diag := set.IsAuthorized(entities, cedar.Request{
+	decision, diag := cedar.Authorize(set, entities, cedar.Request{
 		Principal: pe.UID, Action: action, Resource: resource, Context: ctxRec,
 	})
 	a := Answer{Allowed: decision == cedar.Allow, Policies: []string{}}
@@ -354,7 +362,7 @@ func Check(ctx context.Context, tx pgx.Tx, appID string, q Question) (Answer, er
 	if err != nil {
 		return Answer{}, err
 	}
-	set, err := Parse(p.Source)
+	set, err := parseCached(p.Source)
 	if err != nil {
 		return Answer{}, err
 	}
@@ -363,4 +371,36 @@ func Check(ctx context.Context, tx pgx.Tx, appID string, q Question) (Answer, er
 		return Answer{}, err
 	}
 	return Evaluate(set, person, q)
+}
+
+// parsedPolicies keeps the policies Check has parsed, by their text's hash:
+// apps ask on every request, and parsing is the slow part of an answer.
+// A change of policies is a new text, so nothing goes stale.
+var parsedPolicies = struct {
+	sync.Mutex
+	sets map[[sha256.Size]byte]*cedar.PolicySet
+}{sets: map[[sha256.Size]byte]*cedar.PolicySet{}}
+
+// maxParsedPolicies bounds parsedPolicies; past it, it starts over.
+const maxParsedPolicies = 256
+
+func parseCached(src string) (*cedar.PolicySet, error) {
+	key := sha256.Sum256([]byte(src))
+	parsedPolicies.Lock()
+	set, ok := parsedPolicies.sets[key]
+	parsedPolicies.Unlock()
+	if ok {
+		return set, nil
+	}
+	set, err := Parse(src)
+	if err != nil {
+		return nil, err
+	}
+	parsedPolicies.Lock()
+	if len(parsedPolicies.sets) >= maxParsedPolicies {
+		clear(parsedPolicies.sets)
+	}
+	parsedPolicies.sets[key] = set
+	parsedPolicies.Unlock()
+	return set, nil
 }

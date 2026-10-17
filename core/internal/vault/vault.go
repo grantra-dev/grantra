@@ -274,7 +274,7 @@ func (v *Vault) Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, i
 		return Account{}, ErrDisabled
 	}
 
-	appID, err := ensureApplication(ctx, tx, tenantID)
+	appID, err := catalog.EnsureApplication(ctx, tx, tenantID, ApplicationName, "the vault")
 	if err != nil {
 		return Account{}, err
 	}
@@ -334,25 +334,6 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// ensureApplication returns the "Privileged vault" application, creating it
-// the first time. It is an application governed by hand: nothing to read or
-// provision, only access to grant.
-func ensureApplication(ctx context.Context, tx pgx.Tx, tenantID string) (string, error) {
-	var id, kind string
-	err := tx.QueryRow(ctx, `SELECT id, connector FROM applications WHERE name = $1`, ApplicationName).Scan(&id, &kind)
-	if errors.Is(err, pgx.ErrNoRows) {
-		app, err := catalog.CreateApplication(ctx, tx, tenantID, ApplicationName, "")
-		return app.ID, err
-	}
-	if err != nil {
-		return "", err
-	}
-	if kind != catalog.ManualConnector {
-		return "", apperr.Conflictf("the application %q has a connector; the vault needs that name for its own application, so rename the other one", ApplicationName)
-	}
-	return id, nil
 }
 
 // lock loads a vault account for update.
@@ -547,13 +528,8 @@ func (v *Vault) GatewaySecret(ctx context.Context, tx pgx.Tx, tenantID, id strin
 	return username, secret, err
 }
 
-// holds is true when c.identity_id, active, holds va's access right now:
-// an unexpired assignment of its entitlement, directly or through a role.
-const holds = `EXISTS (
-	SELECT 1 FROM access_assignments x JOIN identities i ON i.id = x.identity_id
-	WHERE x.identity_id = c.identity_id AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
-	  AND (x.entitlement_id = va.entitlement_id
-	       OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = va.entitlement_id)))`
+// holds is true when c.identity_id, active, holds va's access right now.
+var holds = catalog.HeldSQL(`c.identity_id`, `va.entitlement_id`)
 
 // Holders returns the active identities who hold access to a vault account
 // right now: an unexpired assignment of its entitlement, directly or through
@@ -562,31 +538,15 @@ func Holders(ctx context.Context, tx pgx.Tx, id string) ([]string, error) {
 	if !db.ValidUUID(id) {
 		return nil, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT x.identity_id::text
-		FROM vault_accounts va
-		JOIN access_assignments x ON x.entitlement_id = va.entitlement_id
-		   OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = va.entitlement_id)
-		JOIN identities i ON i.id = x.identity_id
-		WHERE va.id = $1 AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
-		ORDER BY 1`, id)
+	var entitlementID string
+	err := tx.QueryRow(ctx, `SELECT entitlement_id FROM vault_accounts WHERE id = $1`, id).Scan(&entitlementID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.ErrNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM vault_accounts WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, apperr.ErrNotFound
-		}
-	}
-	return out, nil
+	return catalog.Holders(ctx, tx, entitlementID)
 }
 
 // Lease is a check-out with the secret it handed out.
@@ -857,7 +817,7 @@ func List(ctx context.Context, tx pgx.Tx, holder string) ([]Account, error) {
 		WHERE $1 = '' OR va.entitlement_id IN (
 			SELECT coalesce(x.entitlement_id, re.entitlement_id) FROM access_assignments x
 			LEFT JOIN role_entitlements re ON re.role_id = x.role_id
-			WHERE x.identity_id::text = $1 AND (x.expires_at IS NULL OR x.expires_at > now()))
+			WHERE x.identity_id = nullif($1, '')::uuid AND (x.expires_at IS NULL OR x.expires_at > now()))
 		ORDER BY va.name`, holder)
 	if err != nil {
 		return nil, err
@@ -890,14 +850,7 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Account, error) {
 	if !db.ValidUUID(id) {
 		return Account{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, `SELECT `+accountColumns+accountFrom+` WHERE va.id = $1`, id)
-	if err != nil {
-		return Account{}, err
-	}
-	a, err := pgx.CollectExactlyOneRow(rows, scanAccount)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Account{}, apperr.ErrNotFound
-	}
+	a, err := db.QueryOne(ctx, tx, scanAccount, `SELECT `+accountColumns+accountFrom+` WHERE va.id = $1`, id)
 	if err != nil {
 		return Account{}, err
 	}

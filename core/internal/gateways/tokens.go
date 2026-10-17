@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -57,12 +58,7 @@ func Issue(ctx context.Context, tx pgx.Tx, tenantID, identityID, targetID string
 		 SELECT $1, t.id, $3::uuid, $4,
 		        CASE WHEN a.n > 0 THEN least(now() + make_interval(hours => t.max_token_hours),
 		                                     CASE WHEN NOT a.forever THEN a.until END) END
-		 FROM gateway_targets t, LATERAL (
-		   SELECT count(*) AS n, max(x.expires_at) AS until, bool_or(x.expires_at IS NULL) AS forever
-		   FROM access_assignments x JOIN identities i ON i.id = x.identity_id
-		   WHERE x.identity_id = $3::uuid AND i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
-		     AND (x.entitlement_id = t.entitlement_id
-		          OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = t.entitlement_id))) a
+		 FROM gateway_targets t, LATERAL (`+catalog.HeldWindowSQL(`$3::uuid`, `t.entitlement_id`)+`) a
 		 WHERE t.id = $2
 		 RETURNING id, valid_before, issued_at`,
 		tenantID, t.ID, identityID, hashToken(tok.Token)).Scan(&tok.ID, &tok.ValidBefore, &tok.IssuedAt)

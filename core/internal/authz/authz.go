@@ -398,7 +398,7 @@ func (a *Authorizer) Authorize(req Request) Decision {
 	// roles must not be lost to a copy loaded without them.
 	entities[req.Principal.uid()] = req.Principal.entity()
 
-	decision, diag := a.policies.IsAuthorized(entities, cedar.Request{
+	decision, diag := cedar.Authorize(a.policies, entities, cedar.Request{
 		Principal: req.Principal.uid(),
 		Action:    action,
 		Resource:  req.Resource.uid,

@@ -18,7 +18,7 @@ test-db:
 	cd core && GRANTRA_TEST_DATABASE_URL=$(GRANTRA_TEST_DATABASE_URL) go test -race -count=1 ./...
 
 lint:
-	cd core && go vet ./... && test -z "$$(gofmt -l .)"
+	cd core && go vet ./... && test -z "$$(gofmt -l .)" && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
 web-lint:
 	cd web && npm run lint && npm run typecheck

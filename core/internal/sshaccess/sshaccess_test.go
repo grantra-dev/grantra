@@ -1,6 +1,7 @@
 package sshaccess
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -279,6 +280,15 @@ func TestTargetsAndCertificates(t *testing.T) {
 	if h := e.holders(tg.ID); len(h) != 1 || h[0] != ana {
 		t.Errorf("holders after a leaver = %v", h)
 	}
+	// A leaver whose access is still assigned gets no certificate either.
+	if _, err := e.issue(luis, tg.ID, pub); !isConflict(err) {
+		t.Errorf("certificate for a leaver = %v, want conflict", err)
+	}
+	for _, missing := range []string{"00000000-0000-0000-0000-000000000000", "nope"} {
+		if err := e.tx(func(tx pgx.Tx) error { _, err := Holders(e.ctx, tx, missing); return err }); !errors.Is(err, apperr.ErrNotFound) {
+			t.Errorf("holders of %s = %v, want not found", missing, err)
+		}
+	}
 
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 1024)
 	weak, _ := ssh.NewPublicKey(&rsaKey.PublicKey)
@@ -378,10 +388,30 @@ func TestAuthorizeAndSessions(t *testing.T) {
 		t.Errorf("%% matched as a wildcard: %+v", got)
 	}
 
-	var rec []byte
-	e.must(func(tx pgx.Tx) (err error) {
-		rec, err = Recording(e.ctx, tx, e.tenant, "identity:auditor", id)
-		return err
+	var buf bytes.Buffer
+	started := false
+	e.must(func(tx pgx.Tx) error {
+		if err := RecordingViewed(e.ctx, tx, e.tenant, "identity:auditor", id); err != nil {
+			return err
+		}
+		return WriteRecording(e.ctx, tx, id, func() { started = true }, &buf)
+	})
+	rec := buf.Bytes()
+	if !started {
+		t.Error("WriteRecording did not call start")
+	}
+	var viewed int
+	e.must(func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `SELECT count(*) FROM audit_events WHERE action = 'ssh.recording_viewed' AND target_id = $1`, id).Scan(&viewed)
+	})
+	if viewed != 1 {
+		t.Errorf("recording_viewed audit events = %d", viewed)
+	}
+	e.must(func(tx pgx.Tx) error {
+		if err := RecordingViewed(e.ctx, tx, e.tenant, "identity:auditor", "00000000-0000-0000-0000-000000000000"); !errors.Is(err, apperr.ErrNotFound) {
+			t.Errorf("viewing a missing session's recording = %v", err)
+		}
+		return nil
 	})
 	if string(rec) != "{\"version\":2}\n[0.5,\"o\",\"hi\"]\n" {
 		t.Errorf("recording = %q", rec)

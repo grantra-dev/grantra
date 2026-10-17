@@ -124,15 +124,7 @@ func GetSource(ctx context.Context, tx pgx.Tx, id string) (Source, error) {
 	if !db.ValidUUID(id) {
 		return Source{}, ErrNotFound
 	}
-	rows, err := tx.Query(ctx, `SELECT `+sourceColumns+sourceFrom+` WHERE s.id = $1`, id)
-	if err != nil {
-		return Source{}, err
-	}
-	s, err := pgx.CollectExactlyOneRow(rows, scanSource)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Source{}, ErrNotFound
-	}
-	return s, err
+	return db.QueryOne(ctx, tx, scanSource, `SELECT `+sourceColumns+sourceFrom+` WHERE s.id = $1`, id)
 }
 
 // ListRuns returns the latest runs of a source, newest first.

@@ -59,8 +59,6 @@ func keyOf(kind, keyID string) (string, error) {
 	return key, nil
 }
 
-func owns(kind, keyID string) bool { return strings.HasPrefix(keyID, kind+":") }
-
 func errNotOwned(keyID, current string) error {
 	return fmt.Errorf("data key was wrapped with %s, not with this Grantra's key %s", keyID, current)
 }

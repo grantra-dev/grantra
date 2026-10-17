@@ -218,15 +218,7 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Campaign, error) {
 	if !db.ValidUUID(id) {
 		return Campaign{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, selectCampaigns+` WHERE c.id = $1`, id)
-	if err != nil {
-		return Campaign{}, err
-	}
-	c, err := pgx.CollectExactlyOneRow(rows, scanCampaign)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Campaign{}, apperr.ErrNotFound
-	}
-	return c, err
+	return db.QueryOne(ctx, tx, scanCampaign, selectCampaigns+` WHERE c.id = $1`, id)
 }
 
 // List returns every campaign, newest first.
@@ -304,15 +296,7 @@ func GetItem(ctx context.Context, tx pgx.Tx, id string) (Item, error) {
 	if !db.ValidUUID(id) {
 		return Item{}, apperr.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, selectItems+` WHERE it.id = $1 FOR UPDATE OF it`, id)
-	if err != nil {
-		return Item{}, err
-	}
-	it, err := pgx.CollectExactlyOneRow(rows, scanItem)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Item{}, apperr.ErrNotFound
-	}
-	return it, err
+	return db.QueryOne(ctx, tx, scanItem, selectItems+` WHERE it.id = $1 FOR UPDATE OF it`, id)
 }
 
 // ItemFilter selects items.
