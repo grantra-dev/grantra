@@ -1,12 +1,21 @@
-// Client for databases and Kubernetes clusters behind the gateway: targets,
-// the short-lived tokens people connect with, and the sessions the gateway
-// logs.
+// Client for remote access through the gateway: databases, Kubernetes
+// clusters, desktops and cloud consoles; the short-lived tokens people
+// connect to databases and clusters with, and the sessions the gateway logs
+// or records.
 
 import { api, send } from "./api";
 import type { Risk } from "./admin";
 import type { SessionEnd } from "./ssh";
 
-export type GatewayKind = "kubernetes" | "postgres" | "mysql";
+export type GatewayKind = "kubernetes" | "postgres" | "mysql" | "rdp" | "aws" | "azure" | "gcp";
+export type Clipboard = "both" | "paste" | "none";
+/** How a desktop is reached: Network Level Authentication, or TLS alone. */
+export type RDPSecurity = "nla" | "tls";
+
+export const isCloud = (k: GatewayKind) => k === "aws" || k === "azure" || k === "gcp";
+/** Targets reached with a token, from the person's own tools. */
+export const usesToken = (k: GatewayKind) =>
+  k === "kubernetes" || k === "postgres" || k === "mysql";
 export type TLSMode = "verify" | "require" | "disable";
 
 export interface GatewayInfo {
@@ -18,6 +27,9 @@ export interface GatewayInfo {
   mysql_address: string;
   /** The PEM certificate clients verify the gateway with. */
   ca_certificate: string;
+  /** Whether desktops can open (Grantra has guacd) and cloud consoles. */
+  desktops_enabled: boolean;
+  consoles_enabled: boolean;
 }
 
 export interface GatewayTarget {
@@ -32,6 +44,12 @@ export interface GatewayTarget {
   vault_account_id?: string;
   vault_account_name?: string;
   kube_groups: string[];
+  /** Desktops: which way the clipboard works. */
+  clipboard?: Clipboard;
+  rdp_security?: RDPSecurity;
+  /** Azure and Google Cloud: the role people get; Azure: the directory. */
+  cloud_role?: string;
+  cloud_directory?: string;
   notes?: string;
   entitlement_id: string;
   entitlement_name: string;
@@ -50,6 +68,10 @@ export interface GatewayTargetSettings {
   ca_certificate?: string;
   vault_account_id?: string;
   kube_groups?: string[];
+  clipboard?: Clipboard;
+  rdp_security?: RDPSecurity;
+  cloud_role?: string;
+  cloud_directory?: string;
   max_token_hours?: number;
   notes?: string;
 }
@@ -88,6 +110,23 @@ export interface GatewaySession {
   error?: string;
   terminate_requested: boolean;
   events: number;
+  /** When it ends at the latest. */
+  valid_before?: string;
+  /** A desktop session's screen recording, in bytes. */
+  recording_bytes: number;
+}
+
+/** A cloud console sign-in: the link, and on AWS credentials for the CLI. */
+export interface ConsoleSession {
+  session_id: string;
+  url: string;
+  valid_before: string;
+  credentials?: {
+    access_key_id: string;
+    secret_access_key: string;
+    session_token: string;
+    expiration: string;
+  };
 }
 
 export interface GatewayEvent {
@@ -120,6 +159,14 @@ export const deleteGatewayTarget = (id: string) => send<void>("DELETE", `${targe
 export const issueGatewayToken = (id: string) =>
   send<GatewayToken>("POST", `${targets}/${id}/tokens`);
 
+export const openConsole = (id: string) => send<ConsoleSession>("POST", `${targets}/${id}/console`);
+
+/** The WebSocket a desktop session runs on (the Guacamole tunnel). */
+export const desktopTunnelURL = (id: string) => `${targets}/${id}/rdp`;
+
+/** A desktop session's screen recording, for the player. */
+export const desktopRecordingURL = (id: string) => `/api/v1/gateway/sessions/${id}/recording`;
+
 export const listGatewaySessions = (f: { active?: boolean; target?: string } = {}) => {
   const q = new URLSearchParams({ limit: "200" });
   if (f.active) q.set("active", "true");
@@ -147,16 +194,22 @@ export const kindText: Record<GatewayKind, string> = {
   kubernetes: "Kubernetes",
   postgres: "PostgreSQL",
   mysql: "MySQL",
+  rdp: "Desktop (RDP)",
+  aws: "AWS",
+  azure: "Azure",
+  gcp: "Google Cloud",
 };
 
-export const defaultPorts: Record<GatewayKind, string> = {
+export type TokenKind = "kubernetes" | "postgres" | "mysql";
+
+export const defaultPorts: Record<TokenKind, string> = {
   kubernetes: "8443",
   postgres: "15432",
   mysql: "13306",
 };
 
 /** Where the gateway listens for a kind of target. */
-export function gatewayAddress(info: GatewayInfo | undefined, kind: GatewayKind) {
+export function gatewayAddress(info: GatewayInfo | undefined, kind: TokenKind) {
   const addr =
     kind === "kubernetes"
       ? info?.kubernetes_address
@@ -169,6 +222,15 @@ export function gatewayAddress(info: GatewayInfo | undefined, kind: GatewayKind)
 function splitHostPort(addr: string): [string, string] {
   const m = /^\[(.+)\]:(\d+)$/.exec(addr) ?? /^([^:]+):(\d+)$/.exec(addr);
   return m ? [m[1] ?? addr, m[2] ?? ""] : [addr, ""];
+}
+
+/** The shell commands that use AWS credentials with the AWS CLI. */
+export function awsExports(c: NonNullable<ConsoleSession["credentials"]>) {
+  return [
+    `export AWS_ACCESS_KEY_ID=${c.access_key_id}`,
+    `export AWS_SECRET_ACCESS_KEY=${c.secret_access_key}`,
+    `export AWS_SESSION_TOKEN=${c.session_token}`,
+  ].join("\n");
 }
 
 /**

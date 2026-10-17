@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -35,6 +36,8 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/demo"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
+	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
+	"github.com/grantra-dev/grantra/core/internal/gateways/proxy"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
@@ -195,7 +198,20 @@ func run() error {
 		return err
 	}
 
-	startJobs(ctx, log, pool, tenantID, sender, vlt, metrics)
+	gw := gateways.New(keys)
+	consoles := &cloud.Consoles{Pool: pool, TenantID: tenantID, Gateways: gw, Issuer: cfg.PublicURL, Log: log}
+	startJobs(ctx, log, pool, tenantID, sender, vlt, consoles, metrics)
+
+	// Desktops run in this process, which the browser reaches: it relays
+	// them to guacd.
+	var desktops *proxy.Server
+	if cfg.Gateway.Guacd != "" {
+		name, _ := os.Hostname()
+		desktops = &proxy.Server{Pool: pool, TenantID: tenantID, Gateways: gw, Name: name, Log: log,
+			Guacd: cfg.Gateway.Guacd, MaxRecording: int64(cfg.Gateway.MaxRecordingMB) << 20}
+		defer desktops.StopRDP()
+		log.Info("desktops enabled", "guacd", cfg.Gateway.Guacd)
+	}
 
 	az, err := authz.New()
 	if err != nil {
@@ -221,7 +237,15 @@ func run() error {
 		api.Vault = vlt
 		api.SSH = sshSvc
 		api.GatewayAddress = cfg.Gateway.PublicAddress
-		api.Gateways = gateways.New(keys)
+		api.Gateways = gw
+		api.Consoles = consoles
+		if desktops != nil {
+			var origins []string
+			if u, err := url.Parse(cfg.PublicURL); err == nil && u.Host != "" {
+				origins = []string{u.Host}
+			}
+			api.Desktops = console.Desktops{Gateway: desktops, Context: ctx, Origins: origins}
+		}
 		api.GatewayAddresses = console.GatewayAddresses{Kubernetes: cfg.Gateway.KubernetesAddress,
 			Postgres: cfg.Gateway.PostgresAddress, MySQL: cfg.Gateway.MySQLAddress, CAFile: cfg.Gateway.CAFile}
 		log.Info("console login enabled", "issuer", cfg.OIDC.Issuer)
@@ -305,7 +329,8 @@ type job struct {
 // startJobs runs every background job once at start and then on its timer,
 // until ctx ends. With several replicas, each pass runs on whichever replica
 // takes the job's lock first; the others skip it.
-func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, vlt *vault.Vault, m *telemetry.Metrics) {
+func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, vlt *vault.Vault,
+	consoles *cloud.Consoles, m *telemetry.Metrics) {
 	locks := db.NewJobLocks(pool)
 	context.AfterFunc(ctx, func() { locks.Close(context.Background()) })
 
@@ -439,6 +464,15 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			})
 			if n+m > 0 {
 				log.WarnContext(ctx, "ended sessions their gateway stopped reporting on", "ssh_sessions", n, "database_and_cluster_sessions", m)
+			}
+			return err
+		}},
+		// Cloud console sessions end on time, and what they granted in the
+		// cloud goes with them.
+		{"end cloud console sessions", 30 * time.Second, func(ctx context.Context) error {
+			n, err := consoles.EndSessions(ctx)
+			if n > 0 {
+				log.InfoContext(ctx, "ended cloud console sessions", "sessions", n)
 			}
 			return err
 		}},

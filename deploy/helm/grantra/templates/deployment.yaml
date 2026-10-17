@@ -137,6 +137,12 @@ spec:
               value: /etc/grantra-gateway-tls/ca.crt
             {{- end }}
             {{- end }}
+            {{- if .Values.desktops.enabled }}
+            - name: GRANTRA_GUACD_ADDR
+              value: {{ printf "%s-guacd:4822" (include "grantra.fullname" .) | quote }}
+            - name: GRANTRA_RDP_MAX_RECORDING_MB
+              value: {{ .Values.desktops.maxRecordingMB | quote }}
+            {{- end }}
             {{- include "grantra.vaultEnv" . | nindent 12 }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}

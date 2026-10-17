@@ -3,6 +3,7 @@ package gateways
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,8 +32,8 @@ const (
 	EventRequest = "request"
 )
 
-// Session is one database connection, or a run of requests to a cluster
-// with one token, through one gateway.
+// Session is one database connection, a run of requests to a cluster with
+// one token, a desktop opened in the browser, or a cloud console sign-in.
 type Session struct {
 	ID            string     `json:"id"`
 	TargetID      string     `json:"target_id,omitempty"`
@@ -53,6 +54,14 @@ type Session struct {
 	// TerminateRequested says an admin asked the gateway to end it.
 	TerminateRequested bool `json:"terminate_requested"`
 	Events             int  `json:"events"`
+	// ValidBefore is when the session ends at the latest: when its token
+	// does.
+	ValidBefore *time.Time `json:"valid_before,omitempty"`
+	// RecordingBytes is the size of a desktop session's screen recording.
+	RecordingBytes int64 `json:"recording_bytes"`
+	// CloudGrant is what Grantra granted in the cloud for a console
+	// session, to take back when it ends.
+	CloudGrant string `json:"-"`
 }
 
 // Event is a query run in a database session or a request made to a
@@ -93,10 +102,10 @@ func StartSession(ctx context.Context, tx pgx.Tx, tenantID string, s Session, va
 	var id string
 	err := tx.QueryRow(ctx,
 		`INSERT INTO gateway_sessions (tenant_id, target_id, target_name, kind, identity_id, token_id, client_address, gateway,
-		                               database, account)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		                               database, account, cloud_grant)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
 		tenantID, s.TargetID, s.TargetName, s.Kind, s.IdentityID, db.Nullable(s.TokenID), s.ClientAddress, s.Gateway,
-		db.Nullable(s.Database), db.Nullable(s.Account)).Scan(&id)
+		db.Nullable(s.Database), db.Nullable(s.Account), db.Nullable(s.CloudGrant)).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -184,10 +193,13 @@ func EndSession(ctx context.Context, tx pgx.Tx, tenantID, sessionID, reason, err
 const LostAfter = 3 * time.Minute
 
 // EndLostSessions ends the sessions whose gateway stopped touching them,
-// such as when it crashed.
+// such as when it crashed. Cloud console sessions are not lost: what
+// Grantra granted for them in the cloud must be taken back first (see
+// cloud.EndSessions).
 func EndLostSessions(ctx context.Context, tx pgx.Tx, tenantID string) (int, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT id FROM gateway_sessions WHERE ended_at IS NULL AND last_seen_at < now() - make_interval(secs => $1)`,
+		`SELECT id FROM gateway_sessions
+		 WHERE ended_at IS NULL AND last_seen_at < now() - make_interval(secs => $1) AND kind NOT IN ('aws', 'azure', 'gcp')`,
 		LostAfter.Seconds())
 	if err != nil {
 		return 0, err
@@ -216,14 +228,14 @@ type SessionFilter struct {
 const sessionSelect = `SELECT s.id, coalesce(s.target_id::text, ''), s.target_name, s.kind, s.identity_id, i.display_name,
 	coalesce(s.token_id::text, ''), s.client_address, s.gateway, coalesce(s.database, ''), coalesce(s.account, ''),
 	s.started_at, s.last_seen_at, s.ended_at, coalesce(s.end_reason, ''), coalesce(s.error, ''),
-	s.terminate_requested_by IS NOT NULL, s.events
-	FROM gateway_sessions s JOIN identities i ON i.id = s.identity_id`
+	s.terminate_requested_by IS NOT NULL, s.events, k.valid_before, s.recording_bytes, coalesce(s.cloud_grant, '')
+	FROM gateway_sessions s JOIN identities i ON i.id = s.identity_id LEFT JOIN gateway_tokens k ON k.id = s.token_id`
 
 func scanSession(row pgx.CollectableRow) (Session, error) {
 	var s Session
 	err := row.Scan(&s.ID, &s.TargetID, &s.TargetName, &s.Kind, &s.IdentityID, &s.IdentityName, &s.TokenID, &s.ClientAddress,
 		&s.Gateway, &s.Database, &s.Account, &s.StartedAt, &s.LastSeenAt, &s.EndedAt, &s.EndReason, &s.Error,
-		&s.TerminateRequested, &s.Events)
+		&s.TerminateRequested, &s.Events, &s.ValidBefore, &s.RecordingBytes, &s.CloudGrant)
 	return s, err
 }
 
@@ -273,16 +285,28 @@ func SessionEvents(ctx context.Context, tx pgx.Tx, id string, after int64, limit
 }
 
 // Terminate asks the gateway to end a running session, which it does
-// within 30 seconds, and revokes the token it runs on: on a cluster every
+// within 30 seconds (on Azure and Google Cloud, taking back the access it
+// granted), and revokes the token it runs on: on a cluster every
 // request is a new connection, so ending the session alone would not keep
 // the person out. While they hold the access, they can get a new token.
 func Terminate(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 	if !db.ValidUUID(id) {
 		return apperr.ErrNotFound
 	}
+	var kind string
+	err := tx.QueryRow(ctx, `SELECT kind FROM gateway_sessions WHERE id = $1`, id).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if kind == AWS {
+		return apperr.Conflictf("AWS cannot end a console session early: it ends on its own when its credentials do. To cut it now, revoke the role's active sessions in IAM")
+	}
 	var ended bool
 	var token *string
-	err := tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`UPDATE gateway_sessions SET terminate_requested_by = coalesce(terminate_requested_by, $2) WHERE id = $1
 		 RETURNING ended_at IS NOT NULL, token_id::text`, id, actor).Scan(&ended, &token)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -327,4 +351,55 @@ func SearchEvents(ctx context.Context, tx pgx.Tx, q, targetID string, limit int)
 		var e Event
 		return e, row.Scan(&e.ID, &e.SessionID, &e.At, &e.Kind, &e.Text, &e.Status, &e.TargetName, &e.IdentityID, &e.IdentityName)
 	})
+}
+
+// AppendRecording stores the next piece of a desktop session's screen
+// recording.
+func AppendRecording(ctx context.Context, tx pgx.Tx, tenantID, sessionID string, seq int, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO gateway_recordings (tenant_id, session_id, seq, data) VALUES ($1, $2, $3, $4)`,
+		tenantID, sessionID, seq, data); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE gateway_sessions SET recording_bytes = recording_bytes + $2 WHERE id = $1`, sessionID, len(data))
+	return err
+}
+
+// RecordingViewed checks that a desktop session exists and records in the
+// audit log that actor is watching its recording. Callers commit it before
+// sending the recording, so a download cut short is still in the log.
+func RecordingViewed(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
+	s, err := GetSession(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if s.Kind != RDP {
+		return apperr.Invalidf("only desktop sessions are recorded; see the session's log")
+	}
+	return db.Audit(ctx, tx, tenantID, actor, "gateway.recording_viewed", "gateway_session", id, nil)
+}
+
+// WriteRecording writes a desktop session's screen recording to w, piece
+// by piece (it can be large); start is called before the first byte, to
+// set headers. A running session's recording is what was stored so far.
+// See RecordingViewed.
+func WriteRecording(ctx context.Context, tx pgx.Tx, id string, start func(), w io.Writer) error {
+	start()
+	rows, err := tx.Query(ctx, `SELECT data FROM gateway_recordings WHERE session_id = $1 ORDER BY seq`, id)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return err
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }

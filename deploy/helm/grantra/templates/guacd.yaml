@@ -1,0 +1,92 @@
+{{- if .Values.desktops.enabled }}
+{{- if not (or .Values.vault.existingSecret .Values.vault.key .Values.vault.provider) }}
+{{- fail "desktops.enabled needs vault.key, vault.existingSecret or vault.provider: Grantra logs in to desktops with vault accounts" }}
+{{- end }}
+{{- $name := printf "%s-guacd" (include "grantra.fullname" .) }}
+# Apache Guacamole's proxy: it speaks RDP to desktops and draws them for
+# the browser. Only Grantra's server talks to it, so it is not exposed; it
+# needs to reach the desktops (port 3389).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.desktops.guacd.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grantra-guacd
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grantra-guacd
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "grantra.podSecurity" . | nindent 8 }}
+        # The image's guacd user, by number so Kubernetes can check it.
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: guacd
+          image: "{{ .Values.desktops.guacd.image.repository }}:{{ .Values.desktops.guacd.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: guacd
+              containerPort: 4822
+          env:
+            - name: GUACD_LOG_LEVEL
+              value: {{ .Values.desktops.guacd.logLevel | quote }}
+          livenessProbe:
+            tcpSocket:
+              port: guacd
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: guacd
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.desktops.guacd.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            {{- include "grantra.containerSecurity" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "grantra.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: grantra-guacd
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: guacd
+      port: 4822
+      targetPort: guacd
+{{- end }}

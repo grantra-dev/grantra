@@ -1,21 +1,32 @@
-# Databases and Kubernetes clusters
+# Remote access: databases, clusters, desktops and clouds
 
-People connect to **PostgreSQL** and **MySQL** databases and **Kubernetes**
-clusters through the Grantra gateway with a **token** that lasts only as
-long as their access. Nobody learns the database password or the cluster
-credentials: the gateway logs in with an account kept in the
-[vault](vault.md), and logs every query and cluster request.
+People reach **PostgreSQL** and **MySQL** databases, **Kubernetes**
+clusters, **Windows desktops** (RDP) and the **AWS**, **Azure** and
+**Google Cloud** consoles from **Remote access** in the console, for only
+as long as their access lasts. Nobody learns a password or a key: Grantra
+logs in with an account kept in the [vault](vault.md). It logs every query
+and cluster request, and records desktops.
+
+- Databases and clusters: people connect their own tools (psql, DBeaver,
+  kubectl) through the Grantra gateway with a short-lived **token**. See
+  [Connect](#connect).
+- Desktops open in a browser tab, through Grantra's server and Apache
+  Guacamole's proxy. See [Desktops](#desktops-rdp).
+- Cloud consoles open signed in: Grantra gives the person the role for the
+  session and takes it back after. See [Cloud consoles](#cloud-consoles).
 
 ## How it fits together
 
-- Each database or cluster you add is a **target**: a name, its address, and
-  the vault account the gateway logs in with. Grantra creates the
-  entitlement *Connect to the \<name\> database* (or *Use the \<name\>
-  cluster*) in the **Databases and clusters** application, so it is
+- Each database, cluster, desktop or cloud you add is a **target**: a name,
+  its address, and the vault account Grantra logs in with. Grantra creates
+  the entitlement *Connect to the \<name\> database* (or *Use the \<name\>
+  cluster*, *Use the \<name\> desktop*, *Open the \<name\> AWS console*
+  and so on) in the **Remote access** application, so it is
   requested, approved, reviewed and expires like any access. It is
   [just in time only](just-in-time.md) by default: people are made eligible
   and activate it for a few hours.
-- Whoever holds the access gets a **token** in **Databases & clusters**. It
+- For a database or cluster, whoever holds the access gets a **token** in
+  **Remote access**. It
   lasts the target's maximum (8 hours by default, 24 at most) and never past
   the access, and works only for that target. Grantra keeps only its hash.
 - The token is the database password, or the bearer token in the
@@ -28,7 +39,7 @@ credentials: the gateway logs in with an account kept in the
 
 ## Connect
 
-In **Databases & clusters**, click **Get token** on a target you hold.
+In **Remote access**, click **Get token** on a database or cluster you hold.
 
 **PostgreSQL**: save the gateway's certificate (the button, or
 `curl -o grantra-gateway-ca.pem https://grantra.example.com/api/v1/gateway/ca.pem`)
@@ -67,7 +78,7 @@ work.
    vault account's access: the gateway opens it itself. Rotation in the
    vault does not reach databases yet; change the password on the database
    and then in the vault.
-2. In **Databases & clusters**, **Add database or cluster**: the kind, a
+2. In **Remote access**, **Add a target**: the kind, a
    name (what people type as the user), the address (`10.0.0.7`, default
    port 5432 or 3306), the default database and that vault account.
 3. Pick how the gateway talks to the database: **TLS, verified** (the
@@ -143,6 +154,145 @@ gateway uses its own service account. With Helm, set
 `gateway.kubernetes.inCluster=true`, which also creates the ClusterRole
 above.
 
+## Desktops (RDP)
+
+People click **Connect** on a desktop they hold, and it opens in a new
+browser tab, already logged in. Grantra's server reaches the desktop
+through [guacd](https://guacamole.apache.org/), Apache Guacamole's proxy,
+which speaks RDP to the desktop and draws it for the browser. Nothing is
+installed on people's computers and the desktop's port never faces them.
+
+1. Run guacd where it reaches the desktops on port 3389, and point Grantra's
+   server at it with `GRANTRA_GUACD_ADDR` (`guacd:4822`). docker-compose
+   runs it; with Helm, set `desktops.enabled=true`
+   ([production.md](production.md#desktops)). Only Grantra should reach
+   guacd: it does what it is told.
+2. Put the Windows login Grantra uses in the [vault](vault.md) as a password
+   account, with `DOMAIN\user` as the user name for a domain account.
+3. In **Remote access**, **Add a target**: *Windows desktop (RDP)*, the
+   address (`10.0.0.9`, default port 3389), that vault account, and how
+   the clipboard works:
+   - **Paste into the desktop only** (the default): people can paste text in,
+     nothing comes out.
+   - **Copy and paste both ways**.
+   - **Off**.
+
+   Pick its **security**: **Network Level Authentication** (the default,
+   what Windows asks for), or **TLS only** for desktops without NLA, such
+   as xrdp on Linux. Either way the connection is TLS: Grantra never uses
+   the legacy RDP encryption, which would let someone in between read the
+   password. **TLS, verified** checks the desktop's certificate against
+   guacd's trusted CAs; **TLS, not verified** accepts any (most desktops
+   have a self-signed one).
+   A desktop that says *Security negotiation failed (wrong security type?)*
+   does not do NLA: switch it to **TLS only**.
+
+The screen is **recorded**, all of it, from the first frame: admins and
+auditors play it back from **Sessions** (click **Recording**). Recordings
+stay in Grantra's database, up to `GRANTRA_RDP_MAX_RECORDING_MB` (1024 MB)
+per session; a session whose recording is full ends. Drives, printing,
+audio and file transfer are off. As with the other targets, Grantra checks
+access every 30 seconds and ends the session when it goes or an admin ends
+it, and a session lasts at most the target's maximum (8 hours by default).
+
+The browser tab talks to Grantra over a WebSocket at
+`/api/v1/gateway/targets/{id}/rdp`. Grantra only accepts it from its own
+pages, so `GRANTRA_PUBLIC_URL` must be the address people open; a proxy in
+front of Grantra must pass WebSockets on (ingress-nginx does by default).
+
+## Cloud consoles
+
+People click **Open console** on a cloud they hold, and the console opens
+signed in as them, with the target's role, until their access ends or the
+target's maximum (8 hours by default). Grantra needs the person's email
+(the one the cloud knows them by).
+
+### AWS
+
+Grantra assumes the target's IAM role for the person (the session is named
+after their email, so CloudTrail shows who it was) and signs them in to the
+console through AWS federation. People also get the session's credentials
+for the AWS CLI. AWS sessions last 15 minutes to 12 hours (1 hour by
+default here), and the role's **maximum session duration** must be at least
+as long.
+
+1. Create an IAM user for Grantra with an access key, allowed only to assume
+   the roles people get:
+
+   ```json
+   { "Version": "2012-10-17", "Statement": [{ "Effect": "Allow", "Action": "sts:AssumeRole",
+     "Resource": "arn:aws:iam::123456789012:role/ReadOnly" }] }
+   ```
+
+   It has to be an IAM user (not a role): AWS only signs in to the console
+   with sessions from long-term keys.
+2. Let it assume the role, in the role's trust policy:
+
+   ```json
+   { "Effect": "Allow", "Principal": { "AWS": "arn:aws:iam::123456789012:user/grantra" },
+     "Action": "sts:AssumeRole" }
+   ```
+
+3. Put the key in the vault as a password account: the access key ID as the
+   user name, the secret access key as the password.
+4. Add the target: *AWS console*, the role's ARN as the address, that vault
+   account.
+
+AWS cannot end a console session early: when access ends, the session stays
+signed in until it expires, and **End** is not offered. To cut one short,
+use **Revoke active sessions** on the role in IAM. Keep AWS targets' hours
+short for that reason.
+
+### Azure
+
+Grantra assigns the person's Microsoft Entra user (found by user principal
+name, then by mail) the target's role on its scope, and removes the
+assignment when the session ends, within 30 seconds. While someone has a
+session, opening it again reuses it.
+
+1. Register an app in Microsoft Entra with a client secret. Give it
+   **Role Based Access Control Administrator** (or User Access
+   Administrator) on the scope, ideally limited to the roles people get, and
+   the Microsoft Graph application permission **User.Read.All**, with admin
+   consent.
+2. Put it in the vault as a password account: the client ID as the user
+   name, the secret as the password.
+3. Add the target: *Azure portal*, the scope as the address
+   (`/subscriptions/<id>` or `/subscriptions/<id>/resourceGroups/<name>`),
+   the role (`Reader`, or a role definition's ID), the tenant (its ID or
+   domain) and that vault account.
+
+Without a vault account, Grantra uses its own Azure identity (a managed or
+workload identity, environment variables or the Azure CLI's login). Someone
+who already holds the role there keeps it: Grantra only removes what it
+assigned.
+
+### Google Cloud
+
+Grantra adds the person's Google account (their email) to the project's IAM
+policy with the target's role and a condition that ends it when the session
+does, and removes the binding when the session ends. Basic roles (owner,
+editor, viewer) are refused: Google Cloud does not let them expire. Pick a
+predefined or custom role.
+
+1. Create a service account for Grantra with **Project IAM Admin**
+   (`roles/resourcemanager.projectIamAdmin`) on the project, and a JSON key.
+2. Put the key in the vault as a password account: any user name, the whole
+   JSON as the password.
+3. Add the target: *Google Cloud console*, the project ID as the address,
+   the role (`roles/compute.viewer`) and that vault account.
+
+Without a vault account, Grantra uses its own credentials (workload identity
+or `GOOGLE_APPLICATION_CREDENTIALS`).
+
+While a cloud target has sessions running, Grantra refuses to delete it or
+to change its address, role or tenant: what the sessions granted is taken
+back where it was granted.
+
+The job **end cloud console sessions** (every 30 seconds) takes back what
+the sessions granted once access ends or time runs out; when a cloud refuses,
+it tries again on the next run and the session shows the error.
+
 ## The gateway
 
 The same `grantra gateway` that runs the [SSH gateway](ssh.md#the-gateway)
@@ -156,14 +306,15 @@ also listens for databases and clusters. Besides the SSH settings:
 | `GRANTRA_GATEWAY_KUBERNETES_ADDRESS`, `GRANTRA_GATEWAY_POSTGRES_ADDRESS`, `GRANTRA_GATEWAY_MYSQL_ADDRESS` (on the server) | the host of `GRANTRA_SSH_GATEWAY_ADDRESS` with the ports above | `host:port` people reach each listener at, shown in the console |
 | `GRANTRA_GATEWAY_CA_FILE` (on the server) | | With your own certificate, the PEM CA clients verify it with, which the console hands out |
 
-docker-compose runs it on `localhost` (8443, 15432, 13306) and the demo adds
-the database **shop-db** for Luis; see [demo.md](demo.md). Helm: see
+docker-compose runs it on `localhost` (8443, 15432, 13306), with guacd for
+desktops, and the demo adds the database **shop-db** and the desktop
+**office-pc** for Luis; see [demo.md](demo.md). Helm: see
 [production.md](production.md#gateway).
 
 ## Logs
 
-Admins and auditors see every session in **Databases & clusters →
-Sessions**, with its queries or requests; reading a session's log is in the
+Admins and auditors see every session in **Remote access → Sessions**, with
+its queries or requests, or a desktop's recording; opening either is in the
 audit log. **Queries** searches them all: type `DELETE FROM` and see who ran
 it, where and when.
 
@@ -198,9 +349,12 @@ within a few minutes by the job **end lost gateway sessions**.
 | `GET /api/v1/gateway` | Everyone: whether the gateway is on, its addresses and CA certificate |
 | `GET /api/v1/gateway/ca.pem` | Anyone, without signing in: the CA certificate clients verify the gateway with |
 | `GET /api/v1/gateway/targets` | Admins and auditors see all; everyone else the targets they hold, without the vault account |
-| `POST /api/v1/gateway/targets`, `PUT`/`DELETE /api/v1/gateway/targets/{id}` | `vault.manage` (admins). Fields: `name`, `kind` (`postgres`, `mysql`, `kubernetes`), `risk`, `address`, `database`, `tls_mode` (`verify`, `require`, `disable`), `ca_certificate`, `vault_account_id`, `kube_groups`, `max_token_hours`, `notes` |
-| `POST /api/v1/gateway/targets/{id}/tokens` | Only people holding the target's access, admins included: the token, and for a cluster the kubeconfig |
+| `POST /api/v1/gateway/targets`, `PUT`/`DELETE /api/v1/gateway/targets/{id}` | `vault.manage` (admins). Fields: `name`, `kind` (`postgres`, `mysql`, `kubernetes`, `rdp`, `aws`, `azure`, `gcp`), `risk`, `address`, `database`, `tls_mode` (`verify`, `require`, `disable`), `ca_certificate`, `vault_account_id`, `kube_groups`, `clipboard` (`both`, `paste`, `none`), `rdp_security` (`nla`, `tls`), `cloud_role`, `cloud_directory`, `max_token_hours`, `notes`. A cloud with sessions running cannot be deleted, nor its address, role or tenant changed |
+| `POST /api/v1/gateway/targets/{id}/tokens` | Only people holding the target's access, admins included: the token, and for a cluster the kubeconfig. Databases and clusters only |
+| `GET /api/v1/gateway/targets/{id}/rdp?width=&height=&dpi=&timezone=` | People holding a desktop's access: the WebSocket (subprotocol `guacamole`) the desktop runs on |
+| `POST /api/v1/gateway/targets/{id}/console` | People holding a cloud's access: the sign-in `url`, `valid_before`, and on AWS `credentials` for the CLI |
 | `GET /api/v1/gateway/sessions?target=&identity=&active=true&limit=` | `vault.read` (admins, auditors) |
 | `GET /api/v1/gateway/sessions/{id}?after=` | `vault.read`: the session and its log, 500 entries after the entry id `after` |
-| `POST /api/v1/gateway/sessions/{id}/terminate` | `vault.manage`: ends it and revokes its token |
+| `GET /api/v1/gateway/sessions/{id}/recording` | `vault.read`: a desktop session's recording, in the Guacamole protocol |
+| `POST /api/v1/gateway/sessions/{id}/terminate` | `vault.manage`: ends it and revokes its token (not on AWS) |
 | `GET /api/v1/gateway/events?q=&target=&limit=` | `vault.read`: searches queries and requests |

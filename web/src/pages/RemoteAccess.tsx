@@ -8,6 +8,7 @@ import { Tabs } from "@/components/Tabs";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import {
@@ -20,25 +21,34 @@ import {
 } from "@/components/ui/table";
 import { PlatformRole, type Me } from "@/lib/api";
 import {
+  awsExports,
   connectCommand,
   createGatewayTarget,
   deleteGatewayTarget,
   gatewayAddress,
   getGateway,
+  isCloud,
   issueGatewayToken,
   kindText,
   listGatewaySessions,
   listGatewayTargets,
+  openConsole,
   searchGatewayEvents,
   terminateGatewaySession,
   updateGatewayTarget,
+  usesToken,
+  type Clipboard,
+  type RDPSecurity,
+  type ConsoleSession,
   type GatewayInfo,
   type GatewayKind,
   type GatewaySession,
   type GatewayTarget,
+  type GatewayTargetSettings,
   type GatewayToken,
   type NewGatewayTarget,
   type TLSMode,
+  type TokenKind,
 } from "@/lib/gateway";
 import { endReasonText } from "@/lib/ssh";
 import { formatTime } from "@/lib/utils";
@@ -46,7 +56,7 @@ import { listVaultAccounts } from "@/lib/vault";
 
 type Tab = "targets" | "sessions" | "queries";
 
-export function Databases({ me }: { me: Me }) {
+export function RemoteAccess({ me }: { me: Me }) {
   const admin = me.platform_roles.includes(PlatformRole.Admin);
   const reader = admin || me.platform_roles.includes(PlatformRole.Auditor);
   const [params, setParams] = useSearchParams();
@@ -55,13 +65,13 @@ export function Databases({ me }: { me: Me }) {
   return (
     <>
       <PageHeader
-        title="Databases & clusters"
-        description="Connect to databases and Kubernetes clusters through the Grantra gateway with a token that lasts only as long as your access. Every query and cluster request is logged."
+        title="Remote access"
+        description="Databases, Kubernetes clusters, desktops and cloud consoles, with access that lasts only as long as yours. Nobody sees the passwords; queries and requests are logged, desktops recorded."
       />
       {reader && (
         <Tabs
           tabs={[
-            ["targets", "Databases & clusters"],
+            ["targets", "Targets"],
             ["sessions", "Sessions"],
             ["queries", "Queries"],
           ]}
@@ -99,7 +109,7 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
         <div className="flex justify-end">
           {!adding && (
             <Button variant="outline" onClick={() => setAdding(true)}>
-              Add database or cluster
+              Add a target
             </Button>
           )}
         </div>
@@ -111,8 +121,8 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
         empty={
           data?.length === 0 &&
           (reader
-            ? "No databases or clusters yet."
-            : "You hold no database or cluster access right now. Request it under Request access, or activate it from My access.")
+            ? "No databases, clusters, desktops or cloud consoles yet."
+            : "You hold no remote access right now. Request it under Request access, or activate it from My access.")
         }
       >
         <ul className="divide-y divide-slate-200">
@@ -132,6 +142,41 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
   );
 }
 
+/** What a target is, in a line. */
+function describe(t: GatewayTarget) {
+  const hours = `${t.max_token_hours} ${t.max_token_hours === 1 ? "hour" : "hours"}`;
+  const as = t.vault_account_name ? ` · logs in as ${t.vault_account_name}` : "";
+  switch (t.kind) {
+    case "rdp":
+      return `${t.address}${as} · sessions last up to ${hours}`;
+    case "aws":
+      return `Role ${t.address}${as} · sessions last up to ${hours}`;
+    case "azure":
+    case "gcp":
+      return `${t.cloud_role} on ${t.address}${as} · sessions last up to ${hours}`;
+    default:
+      return `${t.address}${t.database ? ` · ${t.database}` : ""}${as} · tokens last up to ${hours}`;
+  }
+}
+
+/**
+ * Opens url in a new tab. The tab opens on the click, before the URL is
+ * known, so browsers do not block it as a pop-up.
+ */
+function newTab() {
+  const w = window.open("", "_blank");
+  return {
+    // With pop-ups blocked, the panel's link opens it: leaving the page
+    // would lose what it shows only once.
+    go: (url: string) => {
+      if (!w) return;
+      w.opener = null;
+      w.location.href = url;
+    },
+    close: () => w?.close(),
+  };
+}
+
 function TargetRow({
   t,
   admin,
@@ -146,7 +191,23 @@ function TargetRow({
   onToggle: () => void;
 }) {
   const [token, setToken] = useState<GatewayToken | null>(null);
+  const [opened, setOpened] = useState<ConsoleSession | null>(null);
   const issue = useMutation({ mutationFn: () => issueGatewayToken(t.id), onSuccess: setToken });
+  const sign = useMutation({
+    mutationFn: async (tab: ReturnType<typeof newTab>) => {
+      try {
+        const s = await openConsole(t.id);
+        tab.go(s.url);
+        return s;
+      } catch (e) {
+        tab.close();
+        throw e;
+      }
+    },
+    onSuccess: setOpened,
+  });
+  const desktopsOff = t.kind === "rdp" && info !== undefined && !info.desktops_enabled;
+  const err = issue.error ?? sign.error;
   return (
     <li className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -156,18 +217,32 @@ function TargetRow({
             <Badge>{kindText[t.kind]}</Badge>
             <RiskBadge risk={t.risk} />
           </div>
-          <div className="text-sm text-slate-500">
-            {t.address}
-            {t.database && ` · ${t.database}`}
-            {t.vault_account_name && ` · logs in as ${t.vault_account_name}`} · tokens last up to{" "}
-            {t.max_token_hours} {t.max_token_hours === 1 ? "hour" : "hours"}
-          </div>
+          <div className="break-all text-sm text-slate-500">{describe(t)}</div>
           {t.notes && <p className="mt-1 text-sm text-slate-700">{t.notes}</p>}
+          {t.held && desktopsOff && (
+            <p className="mt-1 text-sm text-amber-700">
+              Desktops are off: an operator has to set up guacd (GRANTRA_GUACD_ADDR).
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
-          {t.held && !token && (
+          {t.held && usesToken(t.kind) && !token && (
             <Button size="sm" onClick={() => issue.mutate()} disabled={issue.isPending}>
               Get token
+            </Button>
+          )}
+          {t.held && t.kind === "rdp" && !desktopsOff && (
+            <Link
+              to={`/remote-access/desktops/${t.id}`}
+              target="_blank"
+              className={buttonVariants({ size: "sm" })}
+            >
+              Connect
+            </Link>
+          )}
+          {t.held && isCloud(t.kind) && (
+            <Button size="sm" onClick={() => sign.mutate(newTab())} disabled={sign.isPending}>
+              Open console
             </Button>
           )}
           {admin && (
@@ -177,14 +252,59 @@ function TargetRow({
           )}
         </div>
       </div>
-      {issue.error && (
+      {err && (
         <Alert variant="error" className="mt-3">
-          {issue.error.message}
+          {err.message}
         </Alert>
       )}
-      {token && <TokenPanel t={t} token={token} info={info} onClose={() => setToken(null)} />}
+      {token && usesToken(t.kind) && (
+        <TokenPanel
+          t={t}
+          kind={t.kind as TokenKind}
+          token={token}
+          info={info}
+          onClose={() => setToken(null)}
+        />
+      )}
+      {opened && <ConsolePanel t={t} s={opened} onClose={() => setOpened(null)} />}
       {open && <TargetSettings t={t} onDone={onToggle} />}
     </li>
+  );
+}
+
+function ConsolePanel({
+  t,
+  s,
+  onClose,
+}: {
+  t: GatewayTarget;
+  s: ConsoleSession;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+      <p>
+        The {kindText[t.kind]} console opened in a new tab. Your session lasts until{" "}
+        <strong>{formatTime(s.valid_before)}</strong>, or until your access ends
+        {t.kind === "aws" && " (on AWS, an ended session stays signed in until then)"}.{" "}
+        <a href={s.url} target="_blank" rel="noreferrer" className="text-brand-700 underline">
+          Open it again
+        </a>
+      </p>
+      {s.credentials && (
+        <>
+          <p>For the AWS CLI, in a terminal (Grantra shows them only now):</p>
+          <pre className="overflow-x-auto rounded bg-slate-900 p-2 text-xs text-slate-100">
+            {awsExports(s.credentials)}
+          </pre>
+        </>
+      )}
+      <div>
+        <Button size="sm" variant="outline" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -200,16 +320,18 @@ function download(name: string, text: string) {
 
 function TokenPanel({
   t,
+  kind,
   token,
   info,
   onClose,
 }: {
   t: GatewayTarget;
+  kind: TokenKind;
   token: GatewayToken;
   info: GatewayInfo | undefined;
   onClose: () => void;
 }) {
-  const gateway = gatewayAddress(info, t.kind);
+  const gateway = gatewayAddress(info, kind);
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
       <p>
@@ -277,24 +399,35 @@ function TokenPanel({
   );
 }
 
+/** What the gateway logs in with when a target has no vault account. */
+const ownCredentials: Partial<Record<GatewayKind, string>> = {
+  kubernetes: "The gateway's own service account",
+  azure: "Grantra's own Azure identity",
+  gcp: "Grantra's own Google Cloud service account",
+};
+
+const accountLabels: Partial<Record<GatewayKind, string>> = {
+  aws: "Assumes the role as (an IAM user's access key)",
+  azure: "Assigns roles as (an app's client ID and secret)",
+  gcp: "Grants roles as (a service account's JSON key)",
+};
+
 /** Password accounts in the vault, which the gateway logs in with. */
 function VaultAccountSelect({
   id,
   value,
+  kind,
   onChange,
-  optional,
 }: {
   id: string;
   value: string;
+  kind: GatewayKind;
   onChange: (v: string) => void;
-  optional: boolean;
 }) {
   const accounts = useQuery({ queryKey: ["vault-accounts"], queryFn: listVaultAccounts });
   return (
     <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">
-        {optional ? "The gateway's own service account" : "Pick a vault account"}
-      </option>
+      <option value="">{ownCredentials[kind] ?? "Pick a vault account"}</option>
       {accounts.data?.accounts
         .filter((a) => a.kind === "password")
         .map((a) => (
@@ -321,7 +454,7 @@ function TLSSelect({
     <Select id={id} value={value} onChange={(e) => onChange(e.target.value as TLSMode)}>
       <option value="verify">TLS, verified</option>
       <option value="require">TLS, not verified</option>
-      {kind !== "kubernetes" && <option value="disable">No TLS</option>}
+      {kind !== "kubernetes" && kind !== "rdp" && <option value="disable">No TLS</option>}
     </Select>
   );
 }
@@ -333,27 +466,192 @@ const parseGroups = (s: string) =>
     .map((g) => g.trim())
     .filter(Boolean);
 
+const addressLabels: Record<GatewayKind, string> = {
+  kubernetes: "API server URL",
+  postgres: "Address",
+  mysql: "Address",
+  rdp: "Address",
+  aws: "IAM role ARN",
+  azure: "Scope (subscription or resource group)",
+  gcp: "Project ID",
+};
+
+const placeholders: Record<GatewayKind, string> = {
+  kubernetes: "https://10.0.0.1:6443",
+  postgres: "10.0.0.7:5432",
+  mysql: "10.0.0.8:3306",
+  rdp: "10.0.0.9:3389",
+  aws: "arn:aws:iam::123456789012:role/ReadOnly",
+  azure: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/shop",
+  gcp: "shop-prod-123",
+};
+
+const rolePlaceholders: Partial<Record<GatewayKind, string>> = {
+  azure: "Reader",
+  gcp: "roles/compute.viewer",
+};
+
+/** The longest a target's tokens or sessions can last, in hours. */
+const maxHours = (k: GatewayKind) => (k === "aws" ? 12 : 24);
+
+/**
+ * The fields that depend on the kind of target: what a cluster, database,
+ * desktop or cloud needs besides an address.
+ */
+function KindFields({
+  idPrefix,
+  kind,
+  name,
+  s,
+  set,
+  groups,
+  setGroups,
+}: {
+  idPrefix: string;
+  kind: GatewayKind;
+  name: string;
+  s: GatewayTargetSettings;
+  set: (patch: GatewayTargetSettings) => void;
+  groups: string;
+  setGroups: (g: string) => void;
+}) {
+  switch (kind) {
+    case "kubernetes":
+      return (
+        <div>
+          <Label htmlFor={`${idPrefix}-groups`}>Kubernetes groups (comma separated)</Label>
+          <Input
+            id={`${idPrefix}-groups`}
+            value={groups}
+            onChange={(e) => setGroups(e.target.value)}
+            placeholder={`grantra:${name || "prod"}`}
+          />
+        </div>
+      );
+    case "postgres":
+    case "mysql":
+      return (
+        <div>
+          <Label htmlFor={`${idPrefix}-db`}>Default database</Label>
+          <Input
+            id={`${idPrefix}-db`}
+            value={s.database ?? ""}
+            onChange={(e) => set({ database: e.target.value })}
+            placeholder="orders"
+          />
+        </div>
+      );
+    case "rdp":
+      return (
+        <>
+          <div>
+            <Label htmlFor={`${idPrefix}-sec`}>Security</Label>
+            <Select
+              id={`${idPrefix}-sec`}
+              value={s.rdp_security ?? "nla"}
+              onChange={(e) => set({ rdp_security: e.target.value as RDPSecurity })}
+            >
+              <option value="nla">Network Level Authentication (Windows)</option>
+              <option value="tls">TLS only (desktops without NLA, such as xrdp)</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor={`${idPrefix}-clip`}>Clipboard</Label>
+            <Select
+              id={`${idPrefix}-clip`}
+              value={s.clipboard ?? "paste"}
+              onChange={(e) => set({ clipboard: e.target.value as Clipboard })}
+            >
+              <option value="paste">Paste into the desktop only</option>
+              <option value="both">Copy and paste both ways</option>
+              <option value="none">Off</option>
+            </Select>
+          </div>
+        </>
+      );
+    case "aws":
+      return null;
+    case "azure":
+    case "gcp":
+      return (
+        <>
+          <div>
+            <Label htmlFor={`${idPrefix}-role`}>Role people get</Label>
+            <Input
+              id={`${idPrefix}-role`}
+              value={s.cloud_role ?? ""}
+              onChange={(e) => set({ cloud_role: e.target.value })}
+              placeholder={rolePlaceholders[kind]}
+              required
+            />
+          </div>
+          {kind === "azure" && (
+            <div>
+              <Label htmlFor={`${idPrefix}-dir`}>Microsoft Entra tenant (ID or domain)</Label>
+              <Input
+                id={`${idPrefix}-dir`}
+                value={s.cloud_directory ?? ""}
+                onChange={(e) => set({ cloud_directory: e.target.value })}
+                placeholder="corp.onmicrosoft.com"
+              />
+            </div>
+          )}
+        </>
+      );
+  }
+}
+
+/** Only the settings a kind of target takes, so the API accepts them. */
+function settingsFor(kind: GatewayKind, s: GatewayTargetSettings, groups: string) {
+  const out: GatewayTargetSettings = {
+    address: s.address,
+    tls_mode: s.tls_mode,
+    vault_account_id: s.vault_account_id,
+    max_token_hours: s.max_token_hours,
+    notes: s.notes,
+  };
+  if (kind === "kubernetes") {
+    out.ca_certificate = s.ca_certificate;
+    if (groups.trim()) out.kube_groups = parseGroups(groups);
+  } else if (kind === "postgres" || kind === "mysql") {
+    out.ca_certificate = s.ca_certificate;
+    out.database = s.database;
+  } else if (kind === "rdp") {
+    out.clipboard = s.clipboard;
+    out.rdp_security = s.rdp_security;
+  } else if (kind !== "aws") {
+    out.cloud_role = s.cloud_role;
+    if (kind === "azure") out.cloud_directory = s.cloud_directory;
+  }
+  return out;
+}
+
+/** Whether a kind of target takes its own CA certificate. */
+const takesCA = (k: GatewayKind) => usesToken(k);
+
 function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => void }) {
   const client = useQueryClient();
-  const [address, setAddress] = useState(t.address);
-  const [database, setDatabase] = useState(t.database ?? "");
-  const [tls, setTLS] = useState(t.tls_mode);
-  const [ca, setCA] = useState(t.ca_certificate ?? "");
-  const [account, setAccount] = useState(t.vault_account_id ?? "");
+  const [s, setS] = useState<GatewayTargetSettings>({
+    address: t.address,
+    database: t.database ?? "",
+    tls_mode: t.tls_mode,
+    ca_certificate: t.ca_certificate ?? "",
+    vault_account_id: t.vault_account_id ?? "",
+    clipboard: t.clipboard,
+    rdp_security: t.rdp_security,
+    cloud_role: t.cloud_role ?? "",
+    cloud_directory: t.cloud_directory ?? "",
+    max_token_hours: t.max_token_hours,
+    notes: t.notes ?? "",
+  });
   const [groups, setGroups] = useState(groupsText(t.kube_groups));
-  const [hours, setHours] = useState(t.max_token_hours);
-  const [notes, setNotes] = useState(t.notes ?? "");
+  const set = (patch: GatewayTargetSettings) => setS({ ...s, ...patch });
   const refresh = () => client.invalidateQueries({ queryKey: ["gateway-targets"] });
   const save = useMutation({
     mutationFn: () =>
+      // An empty group list goes as is: it takes the groups away.
       updateGatewayTarget(t.id, {
-        address,
-        database,
-        tls_mode: tls,
-        ca_certificate: ca,
-        vault_account_id: account,
-        max_token_hours: hours,
-        notes,
+        ...settingsFor(t.kind, s, groups),
         ...(t.kind === "kubernetes" ? { kube_groups: parseGroups(groups) } : {}),
       }),
     onSuccess: refresh,
@@ -365,7 +663,7 @@ function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => void })
       return refresh();
     },
   });
-  const cluster = t.kind === "kubernetes";
+  const id = `t-${t.id}`;
   return (
     <form
       className="mt-3 grid gap-3 rounded-md border border-slate-200 p-3 sm:grid-cols-2"
@@ -375,56 +673,71 @@ function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => void })
       }}
     >
       <div>
-        <Label htmlFor={`addr-${t.id}`}>Address</Label>
-        <Input id={`addr-${t.id}`} value={address} onChange={(e) => setAddress(e.target.value)} />
+        <Label htmlFor={`${id}-address`}>{addressLabels[t.kind]}</Label>
+        <Input
+          id={`${id}-address`}
+          value={s.address}
+          onChange={(e) => set({ address: e.target.value })}
+        />
       </div>
-      {cluster ? (
+      <KindFields
+        idPrefix={id}
+        kind={t.kind}
+        name={t.name}
+        s={s}
+        set={set}
+        groups={groups}
+        setGroups={setGroups}
+      />
+      <div>
+        <Label htmlFor={`${id}-account`}>{accountLabels[t.kind] ?? "Logs in with"}</Label>
+        <VaultAccountSelect
+          id={`${id}-account`}
+          value={s.vault_account_id ?? ""}
+          kind={t.kind}
+          onChange={(v) => set({ vault_account_id: v })}
+        />
+      </div>
+      {!isCloud(t.kind) && (
         <div>
-          <Label htmlFor={`groups-${t.id}`}>Kubernetes groups (comma separated)</Label>
-          <Input id={`groups-${t.id}`} value={groups} onChange={(e) => setGroups(e.target.value)} />
-        </div>
-      ) : (
-        <div>
-          <Label htmlFor={`db-${t.id}`}>Default database</Label>
-          <Input id={`db-${t.id}`} value={database} onChange={(e) => setDatabase(e.target.value)} />
+          <Label htmlFor={`${id}-tls`}>TLS to the {kindNoun[t.kind]}</Label>
+          <TLSSelect
+            id={`${id}-tls`}
+            value={s.tls_mode ?? "verify"}
+            kind={t.kind}
+            onChange={(v) => set({ tls_mode: v })}
+          />
         </div>
       )}
       <div>
-        <Label htmlFor={`acct-${t.id}`}>Logs in with</Label>
-        <VaultAccountSelect
-          id={`acct-${t.id}`}
-          value={account}
-          onChange={setAccount}
-          optional={cluster}
-        />
-      </div>
-      <div>
-        <Label htmlFor={`tls-${t.id}`}>TLS to the {cluster ? "cluster" : "database"}</Label>
-        <TLSSelect id={`tls-${t.id}`} value={tls} kind={t.kind} onChange={setTLS} />
-      </div>
-      <div>
-        <Label htmlFor={`hours-${t.id}`}>Tokens last up to (hours)</Label>
+        <Label htmlFor={`${id}-hours`}>
+          {usesToken(t.kind) ? "Tokens" : "Sessions"} last up to (hours)
+        </Label>
         <Input
-          id={`hours-${t.id}`}
+          id={`${id}-hours`}
           type="number"
           min={1}
-          max={24}
-          value={hours}
-          onChange={(e) => setHours(Number(e.target.value))}
+          max={maxHours(t.kind)}
+          value={s.max_token_hours}
+          onChange={(e) => set({ max_token_hours: Number(e.target.value) })}
         />
       </div>
       <div>
-        <Label htmlFor={`notes-${t.id}`}>Notes</Label>
-        <Input id={`notes-${t.id}`} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Label htmlFor={`${id}-notes`}>Notes</Label>
+        <Input
+          id={`${id}-notes`}
+          value={s.notes}
+          onChange={(e) => set({ notes: e.target.value })}
+        />
       </div>
-      {tls === "verify" && (
+      {takesCA(t.kind) && s.tls_mode === "verify" && (
         <div className="sm:col-span-2">
-          <Label htmlFor={`ca-${t.id}`}>CA certificate (PEM, empty for the system&apos;s)</Label>
+          <Label htmlFor={`${id}-ca`}>CA certificate (PEM, empty for the system&apos;s)</Label>
           <Textarea
-            id={`ca-${t.id}`}
+            id={`${id}-ca`}
             rows={3}
-            value={ca}
-            onChange={(e) => setCA(e.target.value)}
+            value={s.ca_certificate}
+            onChange={(e) => set({ ca_certificate: e.target.value })}
             className="font-mono text-xs"
           />
         </div>
@@ -455,11 +768,17 @@ function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => void })
   );
 }
 
-const placeholders: Record<GatewayKind, string> = {
-  kubernetes: "https://10.0.0.1:6443",
-  postgres: "10.0.0.7:5432",
-  mysql: "10.0.0.8:3306",
+const kindNoun: Record<GatewayKind, string> = {
+  kubernetes: "cluster",
+  postgres: "database",
+  mysql: "database",
+  rdp: "desktop",
+  aws: "cloud",
+  azure: "cloud",
+  gcp: "cloud",
 };
+
+const defaultHours = (k: GatewayKind) => (k === "aws" ? 1 : 8);
 
 function NewTarget({ onDone }: { onDone: () => void }) {
   const client = useQueryClient();
@@ -471,17 +790,22 @@ function NewTarget({ onDone }: { onDone: () => void }) {
     tls_mode: "verify",
     ca_certificate: "",
     vault_account_id: "",
+    clipboard: "paste",
+    rdp_security: "nla",
+    cloud_role: "",
+    cloud_directory: "",
+    max_token_hours: 8,
     risk: "high",
   });
   const [groups, setGroups] = useState("");
   const set = (patch: Partial<NewGatewayTarget>) => setT({ ...t, ...patch });
-  const cluster = t.kind === "kubernetes";
   const create = useMutation({
     mutationFn: () =>
       createGatewayTarget({
-        ...t,
-        database: cluster ? undefined : t.database,
-        kube_groups: cluster && groups.trim() ? parseGroups(groups) : undefined,
+        name: t.name,
+        kind: t.kind,
+        risk: t.risk,
+        ...settingsFor(t.kind, t, groups),
       }),
     onSuccess: () => {
       onDone();
@@ -491,11 +815,12 @@ function NewTarget({ onDone }: { onDone: () => void }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Add a database or cluster</CardTitle>
+        <CardTitle>Add a target</CardTitle>
         <p className="text-sm text-slate-500">
-          Grantra adds the access to connect to it to the catalog, just in time only: people are
-          made eligible and activate it, or request it for a time. The gateway logs in with an
-          account in the vault, so nobody sees its password.
+          Grantra adds the access to it to the catalog, just in time only: people are made eligible
+          and activate it, or request it for a time. The gateway logs in with an account in the
+          vault, so nobody sees its password; on a cloud, Grantra gives people the role for the
+          session and takes it back after.
         </p>
       </CardHeader>
       <CardContent>
@@ -513,12 +838,21 @@ function NewTarget({ onDone }: { onDone: () => void }) {
               value={t.kind}
               onChange={(e) => {
                 const kind = e.target.value as GatewayKind;
-                set({ kind, tls_mode: kind === "kubernetes" ? "verify" : t.tls_mode });
+                const tls =
+                  isCloud(kind) ||
+                  ((kind === "kubernetes" || kind === "rdp") && t.tls_mode === "disable")
+                    ? "verify"
+                    : t.tls_mode;
+                set({ kind, tls_mode: tls, max_token_hours: defaultHours(kind) });
               }}
             >
               <option value="postgres">PostgreSQL</option>
               <option value="mysql">MySQL or MariaDB</option>
               <option value="kubernetes">Kubernetes cluster</option>
+              <option value="rdp">Windows desktop (RDP)</option>
+              <option value="aws">AWS console</option>
+              <option value="azure">Azure portal</option>
+              <option value="gcp">Google Cloud console</option>
             </Select>
           </div>
           <div>
@@ -527,12 +861,12 @@ function NewTarget({ onDone }: { onDone: () => void }) {
               id="gw-name"
               value={t.name}
               onChange={(e) => set({ name: e.target.value })}
-              placeholder={cluster ? "prod" : "orders-db"}
+              placeholder={t.kind === "kubernetes" || isCloud(t.kind) ? "prod" : "orders-db"}
               required
             />
           </div>
           <div>
-            <Label htmlFor="gw-address">{cluster ? "API server URL" : "Address"}</Label>
+            <Label htmlFor="gw-address">{addressLabels[t.kind]}</Label>
             <Input
               id="gw-address"
               value={t.address}
@@ -541,43 +875,46 @@ function NewTarget({ onDone }: { onDone: () => void }) {
               required
             />
           </div>
-          {cluster ? (
+          <KindFields
+            idPrefix="gw"
+            kind={t.kind}
+            name={t.name}
+            s={t}
+            set={set}
+            groups={groups}
+            setGroups={setGroups}
+          />
+          <div>
+            <Label htmlFor="gw-account">{accountLabels[t.kind] ?? "Logs in with"}</Label>
+            <VaultAccountSelect
+              id="gw-account"
+              value={t.vault_account_id ?? ""}
+              kind={t.kind}
+              onChange={(v) => set({ vault_account_id: v })}
+            />
+          </div>
+          {!isCloud(t.kind) && (
             <div>
-              <Label htmlFor="gw-groups">Kubernetes groups (comma separated)</Label>
-              <Input
-                id="gw-groups"
-                value={groups}
-                onChange={(e) => setGroups(e.target.value)}
-                placeholder={`grantra:${t.name || "prod"}`}
-              />
-            </div>
-          ) : (
-            <div>
-              <Label htmlFor="gw-db">Default database</Label>
-              <Input
-                id="gw-db"
-                value={t.database}
-                onChange={(e) => set({ database: e.target.value })}
-                placeholder="orders"
+              <Label htmlFor="gw-tls">TLS to the {kindNoun[t.kind]}</Label>
+              <TLSSelect
+                id="gw-tls"
+                value={t.tls_mode ?? "verify"}
+                kind={t.kind}
+                onChange={(v) => set({ tls_mode: v })}
               />
             </div>
           )}
           <div>
-            <Label htmlFor="gw-account">Logs in with</Label>
-            <VaultAccountSelect
-              id="gw-account"
-              value={t.vault_account_id ?? ""}
-              onChange={(v) => set({ vault_account_id: v })}
-              optional={cluster}
-            />
-          </div>
-          <div>
-            <Label htmlFor="gw-tls">TLS to the {cluster ? "cluster" : "database"}</Label>
-            <TLSSelect
-              id="gw-tls"
-              value={t.tls_mode ?? "verify"}
-              kind={t.kind}
-              onChange={(v) => set({ tls_mode: v })}
+            <Label htmlFor="gw-hours">
+              {usesToken(t.kind) ? "Tokens" : "Sessions"} last up to (hours)
+            </Label>
+            <Input
+              id="gw-hours"
+              type="number"
+              min={1}
+              max={maxHours(t.kind)}
+              value={t.max_token_hours}
+              onChange={(e) => set({ max_token_hours: Number(e.target.value) })}
             />
           </div>
           <div>
@@ -587,7 +924,7 @@ function NewTarget({ onDone }: { onDone: () => void }) {
               <option value="critical">Critical</option>
             </Select>
           </div>
-          {t.tls_mode === "verify" && (
+          {takesCA(t.kind) && t.tls_mode === "verify" && (
             <div className="sm:col-span-2">
               <Label htmlFor="gw-ca">CA certificate (PEM, empty for the system&apos;s)</Label>
               <Textarea
@@ -598,6 +935,12 @@ function NewTarget({ onDone }: { onDone: () => void }) {
                 className="font-mono text-xs"
               />
             </div>
+          )}
+          {t.kind === "aws" && (
+            <p className="text-sm text-slate-500 sm:col-span-2">
+              The role&apos;s trust policy must let the IAM user assume it, and its maximum session
+              duration must be at least as long as sessions here.
+            </p>
           )}
           <div className="flex gap-2 sm:col-span-2">
             <Button type="submit" disabled={create.isPending}>
@@ -616,6 +959,14 @@ function NewTarget({ onDone }: { onDone: () => void }) {
       </CardContent>
     </Card>
   );
+}
+
+/** Bytes, in a unit people read. */
+function sizeText(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function Sessions({ admin }: { admin: boolean }) {
@@ -660,19 +1011,34 @@ function Sessions({ admin }: { admin: boolean }) {
                     {s.database && ` on ${s.database}`}
                   </div>
                 </TableCell>
-                <TableCell>{formatTime(s.started_at)}</TableCell>
-                <TableCell>{s.events}</TableCell>
+                <TableCell>
+                  {formatTime(s.started_at)}
+                  {!s.ended_at && s.valid_before && (
+                    <div className="text-xs text-slate-500">
+                      ends by {formatTime(s.valid_before)}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {s.kind === "rdp"
+                    ? sizeText(s.recording_bytes)
+                    : isCloud(s.kind)
+                      ? "—"
+                      : s.events}
+                </TableCell>
                 <TableCell>
                   <GatewaySessionStatus s={s} />
                 </TableCell>
                 <TableCell className="flex justify-end gap-2">
-                  <Link
-                    to={`/databases/sessions/${s.id}`}
-                    className="text-sm text-brand-700 underline"
-                  >
-                    Log
-                  </Link>
-                  {admin && !s.ended_at && !s.terminate_requested && (
+                  {!isCloud(s.kind) && (
+                    <Link
+                      to={`/remote-access/sessions/${s.id}`}
+                      className="text-sm text-brand-700 underline"
+                    >
+                      {s.kind === "rdp" ? "Recording" : "Log"}
+                    </Link>
+                  )}
+                  {admin && !s.ended_at && !s.terminate_requested && s.kind !== "aws" && (
                     <Button
                       size="sm"
                       variant="destructive"
@@ -699,7 +1065,11 @@ export function GatewaySessionStatus({ s }: { s: GatewaySession }) {
   const reason = s.end_reason ?? "closed";
   return (
     <Badge variant={reason === "closed" ? "default" : "red"} title={s.error}>
-      {reason === "recording_full" ? "Log limit reached" : endReasonText[reason]}
+      {reason === "recording_full"
+        ? s.kind === "rdp"
+          ? "Recording limit reached"
+          : "Log limit reached"
+        : endReasonText[reason]}
     </Badge>
   );
 }
@@ -759,7 +1129,7 @@ function Queries() {
                   <TableCell>{ev.target_name}</TableCell>
                   <TableCell>
                     <Link
-                      to={`/databases/sessions/${ev.session_id}`}
+                      to={`/remote-access/sessions/${ev.session_id}`}
                       className="break-all font-mono text-xs text-brand-700 underline"
                     >
                       {ev.text}

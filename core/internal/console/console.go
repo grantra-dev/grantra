@@ -18,6 +18,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
+	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
@@ -45,6 +46,10 @@ type API struct {
 	// gateway; GatewayAddresses is where people reach its listeners.
 	Gateways         *gateways.Service
 	GatewayAddresses GatewayAddresses
+	// Desktops runs desktop sessions, when guacd is set up; Consoles signs
+	// people in to cloud consoles.
+	Desktops Desktops
+	Consoles *cloud.Consoles
 }
 
 // New returns the console API for the given tenant.
@@ -161,8 +166,11 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("PUT /api/v1/gateway/targets/{id}", a.updateGatewayTarget)
 	route("DELETE /api/v1/gateway/targets/{id}", a.deleteGatewayTarget)
 	route("POST /api/v1/gateway/targets/{id}/tokens", a.issueGatewayToken)
+	route("GET /api/v1/gateway/targets/{id}/rdp", a.connectDesktop)
+	route("POST /api/v1/gateway/targets/{id}/console", a.openConsole)
 	route("GET /api/v1/gateway/sessions", a.listGatewaySessions)
 	route("GET /api/v1/gateway/sessions/{id}", a.getGatewaySession)
+	route("GET /api/v1/gateway/sessions/{id}/recording", a.gatewayRecording)
 	route("POST /api/v1/gateway/sessions/{id}/terminate", a.terminateGatewaySession)
 	route("GET /api/v1/gateway/events", a.searchGatewayEvents)
 	route("GET /api/v1/identities/{id}/eligibilities", a.identityEligibilities)

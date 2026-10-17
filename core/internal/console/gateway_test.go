@@ -2,17 +2,24 @@ package console
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
+	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
+	"github.com/grantra-dev/grantra/core/internal/gateways/proxy"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
@@ -193,3 +200,140 @@ func TestGatewayAPI(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestRemoteAccessAPI(t *testing.T) {
+	e := newEnv(t)
+	admin := e.identity("admin", "", authz.RoleAdmin)
+	auditor := e.identity("auditor", "", authz.RoleAuditor)
+	ana := e.identity("ana", "")
+	luis := e.identity("luis", "")
+	key, err := vault.NewLocalKey("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.api.Vault = vault.New(key, nil)
+	e.api.Gateways = gateways.New(key)
+	acct := decode[vault.Account](t, e.do(admin, http.MethodPost, "/api/v1/vault/accounts", `{"name": "desktop admin", "username": "admin", "secret": "pw"}`))
+
+	info := decode[map[string]any](t, e.do(ana, http.MethodGet, "/api/v1/gateway", ""))
+	if info["desktops_enabled"] != false || info["consoles_enabled"] != false {
+		t.Errorf("gateway info = %v", info)
+	}
+	rec := e.do(admin, http.MethodPost, "/api/v1/gateway/targets", `{"name": "win-1", "kind": "rdp", "address": "10.0.0.9", "clipboard": "both", "vault_account_id": "`+acct.ID+`"}`)
+	desk := decode[gateways.Target](t, rec)
+	if rec.Code != http.StatusCreated || desk.Clipboard != gateways.ClipboardBoth {
+		t.Fatalf("create desktop = %d %s", rec.Code, rec.Body)
+	}
+	rec = e.do(admin, http.MethodPost, "/api/v1/gateway/targets", `{"name": "prod-aws", "kind": "aws", "address": "arn:aws:iam::123456789012:role/ReadOnly", "vault_account_id": "`+acct.ID+`"}`)
+	aws := decode[gateways.Target](t, rec)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create aws = %d %s", rec.Code, rec.Body)
+	}
+	for _, id := range []string{desk.EntitlementID, aws.EntitlementID} {
+		e.exec(`INSERT INTO access_assignments (tenant_id, identity_id, entitlement_id, origin, granted_by, expires_at)
+		        VALUES ($1, $2, $3, 'manual', 'test', now() + interval '2 hours')`, e.tenant, ana, id)
+	}
+
+	// Desktops and consoles open from the console, without a token.
+	for _, id := range []string{desk.ID, aws.ID} {
+		if rec := e.do(ana, http.MethodPost, "/api/v1/gateway/targets/"+id+"/tokens", ""); rec.Code != http.StatusBadRequest {
+			t.Errorf("token = %d %s", rec.Code, rec.Body)
+		}
+	}
+	// Off until set up.
+	if rec := e.do(ana, http.MethodGet, "/api/v1/gateway/targets/"+desk.ID+"/rdp", ""); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "GRANTRA_GUACD_ADDR") {
+		t.Errorf("desktops off = %d %s", rec.Code, rec.Body)
+	}
+	if rec := e.do(ana, http.MethodPost, "/api/v1/gateway/targets/"+aws.ID+"/console", ""); rec.Code != http.StatusConflict {
+		t.Errorf("consoles off = %d %s", rec.Code, rec.Body)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	away := l.Addr().String()
+	l.Close()
+	desktops := &proxy.Server{Pool: e.pool, TenantID: e.tenant, Gateways: e.api.Gateways, Name: "test", Guacd: away,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	defer desktops.StopRDP()
+	e.api.Desktops = Desktops{Gateway: desktops, Context: ctx}
+	e.api.Consoles = &cloud.Consoles{Pool: e.pool, TenantID: e.tenant, Gateways: e.api.Gateways}
+	if info := decode[map[string]any](t, e.do(ana, http.MethodGet, "/api/v1/gateway", "")); info["desktops_enabled"] != true || info["consoles_enabled"] != true {
+		t.Errorf("gateway info = %v", info)
+	}
+
+	// Only holders open a desktop; it is a WebSocket speaking Guacamole.
+	srv := httptest.NewServer(e.mux)
+	defer srv.Close()
+	dial := func(as, id string) (*websocket.Conn, *http.Response, error) {
+		return websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1/gateway/targets/"+id+"/rdp?width=1024",
+			&websocket.DialOptions{Subprotocols: []string{"guacamole"}, HTTPHeader: http.Header{"X-Test-Identity": {as}}})
+	}
+	for _, who := range []string{admin, luis} {
+		if _, resp, err := dial(who, desk.ID); err == nil || resp.StatusCode != http.StatusForbidden {
+			t.Errorf("desktop without access = %v %v", resp, err)
+		}
+	}
+	if _, resp, err := dial(ana, aws.ID); err == nil || resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("aws as a desktop = %v %v", resp, err)
+	}
+	// Another site's page gets nothing, not even a token; nor does a plain
+	// request.
+	tokens := func() int { return e.count(`SELECT count(*) FROM gateway_tokens WHERE target_id = $1`, desk.ID) }
+	before := tokens()
+	_, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1/gateway/targets/"+desk.ID+"/rdp",
+		&websocket.DialOptions{Subprotocols: []string{"guacamole"},
+			HTTPHeader: http.Header{"X-Test-Identity": {ana}, "Origin": {"https://evil.example"}}})
+	if err == nil || resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("from another site = %v %v", resp, err)
+	}
+	if rec := e.do(ana, http.MethodGet, "/api/v1/gateway/targets/"+desk.ID+"/rdp", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("plain GET = %d", rec.Code)
+	}
+	if n := tokens(); n != before {
+		t.Errorf("tokens issued: %d, then %d", before, n)
+	}
+	ws, _, err := dial(ana, desk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, msg, err := ws.Read(ctx)
+	if err != nil || !strings.Contains(string(msg), "cannot reach its desktop proxy") {
+		t.Errorf("desktop = %q %v", msg, err)
+	}
+	ws.CloseNow() //nolint:errcheck
+
+	// Sessions show when they end at the latest; desktops have a recording
+	// for vault readers.
+	var session gateways.Session
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		list := decode[struct {
+			Sessions []gateways.Session `json:"sessions"`
+		}](t, e.do(auditor, http.MethodGet, "/api/v1/gateway/sessions?target="+desk.ID, "")).Sessions
+		if len(list) == 1 && list[0].EndedAt != nil {
+			session = list[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sessions = %+v", list)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if session.EndReason != gateways.EndFailed || session.ValidBefore == nil || session.Account != "admin" {
+		t.Errorf("session = %+v", session)
+	}
+	recording := "/api/v1/gateway/sessions/" + session.ID + "/recording"
+	if rec := e.do(ana, http.MethodGet, recording, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("ana reads the recording = %d", rec.Code)
+	}
+	if rec := e.do(auditor, http.MethodGet, recording, ""); rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Errorf("recording = %d %v", rec.Code, rec.Header())
+	}
+
+	// Without the access there is no console.
+	if rec := e.do(luis, http.MethodPost, "/api/v1/gateway/targets/"+aws.ID+"/console", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("console without access = %d %s", rec.Code, rec.Body)
+	}
+}

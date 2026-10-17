@@ -1,6 +1,6 @@
 # Credential vault
 
-The vault keeps the passwords and SSH keys of privileged accounts (root on a database, a domain admin, a break-glass user), hands them to the people allowed to use them for a limited time, and changes the passwords in the target system so that a password someone saw stops working. To log in to servers without handing out keys at all, see [SSH access](ssh.md); to reach databases and Kubernetes clusters without anyone seeing the password, see [Databases and Kubernetes clusters](gateways.md).
+The vault keeps the passwords and SSH keys of privileged accounts (root on a database, a domain admin, a break-glass user), hands them to the people allowed to use them for a limited time, and changes the passwords in the target system so that a password someone saw stops working. To log in to servers without handing out keys at all, see [SSH access](ssh.md); to reach databases, Kubernetes clusters, desktops and cloud consoles without anyone seeing the password, see [Remote access](gateways.md).
 
 ## Turning it on
 

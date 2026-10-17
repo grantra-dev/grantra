@@ -80,7 +80,8 @@ vault:
 
 # The gateway (grantra gateway): people SSH through it to the servers they
 # hold access to, and connect through it to databases and Kubernetes
-# clusters; it records every session. It needs the vault's master key
+# clusters; it records every session. Desktops and cloud consoles go
+# through Grantra's server instead (see desktops below). It needs the vault's master key
 # (vault.key, vault.existingSecret or vault.provider): it signs its own
 # short-lived certificates with the certificate authorities that key seals.
 # See docs/ssh.md and docs/gateways.md.
@@ -130,6 +131,29 @@ gateway:
       memory: 64Mi
     limits:
       memory: 256Mi
+
+# Desktops (RDP) in the browser: Grantra's server draws them through
+# Apache Guacamole's proxy, guacd, which the chart runs next to it. guacd
+# must reach the desktops on port 3389. It needs the vault's master key:
+# Grantra logs in with vault accounts. See docs/gateways.md.
+desktops:
+  enabled: false
+  # The most a session's screen recording keeps, in MiB; the session ends
+  # when it is full.
+  maxRecordingMB: 1024
+  guacd:
+    image:
+      repository: guacamole/guacd
+      tag: "1.5.5"
+    replicaCount: 1
+    logLevel: info
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        # Each desktop takes roughly 50-100 MiB.
+        memory: 1Gi
 
 # Extra environment variables for the core, such as connector credentials
 # (GRANTRA_SECRET_*). Prefer envFromSecrets for anything sensitive.
