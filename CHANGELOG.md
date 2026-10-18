@@ -4,6 +4,11 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+### Added
+
+- **Help in the console.** A Help section with pages for what each person does in Grantra (everyone, approvers and reviewers, helpdesk and auditors, admins), read from [`docs/help`](docs/help) so the same text is on GitHub.
+- **CSV formats documented.** [CSV files](docs/help/csv-files.md) has every column of HR exports and account files, the file rules (separator, encoding, dates, quotes) and what each error means and how to fix it. A **?** next to each upload shows the columns and offers a template to download.
+
 ## [0.3.0] - 2026-10-17
 
 Privileged access (PAM) arrives: a credential vault, just-in-time access, break glass, and recorded sessions to servers, databases, Kubernetes, Windows desktops and cloud consoles, all handed out and taken back by the same governance as everything else. Data also comes in more easily, from the console or from scripts.

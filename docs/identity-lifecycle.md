@@ -18,7 +18,7 @@ One row per person, with a header row. Column names are matched loosely (`Employ
 | `status` | | `active` (default) or `terminated` (also `inactive`, `left`) |
 | `start_date`, `end_date` | | `YYYY-MM-DD`. A future start keeps the person `pending`; the day after `end_date` they are a leaver |
 
-Any other column is kept as an attribute of the identity, under its name in snake_case. See [`deploy/samples/hr-employees.csv`](../deploy/samples/hr-employees.csv).
+Any other column is kept as an attribute of the identity, under its name in snake_case. See [`deploy/samples/hr-employees.csv`](../deploy/samples/hr-employees.csv). [CSV files](help/csv-files.md) has every rule of the format, a template and what each error means.
 
 ## What a sync does
 

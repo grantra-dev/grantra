@@ -119,7 +119,7 @@ One row per account, with a header row. Column names are matched loosely (`Accou
 | `status` | `active` (the default; also `enabled`, `yes`, `1`) or `disabled` (also `inactive`, `locked`, `suspended`, `no`, `0`) |
 | `entitlements` | The roles or groups the account holds, separated by `;` (`config.separator` changes it). Entitlements are created from the names found |
 
-Any other column is kept as an attribute of the account. An export with one row per account **and** role (the result of a "users join roles" query) works as it is: rows of the same account are merged, and a value that differs between them (two emails for one account) is an error. See [`deploy/samples/app-accounts.csv`](../deploy/samples/app-accounts.csv).
+Any other column is kept as an attribute of the account. An export with one row per account **and** role (the result of a "users join roles" query) works as it is: rows of the same account are merged, and a value that differs between them (two emails for one account) is an error. See [`deploy/samples/app-accounts.csv`](../deploy/samples/app-accounts.csv). [CSV files](help/csv-files.md) has every rule of the format, a template and what each error means.
 
 - **All or nothing.** A file with any error is refused (`422`) with every problem and its line, and changes nothing; the run is recorded as failed.
 - **Dry run.** `dry_run=true` answers with what would change, and changes nothing.
