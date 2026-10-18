@@ -185,8 +185,13 @@ func (s *Server) ServeRDP(ctx context.Context, w http.ResponseWriter, r *http.Re
 		connMu sync.Mutex
 		conn   net.Conn
 		closed bool
+		// killMu lets a halt finish telling the person why before the
+		// session's own end closes the connection under it.
+		killMu sync.Mutex
 	)
 	kill := func(reason, msg string) {
+		killMu.Lock()
+		defer killMu.Unlock()
 		if msg != "" {
 			send(guacEncode("error", msg, guacSessionClosed)) //nolint:errcheck
 		}
