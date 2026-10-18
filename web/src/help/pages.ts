@@ -10,7 +10,7 @@ import gettingStarted from "../../../docs/help/getting-started.md?raw";
 import peopleAndAudit from "../../../docs/help/people-and-audit.md?raw";
 import privilegedAccess from "../../../docs/help/privileged-access.md?raw";
 import { PlatformRole, type Me } from "@/lib/api";
-import { approves, hasRole } from "@/lib/sections";
+import { approves, hasRole } from "@/lib/roles";
 
 export interface HelpPage {
   slug: string;

@@ -45,7 +45,7 @@ export function Applications() {
               <TableRow key={a.id}>
                 <TableCell>
                   <Link
-                    to={`/admin/applications/${a.id}`}
+                    to={`/governance/applications/${a.id}`}
                     className="font-medium text-brand-700 hover:underline"
                   >
                     {a.name}

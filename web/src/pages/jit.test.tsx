@@ -209,7 +209,7 @@ describe("Just-in-time access", () => {
         return { status: 201, body: eligibility };
       },
     });
-    renderAt("/admin?tab=standing");
+    renderAt("/governance/standing-access");
     const luis = (await screen.findByText("Luis Pérez")).closest("tr")!;
     expect(
       within(screen.getByText("Marta Ruiz").closest("tr")!).getByText("Change the rule"),

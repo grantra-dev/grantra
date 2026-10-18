@@ -4,6 +4,17 @@ One web app for everyone in the company. Each person sees the sections their
 relationships and platform roles give them; the API checks every call with
 the Cedar policies regardless of what the console shows.
 
+The menu groups sections by what people come to do, and a group only shows
+when the person has something in it: **For you** (my access, requests),
+**To do** (approvals, reviews), **Privileged access** (vault, servers, remote
+access), **Governance** (people, applications, roles, policies, audit log)
+and **Settings** (HR sources, Grantra Login, API tokens). Groups fold, and the
+console remembers it in the browser. On small screens the menu opens as a
+drawer. Each page belongs to a module (`web/src/modules/`): a new feature adds
+its pages to its module's list and the menu, routes and home page follow.
+Addresses from before the groups (`/admin?tab=…`, `/admin/applications/…`)
+redirect to the new pages.
+
 | Section | Who sees it | Status |
 |---|---|---|
 | Home | Everyone | Done |
@@ -16,7 +27,8 @@ the Cedar policies regardless of what the console shows.
 | Approvals | Managers, application owners, admins | Done: the requests waiting on you, soonest deadline first, approve or reject (a comment is required to reject). Admins accept a separation of duties risk on the request itself, with a reason and how long it lasts |
 | Access reviews | Managers, application owners, admins, auditors | Done: reviewers keep or revoke what they are asked to review, one by one or in bulk (bulk revoke asks for confirmation). Admins launch campaigns (by manager or by owner, all access or some applications) and close them; admins and auditors follow each campaign's progress |
 | People | Admins, helpdesk, auditors | Done: search everyone by name or email and filter by status. Each person shows their details from HR, manager, access and accounts; admins and auditors also see their Grantra roles, their joiner, mover and leaver events and their audit history. Admins give (optionally until a date) and remove Grantra roles, never to themselves, and make people eligible for just-in-time access |
-| Administration | Admins | Done. **HR sources**: add or edit a CSV source, with the column that holds each field (a sample file shows which it already has), check an export (a dry run that lists every joiner, mover and leaver, errors and warnings), then apply it; a sync stopped by the leaver limit can be forced after a confirmation; run history. **Applications**: add applications and entitlements, see each one's connector settings (secret references only), read its accounts now (or, for an application with no API, set up and import account files, checked first), set provisioning (mode, change limit, removing memberships Grantra did not grant) and plan a dry run, browse accounts and orphans, see past runs, and make an entitlement just in time only. **Roles and rules**: business roles and birthright rules, read only. **Separation of duties**: add and delete policies, check for violations now, and accept a violation's risk for a set time with a reason. **Standing access**: high and critical risk access held with no end date, turned into eligibility in one click. **API tokens**: create [service tokens](service-tokens.md) for scripts that send HR exports and account files, each shown once with a `curl` example, and revoke them |
+| Governance → Applications, Roles and rules, Separation of duties, Standing access | Admins | Done. **Applications**: add applications and entitlements, see each one's connector settings (secret references only), read its accounts now (or, for an application with no API, set up and import account files, checked first), set provisioning (mode, change limit, removing memberships Grantra did not grant) and plan a dry run, browse accounts and orphans, see past runs, and make an entitlement just in time only. **Roles and rules**: business roles and birthright rules, read only. **Separation of duties**: add and delete policies, check for violations now, and accept a violation's risk for a set time with a reason. **Standing access**: high and critical risk access held with no end date, turned into eligibility in one click |
+| Settings → HR sources, Grantra Login, API tokens | Admins | Done. **HR sources**: add or edit a CSV source, with the column that holds each field (a sample file shows which it already has), check an export (a dry run that lists every joiner, mover and leaver, errors and warnings), then apply it; a sync stopped by the leaver limit can be forced after a confirmation; run history. **Grantra Login**: see [grantra-login.md](grantra-login.md). **API tokens**: create [service tokens](service-tokens.md) for scripts that send HR exports and account files, each shown once with a `curl` example, and revoke them |
 | Audit log | Admins, auditors | Done: every event newest first, with who did it and on what in words, the raw details on demand, and a filter over the loaded events |
 | Help | Everyone | Done: the pages in [docs/help](help/README.md) for what the person does (approvers, helpdesk, auditors and admins see more), rendered from the same Markdown files. A **?** next to each CSV upload shows the file's columns and rules, with a template to download |
 | Email notifications | Everyone, from the bell in the header | Done: turn each kind of email on or off. Says so when this install sends no email or you have no address |

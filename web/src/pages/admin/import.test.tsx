@@ -34,7 +34,7 @@ describe("HR source columns", () => {
         return { status: 201, body: source };
       },
     });
-    renderAt("/admin");
+    renderAt("/settings/hr-sources");
 
     await userEvent.click(await screen.findByRole("button", { name: "New HR source" }));
     const form = screen.getByRole("form", { name: "New HR source" });
@@ -77,7 +77,7 @@ describe("HR source columns", () => {
         return { status: 200, body: source };
       },
     });
-    renderAt("/admin");
+    renderAt("/settings/hr-sources");
 
     expect(await screen.findByText("Columns: employee_id from “Worker ID”")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -129,7 +129,7 @@ describe("Account files", () => {
         return { status: 204, body: null };
       },
     });
-    renderAt("/admin/applications/erp");
+    renderAt("/governance/applications/erp");
 
     await userEvent.click(await screen.findByRole("button", { name: "Load accounts from a file" }));
     const form = screen.getByRole("form", { name: "Accounts from a file" });
@@ -166,7 +166,7 @@ describe("Account files", () => {
       "POST /api/v1/applications/erp/account-imports?dry_run=true": upload(true),
       "POST /api/v1/applications/erp/account-imports?dry_run=false": upload(false),
     });
-    renderAt("/admin/applications/erp");
+    renderAt("/governance/applications/erp");
 
     expect(await screen.findByText(/cannot write to this application/)).toBeInTheDocument();
     await userEvent.upload(
@@ -191,7 +191,7 @@ describe("Account files", () => {
         body: run({ status: "failed", counts: {}, error: 'line 2: unknown status "maybe"' }),
       }),
     });
-    renderAt("/admin/applications/erp");
+    renderAt("/governance/applications/erp");
 
     await userEvent.upload(
       await screen.findByLabelText("Account file for Legacy ERP"),
@@ -229,7 +229,7 @@ describe("API tokens", () => {
         return { status: 201, body: { token, secret: "grantra_st_s3cret" } };
       },
     });
-    renderAt("/admin?tab=tokens");
+    renderAt("/settings/api-tokens");
 
     const form = await screen.findByRole("form", { name: "New token" });
     await userEvent.type(within(form).getByLabelText("Name"), "Nightly HR");
@@ -269,7 +269,7 @@ describe("API tokens", () => {
         return { status: 204, body: null };
       },
     });
-    renderAt("/admin?tab=tokens");
+    renderAt("/settings/api-tokens");
 
     expect(await screen.findByText("Feed an HR source: Workday export")).toBeInTheDocument();
     expect(screen.getByText("Load an application's account file: any")).toBeInTheDocument();
@@ -297,7 +297,7 @@ describe("API tokens", () => {
       "GET /api/v1/identity-sources": ok({ sources: [source] }),
       "GET /api/v1/applications": ok({ applications: [] }),
     });
-    renderAt("/admin?tab=tokens");
+    renderAt("/settings/api-tokens");
 
     expect(await screen.findByText("Creator left: check who looks after it")).toBeInTheDocument();
     expect(screen.getAllByText(/Creator left/)).toHaveLength(1);

@@ -1,45 +1,56 @@
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { lazy, Suspense, type ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router";
 import { Layout } from "@/components/Layout";
-import { ApiError, getMe } from "@/lib/api";
-import { visibleSections } from "@/lib/sections";
-import { AccessReviews } from "@/pages/AccessReviews";
-import { Administration } from "@/pages/admin/Administration";
-import { Application } from "@/pages/admin/Application";
-import { Approvals } from "@/pages/Approvals";
-import { AuditLog } from "@/pages/AuditLog";
+import { PageHeader } from "@/components/PageHeader";
+import { ApiError, getMe, type Me } from "@/lib/api";
+import { visibleItems, type NavItem } from "@/modules";
 import { ComingSoon } from "@/pages/ComingSoon";
-import { Home } from "@/pages/Home";
-import { MyAccess } from "@/pages/MyAccess";
-import { MyRequests } from "@/pages/MyRequests";
 import { NotFound } from "@/pages/NotFound";
 import { NotificationSettings } from "@/pages/NotificationSettings";
-import { People } from "@/pages/People";
-import { Person } from "@/pages/Person";
-import { RequestAccess } from "@/pages/RequestAccess";
 import { Centered, LoginNotConfigured, SignIn } from "@/pages/SignIn";
-import { Vault } from "@/pages/Vault";
 
-// Pages few people open load when first visited.
-const Servers = lazy(() => import("@/pages/Servers").then((m) => ({ default: m.Servers })));
-const RemoteAccess = lazy(() =>
-  import("@/pages/RemoteAccess").then((m) => ({ default: m.RemoteAccess })),
-);
 const Desktop = lazy(() => import("@/pages/Desktop").then((m) => ({ default: m.Desktop })));
-const GatewaySessionLog = lazy(() =>
-  import("@/pages/GatewaySessionLog").then((m) => ({ default: m.GatewaySessionLog })),
-);
-const Help = lazy(() => import("@/pages/Help").then((m) => ({ default: m.Help })));
-const HelpArticle = lazy(() => import("@/pages/Help").then((m) => ({ default: m.HelpArticle })));
-const SessionPlayback = lazy(() =>
-  import("@/pages/SessionPlayback").then((m) => ({ default: m.SessionPlayback })),
-);
+
+const loading = <p className="text-sm text-slate-500">Loading…</p>;
 
 /** Sends Databases & clusters' old addresses to Remote access. */
 function OldRemoteAccess() {
   const { pathname, search } = useLocation();
   return <Navigate to={pathname.replace(/^\/databases/, "/remote-access") + search} replace />;
+}
+
+// Where each tab of the old Administration page lives now. Links to the old
+// addresses are in emails already sent, so they keep working.
+const oldAdminTabs: Record<string, string> = {
+  sources: "/settings/hr-sources",
+  applications: "/governance/applications",
+  access: "/governance/roles",
+  sod: "/governance/separation-of-duties",
+  standing: "/governance/standing-access",
+  login: "/settings/grantra-login",
+  tokens: "/settings/api-tokens",
+};
+
+function OldAdministration() {
+  const [params] = useSearchParams();
+  return <Navigate to={oldAdminTabs[params.get("tab") ?? ""] ?? "/settings/hr-sources"} replace />;
+}
+
+function OldApplication() {
+  const { id } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/governance/applications/${id}${search}`} replace />;
+}
+
+function itemPage(item: NavItem, me: Me): ReactNode {
+  if (!item.page) return <ComingSoon section={item} />;
+  return (
+    <Suspense fallback={loading}>
+      {item.header && <PageHeader title={item.title} description={item.description} />}
+      <item.page me={me} />
+    </Suspense>
+  );
 }
 
 export function App() {
@@ -60,56 +71,8 @@ export function App() {
     );
   }
 
-  const pages: Record<string, React.ReactNode> = {
-    "/": <Home me={me} />,
-    "/my-access": <MyAccess me={me} />,
-    "/request": <RequestAccess me={me} />,
-    "/requests": <MyRequests me={me} />,
-    "/vault": <Vault me={me} />,
-    "/servers": (
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <Servers me={me} />
-      </Suspense>
-    ),
-    "/remote-access": (
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <RemoteAccess me={me} />
-      </Suspense>
-    ),
-    "/approvals": <Approvals me={me} />,
-    "/reviews": <AccessReviews me={me} />,
-    "/people": <People />,
-    "/audit": <AuditLog />,
-    "/admin": <Administration />,
-    "/help": (
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <Help me={me} />
-      </Suspense>
-    ),
-  };
-  // Pages under a section, shown to whoever sees the section.
-  const subpages: Record<string, [string, React.ReactNode]> = {
-    "/people": ["/people/:id", <Person me={me} />],
-    "/admin": ["/admin/applications/:id", <Application />],
-    "/help": [
-      "/help/:page",
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <HelpArticle me={me} />
-      </Suspense>,
-    ],
-    "/servers": [
-      "/servers/sessions/:id",
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <SessionPlayback />
-      </Suspense>,
-    ],
-    "/remote-access": [
-      "/remote-access/sessions/:id",
-      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
-        <GatewaySessionLog />
-      </Suspense>,
-    ],
-  };
+  // Only what this person sees gets a route; anything else is "not found".
+  const items = visibleItems(me);
   return (
     <Routes>
       {/* A desktop takes its whole tab. */}
@@ -122,14 +85,25 @@ export function App() {
         }
       />
       <Route element={<Layout me={me} />}>
-        {visibleSections(me).map((s) => (
-          <Route key={s.path} path={s.path} element={pages[s.path] ?? <ComingSoon section={s} />} />
+        {items.map((i) => (
+          <Route key={i.path} path={i.path} element={itemPage(i, me)} />
         ))}
-        {visibleSections(me).flatMap((s) => {
-          const sub = subpages[s.path];
-          return sub ? [<Route key={sub[0]} path={sub[0]} element={sub[1]} />] : [];
-        })}
-        {/* Where remote access was before desktops and clouds joined it. */}
+        {items.flatMap((i) =>
+          (i.subpages ?? []).map((s) => (
+            <Route
+              key={s.path}
+              path={s.path}
+              element={
+                <Suspense fallback={loading}>
+                  <s.page me={me} />
+                </Suspense>
+              }
+            />
+          )),
+        )}
+        {/* Old addresses, from before the menu had groups. */}
+        <Route path="/admin" element={<OldAdministration />} />
+        <Route path="/admin/applications/:id" element={<OldApplication />} />
         <Route path="/databases/*" element={<OldRemoteAccess />} />
         <Route path="/settings/notifications" element={<NotificationSettings me={me} />} />
         <Route path="*" element={<NotFound />} />

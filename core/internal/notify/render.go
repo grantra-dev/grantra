@@ -20,10 +20,10 @@ var pages = map[Kind]string{
 	RequestDecided:   "/requests",
 	ReviewAssigned:   "/reviews",
 	CampaignDueSoon:  "/reviews",
-	SoDViolation:     "/admin?tab=sod",
+	SoDViolation:     "/governance/separation-of-duties",
 	BreakGlassUsed:   "/vault?tab=break-glass",
 	BreakGlassDue:    "/vault?tab=break-glass",
-	TokenCreatorLeft: "/admin?tab=tokens",
+	TokenCreatorLeft: "/settings/api-tokens",
 }
 
 var templates = func() map[Kind]*template.Template {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -80,10 +80,11 @@ describe("App", () => {
     expect(nav).toHaveTextContent("My access");
     expect(nav).toHaveTextContent("Request access");
     expect(nav).not.toHaveTextContent("Approvals");
-    expect(nav).not.toHaveTextContent("Administration");
+    expect(nav).not.toHaveTextContent("Governance");
+    expect(nav).not.toHaveTextContent("Settings");
   });
 
-  it("shows managers approvals and admins administration", async () => {
+  it("groups the menu, and shows managers approvals and admins governance and settings", async () => {
     serve({
       "/api/v1/me": {
         status: 200,
@@ -92,9 +93,50 @@ describe("App", () => {
     });
     renderAt("/");
     const nav = await screen.findByRole("navigation", { name: "Main" });
+    const groups = within(nav)
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(groups).toEqual(["For you", "To do", "Privileged access", "Governance", "Settings"]);
     expect(nav).toHaveTextContent("Approvals");
-    expect(nav).toHaveTextContent("Administration");
+    expect(nav).toHaveTextContent("Separation of duties");
+    expect(nav).toHaveTextContent("HR sources");
     expect(nav).toHaveTextContent("Audit log");
+  });
+
+  it("folds a group and remembers it, but never hides the page you are on", async () => {
+    localStorage.clear();
+    serve({ "/api/v1/me": { status: 200, body: employee } });
+    const first = renderAt("/");
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    const group = within(nav).getByRole("button", { name: "Privileged access" });
+    await userEvent.click(group);
+    expect(group).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).queryByRole("link", { name: "Vault" })).not.toBeInTheDocument();
+    first.unmount();
+
+    renderAt("/");
+    const again = await screen.findByRole("navigation", { name: "Main" });
+    expect(within(again).queryByRole("link", { name: "Vault" })).not.toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("sends the old Administration addresses to their new pages", async () => {
+    serve({
+      "/api/v1/me": { status: 200, body: { ...employee, platform_roles: ["grantra-admin"] } },
+      "/api/v1/service-tokens": { status: 200, body: { tokens: [] } },
+    });
+    renderAt("/admin?tab=tokens");
+    expect(await screen.findByRole("heading", { name: "API tokens" })).toBeInTheDocument();
+    expect(screen.getByText("Settings", { selector: "main p" })).toBeInTheDocument();
+  });
+
+  it("opens the menu as a drawer on small screens", async () => {
+    serve({ "/api/v1/me": { status: 200, body: employee } });
+    renderAt("/");
+    await userEvent.click(await screen.findByRole("button", { name: "Open menu" }));
+    const drawer = screen.getByRole("dialog", { name: "Menu" });
+    await userEvent.click(within(drawer).getByRole("link", { name: "My requests" }));
+    expect(screen.queryByRole("dialog", { name: "Menu" })).not.toBeInTheDocument();
   });
 
   it("does not route to sections the person cannot see", async () => {

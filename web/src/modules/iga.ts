@@ -1,0 +1,133 @@
+import {
+  AppWindow,
+  ClipboardCheck,
+  Inbox,
+  KeyRound,
+  ListChecks,
+  Network,
+  ShieldAlert,
+  ShoppingBag,
+  Timer,
+  UserPlus,
+} from "lucide-react";
+import { PlatformRole } from "@/lib/api";
+import { approves, everyone, hasRole, isAdmin } from "@/lib/roles";
+import { MyAccess } from "@/pages/MyAccess";
+import { MyRequests } from "@/pages/MyRequests";
+import { RequestAccess } from "@/pages/RequestAccess";
+import { lazyPage, type NavItem } from "./types";
+
+const applications = () => import("@/pages/admin/Applications");
+const application = () => import("@/pages/admin/Application");
+
+/** Identity governance: access, requests, reviews, applications and the rules over them. */
+export const iga: NavItem[] = [
+  {
+    path: "/my-access",
+    title: "My access",
+    description: "What you can access, why, and until when.",
+    icon: KeyRound,
+    module: "iga",
+    group: "mine",
+    visible: everyone,
+    page: MyAccess,
+  },
+  {
+    path: "/request",
+    title: "Request access",
+    description: "Ask for a role or entitlement from the catalog.",
+    icon: ShoppingBag,
+    module: "iga",
+    group: "mine",
+    visible: everyone,
+    page: RequestAccess,
+  },
+  {
+    path: "/requests",
+    title: "My requests",
+    description: "Follow what you asked for, and withdraw it while it is pending.",
+    icon: Inbox,
+    module: "iga",
+    group: "mine",
+    visible: everyone,
+    page: MyRequests,
+  },
+  {
+    path: "/approvals",
+    title: "Approvals",
+    description: "Access requests waiting for your decision.",
+    icon: ClipboardCheck,
+    module: "iga",
+    group: "todo",
+    visible: approves,
+    page: lazyPage(() => import("@/pages/Approvals"), "Approvals"),
+  },
+  {
+    path: "/reviews",
+    title: "Access reviews",
+    description: "Keep or revoke the access you are asked to review.",
+    icon: ListChecks,
+    module: "iga",
+    group: "todo",
+    visible: (me) => approves(me) || hasRole(me, PlatformRole.Auditor),
+    page: lazyPage(() => import("@/pages/AccessReviews"), "AccessReviews"),
+  },
+  {
+    path: "/governance/applications",
+    title: "Applications",
+    description: "Applications, their entitlements, connectors, accounts and provisioning.",
+    icon: AppWindow,
+    module: "iga",
+    group: "governance",
+    visible: isAdmin,
+    page: lazyPage(applications, "Applications"),
+    header: true,
+    subpages: [
+      { path: "/governance/applications/:id", page: lazyPage(application, "Application") },
+    ],
+  },
+  {
+    path: "/governance/roles",
+    title: "Roles and rules",
+    description: "Business roles, and the birthright rules that give access on joining.",
+    icon: Network,
+    module: "iga",
+    group: "governance",
+    visible: isAdmin,
+    page: lazyPage(() => import("@/pages/admin/AccessModel"), "AccessModel"),
+    header: true,
+  },
+  {
+    path: "/governance/standing-access",
+    title: "Standing access",
+    description: "High and critical risk access held with no end date.",
+    icon: Timer,
+    module: "iga",
+    group: "governance",
+    visible: isAdmin,
+    page: lazyPage(() => import("@/pages/admin/StandingAccess"), "StandingAccess"),
+    header: true,
+  },
+  {
+    path: "/governance/separation-of-duties",
+    title: "Separation of duties",
+    description: "Access nobody should hold together, and the violations Grantra finds.",
+    icon: ShieldAlert,
+    module: "iga",
+    group: "governance",
+    visible: isAdmin,
+    page: lazyPage(() => import("@/pages/admin/SeparationOfDuties"), "SeparationOfDuties"),
+    header: true,
+  },
+  {
+    path: "/settings/hr-sources",
+    title: "HR sources",
+    description: "Where people come from: HR exports that drive joiners, movers and leavers.",
+    icon: UserPlus,
+    module: "iga",
+    group: "settings",
+    visible: isAdmin,
+    page: lazyPage(() => import("@/pages/admin/HrSources"), "HrSources"),
+    header: true,
+  },
+];

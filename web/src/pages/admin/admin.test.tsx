@@ -59,7 +59,7 @@ describe("HR sources", () => {
       "POST /api/v1/identity-sources/hr/runs?dry_run=true": sync(true),
       "POST /api/v1/identity-sources/hr/runs?dry_run=false": sync(false),
     });
-    renderAt("/admin");
+    renderAt("/settings/hr-sources");
 
     const file = new File(["employee_id\nE063\n"], "workday.csv", { type: "text/csv" });
     await userEvent.upload(await screen.findByLabelText("HR export for Workday export"), file);
@@ -94,7 +94,7 @@ describe("HR sources", () => {
         return { status: 200, body: run({ dry_run: false, status: "applied" }) };
       },
     });
-    renderAt("/admin");
+    renderAt("/settings/hr-sources");
 
     await userEvent.upload(
       await screen.findByLabelText("HR export for Workday export"),
@@ -146,7 +146,7 @@ describe("Applications", () => {
       "POST /api/v1/applications/gh/provisioning-runs?dry_run=true": ok(plan),
       "GET /api/v1/applications/gh/runs?limit=20": ok({ runs: [] }),
     });
-    renderAt("/admin/applications/gh");
+    renderAt("/governance/applications/gh");
 
     expect(await screen.findByText("env:GRANTRA_SECRET_GH")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Dry run" }));
@@ -164,7 +164,7 @@ describe("Applications", () => {
         body: { status: "failed", error: "connection refused", counts: {} },
       }),
     });
-    renderAt("/admin/applications/gh");
+    renderAt("/governance/applications/gh");
 
     await userEvent.click(await screen.findByRole("button", { name: "Read accounts now" }));
     expect(
@@ -221,7 +221,7 @@ describe("Application authorization", () => {
         },
       }),
     });
-    renderAt("/admin/applications/gh?tab=authorization");
+    renderAt("/governance/applications/gh?tab=authorization");
 
     await userEvent.click(await screen.findByRole("button", { name: "Start from an example" }));
     await userEvent.type(screen.getByLabelText("Person"), "ana@example.com");
@@ -271,7 +271,7 @@ describe("Separation of duties", () => {
         return { status: 200, body: { ...violation, status: "excepted" } };
       },
     });
-    renderAt("/admin?tab=sod");
+    renderAt("/governance/separation-of-duties");
 
     await userEvent.click(await screen.findByRole("button", { name: "Accept the risk" }));
     await userEvent.type(
@@ -362,7 +362,7 @@ describe("Grantra Login", () => {
         };
       },
     });
-    renderAt("/admin?tab=login");
+    renderAt("/settings/grantra-login");
 
     expect(await screen.findByText("grantra-console")).toBeInTheDocument();
     await userEvent.click(screen.getByLabelText(/For people with sensitive access/));

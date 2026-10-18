@@ -1,8 +1,8 @@
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Section } from "@/lib/sections";
+import type { NavItem } from "@/modules";
 
-export function ComingSoon({ section }: { section: Section }) {
+export function ComingSoon({ section }: { section: NavItem }) {
   return (
     <>
       <PageHeader title={section.title} description={section.description} />

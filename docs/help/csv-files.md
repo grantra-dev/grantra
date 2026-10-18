@@ -5,7 +5,7 @@ Grantra reads two kinds of CSV file:
 - **HR exports** feed an [HR source](../identity-lifecycle.md): one row per person, and every sync turns the differences into joiners, movers and leavers.
 - **Account files** feed an application whose connector is `csv` (see [connectors](../connectors.md#csv-files)): the application's user list, for systems Grantra cannot reach with SCIM or LDAP.
 
-Both are uploaded from the console (**Administration → HR sources**, or an application's page) or sent by a script with a [service token](../service-tokens.md). Both are checked first: **Check file** is a dry run that shows what would change and every problem, and nothing changes until you apply or import it.
+Both are uploaded from the console (**Settings → HR sources**, or an application's page) or sent by a script with a [service token](../service-tokens.md). Both are checked first: **Check file** is a dry run that shows what would change and every problem, and nothing changes until you apply or import it.
 
 Templates to start from: [`hr-people.csv`](../../web/public/templates/hr-people.csv) and [`app-accounts.csv`](../../web/public/templates/app-accounts.csv). The console offers the same files from the **?** next to each upload, at `/templates/hr-people.csv` and `/templates/app-accounts.csv`.
 
