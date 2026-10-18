@@ -76,6 +76,17 @@ describe("Approvals", () => {
     await waitFor(() => expect(screen.getByText(/Nothing is waiting for you/)).toBeInTheDocument());
   });
 
+  it("brings forward the request an email links to, or says it is gone", async () => {
+    serve({ "GET /api/v1/me": ok(marta), [queue]: ok({ requests: [request] }) });
+    const { unmount } = renderAt("/approvals?request=q1");
+    await screen.findByText("Laura Gómez wants Approve payments");
+    expect(document.querySelector('[data-focus="q1"] > *')?.className).toMatch(/ring-2/);
+    unmount();
+
+    renderAt("/approvals?request=q9");
+    expect(await screen.findByText(/no longer waits for you/)).toBeInTheDocument();
+  });
+
   it("needs a comment to reject", async () => {
     serve({ "GET /api/v1/me": ok(marta), [queue]: ok({ requests: [request] }) });
     renderAt("/approvals");

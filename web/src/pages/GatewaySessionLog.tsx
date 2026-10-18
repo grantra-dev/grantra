@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getGatewaySession, kindText } from "@/lib/gateway";
 import { formatTime } from "@/lib/utils";
 import { DesktopRecording } from "@/pages/DesktopRecording";
-import { GatewaySessionStatus } from "@/pages/RemoteAccess";
+import { GatewaySessionStatus } from "@/pages/remote-access/Sessions";
 
 /**
  * One gateway session: its queries or cluster requests, or a desktop's

@@ -1,12 +1,30 @@
-import { Bell, ChevronDown, LogOut, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Inbox as InboxIcon, Menu, Search, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { Logo } from "@/components/Logo";
+import { SearchDialog } from "@/components/SearchDialog";
+import { UserMenu } from "@/components/UserMenu";
 import type { Me } from "@/lib/api";
+import type { Inbox } from "@/lib/console";
+import { useInbox } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import { groupTitle, visibleGroups, visibleItems, type GroupId, type NavItem } from "@/modules";
+
+/** A small count next to a menu item or icon; nothing when zero. */
+function Count({ n, label }: { n: number; label: string }) {
+  if (n <= 0) return null;
+  return (
+    <span
+      className="ml-auto rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white"
+      aria-label={label}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
 
 const collapsedKey = "grantra.nav.collapsed";
 
@@ -35,7 +53,16 @@ const within = (item: NavItem, pathname: string) =>
     ? pathname === "/"
     : pathname === item.path || pathname.startsWith(item.path + "/");
 
-function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
+function NavEntry({
+  item,
+  inbox,
+  onNavigate,
+}: {
+  item: NavItem;
+  inbox?: Inbox;
+  onNavigate: () => void;
+}) {
+  const n = item.count && inbox ? item.count(inbox) : 0;
   return (
     <NavLink
       to={item.path}
@@ -50,12 +77,14 @@ function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate: () => void 
     >
       <item.icon className="size-4 shrink-0" aria-hidden />
       {item.title}
+      <Count n={n} label={`${n} waiting`} />
     </NavLink>
   );
 }
 
 function Navigation({ me, onNavigate }: { me: Me; onNavigate: () => void }) {
   const { pathname } = useLocation();
+  const { data: inbox } = useInbox();
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const items = visibleItems(me);
   const toggle = (id: GroupId) => {
@@ -66,9 +95,9 @@ function Navigation({ me, onNavigate }: { me: Me; onNavigate: () => void }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-1 px-3 pb-4">
       {items
-        .filter((i) => i.path === "/")
+        .filter((i) => i.top)
         .map((i) => (
-          <NavEntry key={i.path} item={i} onNavigate={onNavigate} />
+          <NavEntry key={i.path} item={i} inbox={inbox} onNavigate={onNavigate} />
         ))}
       {visibleGroups(me).map((g) => {
         // The group of the page you are on never hides it.
@@ -90,7 +119,7 @@ function Navigation({ me, onNavigate }: { me: Me; onNavigate: () => void }) {
             {open && (
               <div className="mt-1 flex flex-col gap-1">
                 {g.items.map((i) => (
-                  <NavEntry key={i.path} item={i} onNavigate={onNavigate} />
+                  <NavEntry key={i.path} item={i} inbox={inbox} onNavigate={onNavigate} />
                 ))}
               </div>
             )}
@@ -99,7 +128,7 @@ function Navigation({ me, onNavigate }: { me: Me; onNavigate: () => void }) {
       })}
       <div className="mt-3 border-t border-slate-200 pt-3">
         {items
-          .filter((i) => i.path !== "/" && !i.group)
+          .filter((i) => !i.top && !i.group)
           .map((i) => (
             <NavEntry key={i.path} item={i} onNavigate={onNavigate} />
           ))}
@@ -111,9 +140,34 @@ function Navigation({ me, onNavigate }: { me: Me; onNavigate: () => void }) {
 export function Layout({ me }: { me: Me }) {
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const client = useQueryClient();
+  const { data: inbox } = useInbox();
   const close = () => setMenuOpen(false);
   // The group name over a section's own page, so people know where they are.
   const group = groupTitle(visibleItems(me).find((i) => i.path === pathname)?.group);
+
+  // Moving to another page refreshes the counters if they are old.
+  useEffect(() => {
+    void client.refetchQueries({ queryKey: ["inbox"], stale: true, type: "active" });
+  }, [pathname, client]);
+
+  // ⌘K or Ctrl+K anywhere, and / outside a text field, open the search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing =
+        e.target instanceof HTMLElement &&
+        (e.target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName));
+      if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") || (e.key === "/" && !typing)) {
+        e.preventDefault();
+        setSearching(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const total = inbox?.total ?? 0;
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white md:block">
@@ -142,8 +196,9 @@ export function Layout({ me }: { me: Me }) {
           </aside>
         </div>
       )}
+      {searching && <SearchDialog me={me} onClose={() => setSearching(false)} />}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center gap-3 border-b border-slate-200 bg-white px-3 sm:px-5">
+        <header className="flex h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-5">
           <Button
             variant="ghost"
             size="sm"
@@ -157,26 +212,33 @@ export function Layout({ me }: { me: Me }) {
           <div className="md:hidden">
             <Logo />
           </div>
-          <div className="ml-auto hidden text-right text-sm leading-tight sm:block">
-            <div className="font-medium">{me.display_name}</div>
-            {me.email && <div className="text-slate-500">{me.email}</div>}
-          </div>
-          <Link
-            to="/settings/notifications"
-            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto sm:ml-0")}
-            aria-label="Email notifications"
-            title="Email notifications"
+          <button
+            type="button"
+            onClick={() => setSearching(true)}
+            className="ml-auto flex h-9 items-center gap-2 rounded-md border whitespace-nowrap border-slate-300 px-2.5 text-sm text-slate-500 hover:border-slate-400 hover:text-slate-700 md:mr-auto md:ml-0 md:w-72"
+            aria-label="Search Grantra"
+            aria-keyshortcuts="Control+K Meta+K"
           >
-            <Bell />
+            <Search className="size-4" aria-hidden />
+            <span className="hidden truncate md:inline">Search people, access, pages…</span>
+            <kbd className="ml-auto hidden rounded border border-slate-200 px-1.5 text-xs md:inline">
+              ⌘K
+            </kbd>
+          </button>
+          <Link
+            to="/inbox"
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "relative")}
+            aria-label={total > 0 ? `Inbox, ${total} waiting` : "Inbox"}
+            title="Inbox"
+          >
+            <InboxIcon />
+            {total > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 rounded-full bg-brand-600 px-1 text-[10px] leading-4 font-semibold text-white">
+                {total > 99 ? "99+" : total}
+              </span>
+            )}
           </Link>
-          {/* A plain form post: the server ends the session and redirects to
-              the login provider to end that session too. */}
-          <form method="post" action="/auth/logout">
-            <Button type="submit" variant="ghost" size="sm" aria-label="Sign out">
-              <LogOut />
-              <span className="hidden sm:inline">Sign out</span>
-            </Button>
-          </form>
+          <UserMenu me={me} />
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-8">
           {group && (

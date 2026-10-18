@@ -13,14 +13,23 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
-// listRequestable lists what people can ask for.
+// listRequestable lists what people can ask for, with how many people on
+// the asker's team (team_size) hold each item.
 func (a *API) listRequestable(w http.ResponseWriter, r *http.Request) {
 	var out []requests.Requestable
-	err := a.guarded(r, authz.ReadRequestable, func(tx pgx.Tx, _ authz.Subject) (err error) {
-		out, err = requests.ListRequestable(r.Context(), tx)
+	var teamSize int
+	err := a.guarded(r, authz.ReadRequestable, func(tx pgx.Tx, me authz.Subject) (err error) {
+		if out, err = requests.ListRequestable(r.Context(), tx); err != nil {
+			return err
+		}
+		size, held, err := requests.TeamHolders(r.Context(), tx, me.ID)
+		teamSize = size
+		for i := range out {
+			out[i].TeamHolders = held[out[i].Type+":"+out[i].ID]
+		}
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"items": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"items": nonNil(out), "team_size": teamSize}, err)
 }
 
 // createRequest asks for access, for yourself or for one of your reports:

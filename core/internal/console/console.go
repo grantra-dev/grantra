@@ -69,6 +69,11 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 		mux.Handle(pattern, a.sessionOrToken(require, sameOrigin(h)))
 	}
 	route("GET /api/v1/me", a.me)
+	route("GET /api/v1/me/inbox", a.getInbox)
+	route("GET /api/v1/me/home", a.getHome)
+	route("GET /api/v1/search", a.search)
+	route("GET /api/v1/modules", a.listModules)
+	route("PUT /api/v1/modules/{module}", a.setModule)
 	route("GET /api/v1/me/notifications", a.getNotifications)
 	route("PUT /api/v1/me/notifications/{kind}", a.setNotification)
 	route("GET /api/v1/identities", a.listIdentities)
@@ -223,6 +228,9 @@ type me struct {
 	// assignment, and decide which console sections the person sees.
 	ManagesPeople    bool `json:"manages_people"`
 	OwnsApplications bool `json:"owns_applications"`
+	// DisabledModules are the parts of Grantra the tenant turned off, whose
+	// pages the console hides.
+	DisabledModules []string `json:"disabled_modules"`
 }
 
 func (a *API) me(w http.ResponseWriter, r *http.Request) {
@@ -230,10 +238,15 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	out := me{Principal: p}
 	err := a.inTenant(r, func(tx pgx.Tx, s authz.Subject) error {
 		out.PlatformRoles = nonNil(s.Roles)
-		return tx.QueryRow(r.Context(),
+		if err := tx.QueryRow(r.Context(),
 			`SELECT EXISTS (SELECT 1 FROM identities WHERE manager_id = $1 AND status <> 'terminated'),
 			        EXISTS (SELECT 1 FROM applications WHERE owner_id = $1)`, s.ID).
-			Scan(&out.ManagesPeople, &out.OwnsApplications)
+			Scan(&out.ManagesPeople, &out.OwnsApplications); err != nil {
+			return err
+		}
+		off, err := disabledModules(r.Context(), tx)
+		out.DisabledModules = nonNil(off)
+		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
 }
@@ -311,9 +324,9 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 		rows, err := tx.Query(r.Context(),
 			`SELECT `+identityColumns+` FROM identities
 			 WHERE ($1 = '' OR id > $1::uuid)
-			   AND ($3 = '' OR strpos(lower(display_name), lower($3)) > 0 OR strpos(lower(coalesce(email, '')), lower($3)) > 0)
+			   AND ($3 = '' OR lower(display_name) LIKE $5 OR lower(email) LIKE $5)
 			   AND ($4 = '' OR status = $4)
-			 ORDER BY id LIMIT $2`, after, limit, search, status)
+			 ORDER BY id LIMIT $2`, after, limit, search, status, likeContains(search))
 		if err != nil {
 			return err
 		}

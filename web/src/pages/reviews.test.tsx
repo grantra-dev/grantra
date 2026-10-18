@@ -70,9 +70,9 @@ describe("Access reviews", () => {
       }),
     });
     renderAt("/reviews");
-    expect(await screen.findByText("Eligible to activate")).toBeInTheDocument();
+    expect(await screen.findByRole("cell", { name: /Eligible to activate/ })).toBeInTheDocument();
     expect(screen.getByText(/may turn it on for a few hours/)).toBeInTheDocument();
-    expect(screen.getByText("Requested")).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: /^Requested/ })).toBeInTheDocument();
   });
 
   it("keeps the selected items in bulk with one comment", async () => {
@@ -94,6 +94,38 @@ describe("Access reviews", () => {
       { id: "i2", body: { decision: "keep", comment: "still in finance" } },
     ]);
     expect(screen.queryByRole("tab", { name: "Campaigns" })).toBeNull();
+  });
+
+  it("follows an email to its campaign, and narrows a long list", async () => {
+    const sent: { id: string; body: unknown }[] = [];
+    serve({
+      "GET /api/v1/me": ok(manager),
+      [itemsRoute]: ok({
+        items: [
+          item("i1", "Laura", "Approve payments"),
+          { ...item("i2", "Pedro", "Create payments"), risk: "low" },
+          { ...item("i3", "Ana", "Reports"), campaign_id: "c2", campaign_name: "Leavers" },
+        ],
+      }),
+      ...decisions(sent),
+    });
+    renderAt("/reviews?campaign=c1");
+    expect(await screen.findByText(/Showing Q4 review only/)).toBeInTheDocument();
+    expect(screen.queryByText("Ana")).toBeNull();
+    expect(screen.getByText("Showing 2 of 3 to review")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Risk"), "high");
+    expect(screen.queryByText("Pedro")).toBeNull();
+    // Bulk actions only reach what is shown.
+    await userEvent.click(screen.getByLabelText("Select all in Q4 review"));
+    await userEvent.click(screen.getByRole("button", { name: "Keep selected (1)" }));
+    await waitFor(() => expect(sent.map((d) => d.id)).toEqual(["i1"]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Show every campaign" }));
+    await userEvent.selectOptions(screen.getByLabelText("Risk"), "");
+    await userEvent.type(screen.getByLabelText("Find"), "reports");
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
+    expect(screen.queryByText("Laura")).toBeNull();
   });
 
   it("asks for confirmation before revoking in bulk", async () => {

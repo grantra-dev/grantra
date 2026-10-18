@@ -2,8 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router";
 import { Layout } from "@/components/Layout";
+import { ReadOnlyNotice } from "@/components/Manage";
 import { PageHeader } from "@/components/PageHeader";
 import { ApiError, getMe, type Me } from "@/lib/api";
+import { ManageContext } from "@/lib/manage";
+import { isAdmin } from "@/lib/roles";
 import { visibleItems, type NavItem } from "@/modules";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { NotFound } from "@/pages/NotFound";
@@ -46,10 +49,20 @@ function OldApplication() {
 function itemPage(item: NavItem, me: Me): ReactNode {
   if (!item.page) return <ComingSoon section={item} />;
   return (
-    <Suspense fallback={loading}>
-      {item.header && <PageHeader title={item.title} description={item.description} />}
-      <item.page me={me} />
-    </Suspense>
+    <Managed item={item} me={me}>
+      <Suspense fallback={loading}>
+        {item.header && <PageHeader title={item.title} description={item.description} />}
+        <ReadOnlyNotice />
+        <item.page me={me} />
+      </Suspense>
+    </Managed>
+  );
+}
+
+/** Settings pages, and the pages under them, are read-only for anyone but admins. */
+function Managed({ item, me, children }: { item: NavItem; me: Me; children: ReactNode }) {
+  return (
+    <ManageContext.Provider value={!item.manages || isAdmin(me)}>{children}</ManageContext.Provider>
   );
 }
 
@@ -94,9 +107,12 @@ export function App() {
               key={s.path}
               path={s.path}
               element={
-                <Suspense fallback={loading}>
-                  <s.page me={me} />
-                </Suspense>
+                <Managed item={i} me={me}>
+                  <Suspense fallback={loading}>
+                    <ReadOnlyNotice />
+                    <s.page me={me} />
+                  </Suspense>
+                </Managed>
               }
             />
           )),

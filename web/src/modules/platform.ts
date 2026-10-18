@@ -1,6 +1,6 @@
-import { CircleHelp, FileSearch, House, KeyRound, Users } from "lucide-react";
+import { Blocks, CircleHelp, FileSearch, House, Inbox, KeyRound, Users } from "lucide-react";
 import { PlatformRole } from "@/lib/api";
-import { everyone, hasRole, isAdmin } from "@/lib/roles";
+import { everyone, governs, hasRole } from "@/lib/roles";
 import { lazyPage, type NavItem } from "./types";
 
 const people = () => import("@/pages/People");
@@ -14,9 +14,23 @@ export const home: NavItem = {
   description: "Where to start.",
   icon: House,
   module: "platform",
+  top: true,
   visible: everyone,
   // Lazy: Home lists these items, so importing it here would be a cycle.
   page: lazyPage(() => import("@/pages/Home"), "Home"),
+};
+
+/** Everything waiting on you, from every module, with a link to each task. */
+export const inboxItem: NavItem = {
+  path: "/inbox",
+  title: "Inbox",
+  description: "Everything waiting on you, with a link to each task.",
+  icon: Inbox,
+  module: "platform",
+  top: true,
+  visible: everyone,
+  page: lazyPage(() => import("@/pages/Inbox"), "InboxPage"),
+  count: (inbox) => inbox.total,
 };
 
 export const platform: NavItem[] = [
@@ -48,8 +62,22 @@ export const platform: NavItem[] = [
     icon: KeyRound,
     module: "platform",
     group: "settings",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/ServiceTokens"), "ServiceTokens"),
+    header: true,
+  },
+  {
+    path: "/settings/modules",
+    title: "Modules",
+    description:
+      "Turn off the parts of Grantra your company does not use, to keep the console simple.",
+    icon: Blocks,
+    module: "platform",
+    group: "settings",
+    visible: governs,
+    manages: true,
+    page: lazyPage(() => import("@/pages/admin/Modules"), "Modules"),
     header: true,
   },
 ];

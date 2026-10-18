@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Manage } from "@/components/Manage";
 import { Input, Label } from "@/components/ui/field";
 import {
   Table,
@@ -25,7 +26,9 @@ export function Applications() {
   const apps = data?.filter((a) => a.connector !== "grantra");
   return (
     <div className="flex flex-col gap-4">
-      <NewApplication />
+      <Manage>
+        <NewApplication />
+      </Manage>
       <Loaded
         loading={isPending}
         error={error}
@@ -103,8 +106,8 @@ function NewApplication() {
             Add application
           </Button>
           <p className="w-full text-sm text-slate-500">
-            Connectors (how Grantra reads an application) hold secret references and are set up
-            through the API; their settings show on each application.
+            To read its accounts, connect it from Settings, Connectors, or from its own page once it
+            exists.
           </p>
           {create.error && (
             <Alert variant="error" className="w-full">

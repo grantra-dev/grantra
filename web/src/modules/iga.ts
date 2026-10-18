@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  Cable,
   ClipboardCheck,
   Inbox,
   KeyRound,
@@ -11,7 +12,8 @@ import {
   UserPlus,
 } from "lucide-react";
 import { PlatformRole } from "@/lib/api";
-import { approves, everyone, hasRole, isAdmin } from "@/lib/roles";
+import { pendingReviews } from "@/lib/console";
+import { approves, everyone, governs, hasRole } from "@/lib/roles";
 import { MyAccess } from "@/pages/MyAccess";
 import { MyRequests } from "@/pages/MyRequests";
 import { RequestAccess } from "@/pages/RequestAccess";
@@ -61,6 +63,7 @@ export const iga: NavItem[] = [
     group: "todo",
     visible: approves,
     page: lazyPage(() => import("@/pages/Approvals"), "Approvals"),
+    count: (inbox) => inbox.approvals.length,
   },
   {
     path: "/reviews",
@@ -71,6 +74,7 @@ export const iga: NavItem[] = [
     group: "todo",
     visible: (me) => approves(me) || hasRole(me, PlatformRole.Auditor),
     page: lazyPage(() => import("@/pages/AccessReviews"), "AccessReviews"),
+    count: pendingReviews,
   },
   {
     path: "/governance/applications",
@@ -79,7 +83,8 @@ export const iga: NavItem[] = [
     icon: AppWindow,
     module: "iga",
     group: "governance",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(applications, "Applications"),
     header: true,
     subpages: [
@@ -93,7 +98,8 @@ export const iga: NavItem[] = [
     icon: Network,
     module: "iga",
     group: "governance",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/AccessModel"), "AccessModel"),
     header: true,
   },
@@ -104,7 +110,8 @@ export const iga: NavItem[] = [
     icon: Timer,
     module: "iga",
     group: "governance",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/StandingAccess"), "StandingAccess"),
     header: true,
   },
@@ -115,7 +122,8 @@ export const iga: NavItem[] = [
     icon: ShieldAlert,
     module: "iga",
     group: "governance",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/SeparationOfDuties"), "SeparationOfDuties"),
     header: true,
   },
@@ -126,8 +134,21 @@ export const iga: NavItem[] = [
     icon: UserPlus,
     module: "iga",
     group: "settings",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/HrSources"), "HrSources"),
+    header: true,
+  },
+  {
+    path: "/settings/connectors",
+    title: "Connectors",
+    description: "Connect the applications Grantra reads accounts and groups from, and test them.",
+    icon: Cable,
+    module: "iga",
+    group: "settings",
+    visible: governs,
+    manages: true,
+    page: lazyPage(() => import("@/pages/admin/Connectors"), "Connectors"),
     header: true,
   },
 ];

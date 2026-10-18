@@ -1,5 +1,5 @@
 import { Fingerprint } from "lucide-react";
-import { isAdmin } from "@/lib/roles";
+import { governs } from "@/lib/roles";
 import { lazyPage, type NavItem } from "./types";
 
 /** Grantra Login: the bundled sign-in for companies without their own. */
@@ -11,7 +11,8 @@ export const login: NavItem[] = [
     icon: Fingerprint,
     module: "login",
     group: "settings",
-    visible: isAdmin,
+    visible: governs,
+    manages: true,
     page: lazyPage(() => import("@/pages/admin/GrantraLogin"), "GrantraLogin"),
     header: true,
   },

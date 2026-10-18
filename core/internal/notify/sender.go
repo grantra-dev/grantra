@@ -178,7 +178,7 @@ func (s *Sender) message(id int64, kind Kind, data map[string]any, identityID, n
 	subject, body, err := render(kind, view{
 		Name:        name,
 		RecipientID: identityID,
-		URL:         s.PublicURL + pages[kind],
+		URL:         s.PublicURL + pageFor(kind, data),
 		Data:        data,
 		SettingsURL: s.PublicURL + "/settings/notifications",
 	})

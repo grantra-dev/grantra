@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
+import { Manage, ReadOnlyFields } from "@/components/Manage";
 import { Loaded } from "@/components/Loaded";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import {
   type MFAPolicy,
   type SSOApp,
 } from "@/lib/login";
+import { useCanManage } from "@/lib/manage";
 import { IdentityProviders, ImportFromKeycloak } from "./GrantraLoginFederation";
 
 const mfaChoices: { value: MFAPolicy; label: string; help: string }[] = [
@@ -76,7 +78,11 @@ export function GrantraLogin() {
           {data.policy && <SignInPolicy current={data.policy} />}
           {data.apps && <Apps apps={data.apps} />}
           {data.identity_providers && <IdentityProviders providers={data.identity_providers} />}
-          {data.policy && <ImportFromKeycloak />}
+          {data.policy && (
+            <Manage>
+              <ImportFromKeycloak />
+            </Manage>
+          )}
         </div>
       )}
     </Loaded>
@@ -107,50 +113,54 @@ function SignInPolicy({ current }: { current: LoginPolicy }) {
             save.mutate();
           }}
         >
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium">Ask for a second factor</legend>
-            {mfaChoices.map((c) => (
-              <label key={c.value} className="flex gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="mfa"
-                  value={c.value}
-                  checked={policy.mfa === c.value}
-                  onChange={() => setPolicy({ ...policy, mfa: c.value })}
-                />
-                <span>
-                  <span className="font-medium">{c.label}</span>
-                  <span className="block text-slate-500">{c.help}</span>
+          <ReadOnlyFields>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-sm font-medium">Ask for a second factor</legend>
+              {mfaChoices.map((c) => (
+                <label key={c.value} className="flex gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="mfa"
+                    value={c.value}
+                    checked={policy.mfa === c.value}
+                    onChange={() => setPolicy({ ...policy, mfa: c.value })}
+                  />
+                  <span>
+                    <span className="font-medium">{c.label}</span>
+                    <span className="block text-slate-500">{c.help}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={policy.passkeys}
+                onChange={(e) => setPolicy({ ...policy, passkeys: e.target.checked })}
+              />
+              <span>
+                <span className="font-medium">Passkeys</span>
+                <span className="block text-slate-500">
+                  People can add a passkey from their account page and sign in with it, without a
+                  password or a code.
                 </span>
-              </label>
-            ))}
-          </fieldset>
-          <label className="flex gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={policy.passkeys}
-              onChange={(e) => setPolicy({ ...policy, passkeys: e.target.checked })}
-            />
-            <span>
-              <span className="font-medium">Passkeys</span>
-              <span className="block text-slate-500">
-                People can add a passkey from their account page and sign in with it, without a
-                password or a code.
               </span>
-            </span>
-          </label>
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={!changed || save.isPending}>
-              {save.isPending ? "Saving…" : "Save policy"}
-            </Button>
-            {save.data && !save.isPending && !changed && (
-              <span className="text-sm text-emerald-700">
-                Saved
-                {save.data.sync &&
-                  `. ${save.data.sync.added} people now asked for a second factor, ${save.data.sync.removed} no longer.`}
-              </span>
-            )}
-          </div>
+            </label>
+          </ReadOnlyFields>
+          <Manage>
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={!changed || save.isPending}>
+                {save.isPending ? "Saving…" : "Save policy"}
+              </Button>
+              {save.data && !save.isPending && !changed && (
+                <span className="text-sm text-emerald-700">
+                  Saved
+                  {save.data.sync &&
+                    `. ${save.data.sync.added} people now asked for a second factor, ${save.data.sync.removed} no longer.`}
+                </span>
+              )}
+            </div>
+          </Manage>
           {save.data?.sync_error && (
             <Alert variant="warning">
               The policy is saved, but the list of people with sensitive access could not be updated
@@ -165,6 +175,7 @@ function SignInPolicy({ current }: { current: LoginPolicy }) {
 }
 
 function Apps({ apps }: { apps: SSOApp[] }) {
+  const canManage = useCanManage();
   const [secret, setSecret] = useState<{ app: string; value: string } | null>(null);
   const rotate = useMutation({
     mutationFn: (a: SSOApp) => rotateLoginAppSecret(a.id),
@@ -218,7 +229,7 @@ function Apps({ apps }: { apps: SSOApp[] }) {
                     ))}
                   </TableCell>
                   <TableCell className="text-right">
-                    {!a.public && (
+                    {!a.public && canManage && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -241,7 +252,9 @@ function Apps({ apps }: { apps: SSOApp[] }) {
             </TableBody>
           </Table>
         )}
-        <NewApp onSecret={(app, value) => setSecret({ app, value })} />
+        <Manage>
+          <NewApp onSecret={(app, value) => setSecret({ app, value })} />
+        </Manage>
       </CardContent>
     </Card>
   );

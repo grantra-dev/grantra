@@ -310,6 +310,44 @@ type ItemFilter struct {
 	After    string
 }
 
+// reviewedBy is an SQL condition on the item it of the campaign c, true
+// when me (an SQL expression) reviews it in an active campaign: its
+// reviewer, or an admin (admin) when it has nobody else to ask. Nobody
+// reviews their own access.
+func reviewedBy(me string, admin bool) string {
+	cond := "it.reviewer_id = " + me
+	if admin {
+		cond = "(" + cond + " OR it.reviewer_id IS NULL)"
+	}
+	return cond + " AND it.identity_id <> " + me + " AND c.status = 'active'"
+}
+
+// ToReview is a campaign with access someone still has to review.
+type ToReview struct {
+	CampaignID   string    `json:"campaign_id"`
+	CampaignName string    `json:"campaign_name"`
+	DueAt        time.Time `json:"due_at"`
+	Pending      int       `json:"pending"`
+}
+
+// ListToReview returns, per active campaign, how much access me still has
+// to review, the soonest due first: the pending items Items lists with Mine.
+func ListToReview(ctx context.Context, tx pgx.Tx, me string, admin bool) ([]ToReview, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT c.id, c.name, c.due_at, count(*)
+		 FROM review_items it JOIN review_campaigns c ON c.id = it.campaign_id
+		 WHERE `+reviewedBy("$1", admin)+` AND it.decision = 'pending'
+		 GROUP BY c.id ORDER BY c.due_at, c.id`, me)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (ToReview, error) {
+		var t ToReview
+		err := row.Scan(&t.CampaignID, &t.CampaignName, &t.DueAt, &t.Pending)
+		return t, err
+	})
+}
+
 // Items lists review items.
 func Items(ctx context.Context, tx pgx.Tx, f ItemFilter) ([]Item, error) {
 	var where []string
@@ -325,12 +363,7 @@ func Items(ctx context.Context, tx pgx.Tx, f ItemFilter) ([]Item, error) {
 		where = append(where, "it.campaign_id = "+arg(f.CampaignID))
 	}
 	if f.Mine {
-		me := arg(f.Me)
-		cond := "it.reviewer_id = " + me
-		if f.Admin {
-			cond = "(" + cond + " OR it.reviewer_id IS NULL)"
-		}
-		where = append(where, cond, "it.identity_id <> "+me, "c.status = 'active'")
+		where = append(where, reviewedBy(arg(f.Me), f.Admin))
 	}
 	if f.Decision != "" {
 		if f.Decision != Pending && f.Decision != Keep && f.Decision != Revoke {

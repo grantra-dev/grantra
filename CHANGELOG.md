@@ -7,7 +7,21 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 ### Added
 
 - **Help in the console.** A Help section with pages for what each person does in Grantra (everyone, approvers and reviewers, helpdesk and auditors, admins), read from [`docs/help`](docs/help) so the same text is on GitHub.
+- **Console search.** <kbd>⌘K</kbd> (or <kbd>Ctrl K</kbd>, or <kbd>/</kbd>) searches pages, people, roles, entitlements, applications, vault accounts, servers and remote targets, showing each person only what they may see, and opens the exact thing ([docs](docs/console.md)).
+- **Inbox.** One place, in the header and at `/inbox`, for everything waiting on you: approvals, access reviews and break-glass reviews, with counts in the menu.
+- **Home by role.** Home says what needs you today: tasks, access ending this week, pending requests; for admins and auditors also failing connections, orphan accounts, open separation of duties violations and access with no description.
+- **Connector gallery.** Settings → Connectors connects SCIM, LDAP / Active Directory, Grantra Login and CSV applications in three steps, with a test read at the end; Entra ID, Google Workspace, AWS, GitHub, Okta, Salesforce, Workday and BambooHR are listed as planned.
+- **Modules per tenant.** Settings → Modules turns privileged access or Grantra Login off for a company that does not use them: their pages, search results and tasks disappear. API: `GET /api/v1/modules`, `PUT /api/v1/modules/{module}`.
+- **Review filters.** Access reviews can be searched, filtered by risk and by how access was given, and sorted; bulk actions only reach what is shown.
+- **Clearer requests.** Request access shows how many of your teammates hold each item and flags items with no description; approval steps show how many days they have waited.
 - **CSV formats documented.** [CSV files](docs/help/csv-files.md) has every column of HR exports and account files, the file rules (separator, encoding, dates, quotes) and what each error means and how to fix it. A **?** next to each upload shows the columns and offers a template to download.
+
+### Changed
+
+- **Console menu** grouped by what people come to do (For you, To do, Privileged access, Governance, Settings), with old `/admin` addresses redirecting. Email settings and signing out moved to the menu under your name.
+- **Emails link to the exact task**: the request to approve or the campaign to review, not the whole list.
+- **Auditors see Governance and Settings**, read only.
+- New API endpoints for the console: `GET /api/v1/me/inbox`, `GET /api/v1/me/home`, `GET /api/v1/search`. People search by name or email now uses a trigram index when `pg_trgm` is available.
 
 ## [0.3.0] - 2026-10-17
 

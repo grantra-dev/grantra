@@ -8,7 +8,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label, Select } from "@/components/ui/field";
+import { Input, Label, Select } from "@/components/ui/field";
 import {
   Table,
   TableBody,
@@ -30,6 +30,12 @@ import {
   type NewCampaign,
   type ReviewItem,
 } from "@/lib/api";
+import {
+  filterReviewItems,
+  sortReviewItems,
+  type ReviewFilter,
+  type ReviewSort,
+} from "@/lib/reviews";
 import { formatDate } from "@/lib/utils";
 
 export function AccessReviews({ me }: { me: Me }) {
@@ -71,6 +77,11 @@ const originLabels = {
 
 function ToReview() {
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  // A review email links to its campaign.
+  const campaign = params.get("campaign");
+  const [filter, setFilter] = useState<ReviewFilter>({});
+  const [sort, setSort] = useState<ReviewSort>("person");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [comment, setComment] = useState("");
   const [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -110,7 +121,10 @@ function ToReview() {
       setConfirmRevoke(false);
       // A comment explains one round of decisions, not the next one.
       if (count > 0) setComment("");
-      await queryClient.invalidateQueries({ queryKey: ["review-items"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["review-items"] }),
+        queryClient.invalidateQueries({ queryKey: ["inbox"] }),
+      ]);
     },
   });
 
@@ -123,7 +137,12 @@ function ToReview() {
     );
   }
 
-  const chosen = data.filter((it) => selected.has(it.id));
+  // Decisions only ever apply to what is on screen: a filter hides items
+  // from a bulk keep or revoke too.
+  const shown = sortReviewItems(filterReviewItems(data, { ...filter, campaign }), sort);
+  const chosen = shown.filter((it) => selected.has(it.id));
+  const campaignName = data.find((it) => it.campaign_id === campaign)?.campaign_name;
+  const filtered = !!(filter.text?.trim() || filter.risk || filter.origin);
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -131,7 +150,7 @@ function ToReview() {
       else next.add(id);
       return next;
     });
-  const campaigns = [...new Set(data.map((it) => it.campaign_id))];
+  const campaigns = [...new Set(shown.map((it) => it.campaign_id))];
 
   return (
     <div className="flex flex-col gap-4">
@@ -146,10 +165,87 @@ function ToReview() {
           </ul>
         </Alert>
       )}
+      {campaign && (
+        <Alert variant="info">
+          {campaignName
+            ? `Showing ${campaignName} only.`
+            : "Nothing is left for you to review in the campaign you followed a link to."}{" "}
+          <button
+            type="button"
+            className="text-brand-600 underline"
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.delete("campaign");
+              setParams(next);
+            }}
+          >
+            Show every campaign
+          </button>
+        </Alert>
+      )}
       {data.length === 0 ? (
         <Card className="p-6 text-sm text-slate-500">Nothing to review right now. 🎉</Card>
       ) : (
         <>
+          <Card className="flex flex-wrap items-end gap-3 p-4" aria-label="Find access to review">
+            <div className="min-w-48 flex-1">
+              <Label htmlFor="review-search">Find</Label>
+              <Input
+                id="review-search"
+                type="search"
+                value={filter.text ?? ""}
+                onChange={(e) => setFilter({ ...filter, text: e.target.value })}
+                placeholder="Person, access or application"
+              />
+            </div>
+            <div>
+              <Label htmlFor="review-risk">Risk</Label>
+              <Select
+                id="review-risk"
+                value={filter.risk ?? ""}
+                onChange={(e) => setFilter({ ...filter, risk: e.target.value })}
+              >
+                <option value="">Any</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="review-origin">How they got it</Label>
+              <Select
+                id="review-origin"
+                value={filter.origin ?? ""}
+                onChange={(e) => setFilter({ ...filter, origin: e.target.value })}
+              >
+                <option value="">Any way</option>
+                {Object.entries(originLabels).map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="review-sort">Sort by</Label>
+              <Select
+                id="review-sort"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as ReviewSort)}
+              >
+                <option value="person">Person</option>
+                <option value="access">Access</option>
+                <option value="risk">Highest risk first</option>
+                <option value="oldest">Held the longest</option>
+              </Select>
+            </div>
+            <p className="w-full text-xs text-slate-500" aria-live="polite">
+              {shown.length === data.length
+                ? `${data.length} to review`
+                : `Showing ${shown.length} of ${data.length} to review`}
+            </p>
+          </Card>
           <Card className="flex flex-wrap items-end gap-3 p-4">
             <div className="min-w-48 flex-1">
               <Label htmlFor="review-comment">Comment for your decisions</Label>
@@ -187,8 +283,13 @@ function ToReview() {
               </Button>
             )}
           </Card>
+          {shown.length === 0 && (
+            <Card className="p-6 text-sm text-slate-500">
+              {filtered ? "Nothing matches these filters." : "Nothing to review here."}
+            </Card>
+          )}
           {campaigns.map((cid) => {
-            const items = data.filter((it) => it.campaign_id === cid);
+            const items = shown.filter((it) => it.campaign_id === cid);
             const allChosen = items.every((it) => selected.has(it.id));
             return (
               <Card key={cid}>

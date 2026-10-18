@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { decideRequest, durationText, listApprovals, type AccessRequest, type Me } from "@/lib/api";
+import { focusRing, useFocusParam } from "@/lib/focus";
 import { kindLabels } from "@/lib/requests";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 const wants = { access: "", eligibility: "to be eligible for ", activation: "to activate " };
 
@@ -24,6 +25,9 @@ export function Approvals({ me }: { me: Me }) {
     queryFn: listApprovals,
   });
   const decided = (o: Outcome) => setOutcomes((prev) => [o, ...prev]);
+  // An approval email links to its request.
+  const asked = useFocusParam("request", !!data);
+  const gone = asked && data && !data.some((r) => r.id === asked);
 
   return (
     <>
@@ -36,6 +40,12 @@ export function Approvals({ me }: { me: Me }) {
           {o.text}
         </Alert>
       ))}
+      {gone && !outcomes.some((o) => o.id === asked) && (
+        <Alert variant="info" className="mb-3">
+          The request you followed a link to no longer waits for you: someone decided it, it was
+          withdrawn or it expired. Its requester sees how it ended in My requests.
+        </Alert>
+      )}
       {isPending ? (
         <p className="text-sm text-slate-500">Loading your approvals…</p>
       ) : error ? (
@@ -47,7 +57,7 @@ export function Approvals({ me }: { me: Me }) {
       ) : (
         <ul className="flex flex-col gap-3">
           {byDeadline(data).map((r) => (
-            <ApprovalCard key={r.id} r={r} me={me} onDecided={decided} />
+            <ApprovalCard key={r.id} r={r} me={me} onDecided={decided} focused={r.id === asked} />
           ))}
         </ul>
       )}
@@ -65,10 +75,12 @@ function ApprovalCard({
   r,
   me,
   onDecided,
+  focused,
 }: {
   r: AccessRequest;
   me: Me;
   onDecided: (o: Outcome) => void;
+  focused: boolean;
 }) {
   const [comment, setComment] = useState("");
   const queryClient = useQueryClient();
@@ -85,7 +97,10 @@ function ApprovalCard({
       ),
     onSuccess: async (out, decision) => {
       onDecided({ id: r.id, text: outcomeText(out, decision, risk) });
-      await queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+        queryClient.invalidateQueries({ queryKey: ["inbox"] }),
+      ]);
     },
   });
   const as =
@@ -97,8 +112,8 @@ function ApprovalCard({
   const conflicts = r.sod_conflicts?.join(", ") || "a policy in prevent mode";
 
   return (
-    <li>
-      <Card className="p-4">
+    <li data-focus={r.id}>
+      <Card className={cn("p-4", focused && focusRing)}>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium">
@@ -121,7 +136,7 @@ function ApprovalCard({
           )}
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
-        <RequestSteps steps={r.steps} />
+        <RequestSteps steps={r.steps} createdAt={r.created_at} />
         {risk && (
           <Alert variant="warning" className="mt-3">
             Together with what {r.beneficiary_name} already has, this access breaks separation of

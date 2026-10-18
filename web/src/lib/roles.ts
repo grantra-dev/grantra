@@ -11,3 +11,7 @@ export const approves = (me: Me) =>
   me.manages_people || me.owns_applications || hasRole(me, PlatformRole.Admin);
 
 export const isAdmin = (me: Me) => hasRole(me, PlatformRole.Admin);
+
+// Governance and Settings are for the people who run Grantra: admins change
+// things there, auditors look at them.
+export const governs = (me: Me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor);

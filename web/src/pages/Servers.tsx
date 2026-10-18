@@ -36,7 +36,8 @@ import {
   type SSHSession,
   type SSHTarget,
 } from "@/lib/ssh";
-import { formatTime } from "@/lib/utils";
+import { focusRing, useFocusParam } from "@/lib/focus";
+import { cn, formatTime } from "@/lib/utils";
 
 type Tab = "servers" | "sessions" | "commands";
 
@@ -82,6 +83,8 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
   });
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  // The search box links here with ?target=<id>.
+  const asked = useFocusParam("target", !!data);
   const gateway = info.data?.gateway_address ?? "";
   return (
     <section className="flex flex-col gap-3">
@@ -118,6 +121,7 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
               t={t}
               admin={admin}
               gateway={gateway}
+              focused={asked === t.id}
               open={open === t.id}
               onToggle={() => setOpen(open === t.id ? null : t.id)}
             />
@@ -135,18 +139,20 @@ function TargetRow({
   t,
   admin,
   gateway,
+  focused,
   open,
   onToggle,
 }: {
   t: SSHTarget;
   admin: boolean;
   gateway: string;
+  focused: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
   const [connecting, setConnecting] = useState(false);
   return (
-    <li className="p-4">
+    <li data-focus={t.id} className={cn("p-4", focused && focusRing)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

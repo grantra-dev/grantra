@@ -24,6 +24,10 @@ entity Lifecycle;
 // The tokens scripts and scheduled jobs use to feed Grantra.
 entity ServiceTokens;
 
+// The parts of Grantra the tenant shows in the console, such as privileged
+// access or Grantra Login.
+entity Modules;
+
 // The catalog of applications, entitlements and business roles, and the
 // birthright rules that give them out.
 entity Catalog;
@@ -302,5 +306,18 @@ action "service_token.read" in ["read"] appliesTo {
 action "service_token.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: ServiceTokens,
+  context: {},
+};
+
+// manage turns parts of Grantra on or off in the console for the tenant.
+action "module.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Modules,
+  context: {},
+};
+
+action "module.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Modules,
   context: {},
 };

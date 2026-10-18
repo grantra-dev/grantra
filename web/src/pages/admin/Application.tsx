@@ -16,6 +16,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Manage, ReadOnlyFields } from "@/components/Manage";
 import { Input, Label, Select } from "@/components/ui/field";
 import {
   Table,
@@ -153,25 +154,29 @@ function Connector({ app }: { app: CatalogApplication }) {
         {app.connector === "manual" && (
           <>
             <p className="text-slate-500">
-              Nothing to read: access to this application is managed by hand. SCIM and LDAP
-              connectors are set up through the API. An application with no API can load its
-              accounts from a CSV export.
+              Nothing to read: access to this application is managed by hand. Connect it to SCIM or
+              LDAP from Settings, Connectors. An application with no API can load its accounts from
+              a CSV export.
             </p>
-            <div>
-              <Button variant="outline" onClick={() => setSettingUp(true)}>
-                Load accounts from a file
-              </Button>
-            </div>
+            <Manage>
+              <div>
+                <Button variant="outline" onClick={() => setSettingUp(true)}>
+                  Load accounts from a file
+                </Button>
+              </div>
+            </Manage>
           </>
         )}
-        {app.connector === "csv" && <AccountFile app={app} onEdit={() => setSettingUp(true)} />}
-        {app.connector !== "manual" && app.connector !== "csv" && (
-          <div>
-            <Button variant="outline" disabled={read.isPending} onClick={() => read.mutate()}>
-              {read.isPending ? "Reading…" : "Read accounts now"}
-            </Button>
-          </div>
-        )}
+        <Manage>
+          {app.connector === "csv" && <AccountFile app={app} onEdit={() => setSettingUp(true)} />}
+          {app.connector !== "manual" && app.connector !== "csv" && (
+            <div>
+              <Button variant="outline" disabled={read.isPending} onClick={() => read.mutate()}>
+                {read.isPending ? "Reading…" : "Read accounts now"}
+              </Button>
+            </div>
+          )}
+        </Manage>
         {read.error && <Alert variant="error">{read.error.message}</Alert>}
         {run && <ReadOutcome run={run} />}
       </CardContent>
@@ -373,49 +378,55 @@ function Provisioning({ app, connected }: { app: CatalogApplication; connected: 
                 }
               }}
             >
-              <div>
-                <Label htmlFor="prov-mode">Mode</Label>
-                <Select
-                  id="prov-mode"
-                  value={form.mode}
-                  onChange={(e) => setForm({ ...form, mode: e.target.value as "off" | "on" })}
-                >
-                  <option value="off">Off, only read</option>
-                  <option value="on">On, write changes</option>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="prov-max">Stop if more than this % would be removed</Label>
-                <Input
-                  id="prov-max"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={form.max_change_percent}
-                  onChange={(e) => setForm({ ...form, max_change_percent: Number(e.target.value) })}
-                />
-              </div>
-              <label className="flex items-center gap-2 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={form.remove_unassigned}
-                  onChange={(e) => setForm({ ...form, remove_unassigned: e.target.checked })}
-                />
-                Also remove group memberships Grantra did not grant
-              </label>
-              <div className="flex flex-wrap gap-2 sm:col-span-2">
-                <Button type="submit" disabled={!changed || save.isPending}>
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={dryRun.isPending}
-                  onClick={() => dryRun.mutate()}
-                >
-                  {dryRun.isPending ? "Planning…" : "Dry run"}
-                </Button>
-              </div>
+              <ReadOnlyFields>
+                <div>
+                  <Label htmlFor="prov-mode">Mode</Label>
+                  <Select
+                    id="prov-mode"
+                    value={form.mode}
+                    onChange={(e) => setForm({ ...form, mode: e.target.value as "off" | "on" })}
+                  >
+                    <option value="off">Off, only read</option>
+                    <option value="on">On, write changes</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="prov-max">Stop if more than this % would be removed</Label>
+                  <Input
+                    id="prov-max"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={form.max_change_percent}
+                    onChange={(e) =>
+                      setForm({ ...form, max_change_percent: Number(e.target.value) })
+                    }
+                  />
+                </div>
+                <label className="flex items-center gap-2 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={form.remove_unassigned}
+                    onChange={(e) => setForm({ ...form, remove_unassigned: e.target.checked })}
+                  />
+                  Also remove group memberships Grantra did not grant
+                </label>
+              </ReadOnlyFields>
+              <Manage>
+                <div className="flex flex-wrap gap-2 sm:col-span-2">
+                  <Button type="submit" disabled={!changed || save.isPending}>
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={dryRun.isPending}
+                    onClick={() => dryRun.mutate()}
+                  >
+                    {dryRun.isPending ? "Planning…" : "Dry run"}
+                  </Button>
+                </div>
+              </Manage>
             </form>
             {save.error && <Alert variant="error">{save.error.message}</Alert>}
             {dryRun.error && <Alert variant="error">{dryRun.error.message}</Alert>}
@@ -489,59 +500,63 @@ function Entitlements({ appId }: { appId: string }) {
   });
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardContent className="pt-5">
-          <form
-            className="flex flex-wrap items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              add.mutate();
-            }}
-          >
-            <div>
-              <Label htmlFor="ent-name">Name</Label>
-              <Input
-                id="ent-name"
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Sales reps"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ent-native">Id in the application</Label>
-              <Input
-                id="ent-native"
-                required
-                value={form.native_id}
-                onChange={(e) => setForm({ ...form, native_id: e.target.value })}
-                placeholder="cn=sales,ou=groups"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ent-risk">Risk</Label>
-              <Select
-                id="ent-risk"
-                value={form.risk}
-                onChange={(e) => setForm({ ...form, risk: e.target.value as Entitlement["risk"] })}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </Select>
-            </div>
-            <Button type="submit" disabled={add.isPending}>
-              Add entitlement
-            </Button>
-            {add.error && (
-              <Alert variant="error" className="w-full">
-                {add.error.message}
-              </Alert>
-            )}
-          </form>
-        </CardContent>
-      </Card>
+      <Manage>
+        <Card>
+          <CardContent className="pt-5">
+            <form
+              className="flex flex-wrap items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                add.mutate();
+              }}
+            >
+              <div>
+                <Label htmlFor="ent-name">Name</Label>
+                <Input
+                  id="ent-name"
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Sales reps"
+                />
+              </div>
+              <div>
+                <Label htmlFor="ent-native">Id in the application</Label>
+                <Input
+                  id="ent-native"
+                  required
+                  value={form.native_id}
+                  onChange={(e) => setForm({ ...form, native_id: e.target.value })}
+                  placeholder="cn=sales,ou=groups"
+                />
+              </div>
+              <div>
+                <Label htmlFor="ent-risk">Risk</Label>
+                <Select
+                  id="ent-risk"
+                  value={form.risk}
+                  onChange={(e) =>
+                    setForm({ ...form, risk: e.target.value as Entitlement["risk"] })
+                  }
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </Select>
+              </div>
+              <Button type="submit" disabled={add.isPending}>
+                Add entitlement
+              </Button>
+              {add.error && (
+                <Alert variant="error" className="w-full">
+                  {add.error.message}
+                </Alert>
+              )}
+            </form>
+          </CardContent>
+        </Card>
+      </Manage>
       <Loaded
         loading={isPending}
         error={error}
@@ -614,14 +629,16 @@ function JustInTime({ ent }: { ent: Entitlement }) {
         ) : (
           <span className="text-slate-500">Standing allowed</span>
         )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setEditing(true)}
-          aria-label={`Change how ${ent.name} is held`}
-        >
-          Change
-        </Button>
+        <Manage>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(true)}
+            aria-label={`Change how ${ent.name} is held`}
+          >
+            Change
+          </Button>
+        </Manage>
       </div>
     );
   }

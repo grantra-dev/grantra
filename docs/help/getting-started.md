@@ -2,23 +2,27 @@
 
 Grantra is where you see and ask for access to the company's applications. Your access comes from your job (HR says which team you are in), from requests someone approved, or from an admin.
 
+## Finding your way
+
+**Home** says what needs you today: tasks waiting on you, access of yours that ends this week and requests still pending. The tray at the top of every page is your **Inbox**: everything waiting on you, each line opening the exact task. The search box at the top (or <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd>) finds pages, people, applications and access; for access you don't have yet, it opens Request access already searching for it.
+
 ## What you can access
 
 **My access** lists everything you hold: each application and role, why you have it and until when. Access that ends on a date shows that date. Access you are *eligible* for is listed too: you turn it on yourself when you need it, for a few hours, with a reason.
 
 ## Asking for access
 
-1. Open **Request access** and search the catalog for the application or role.
+1. Open **Request access** and search the catalog for the application or role. When your team has three or more people, each item says how many of your teammates hold it, which helps when a name says little. If it has no description, ask its owner before requesting it.
 2. Say why you need it. You can ask for it for a set number of hours or days.
 3. Send it. Your manager decides first, then the application's owner when it has one.
 
 If what you ask for conflicts with access you already hold (the same person should not, say, both create and approve payments), Grantra tells you before you send it, and an admin has to accept the risk.
 
-**My requests** shows where each request is: who decides now and until when. You can withdraw a request while it is pending. A request nobody decides in 7 days expires; ask again if you still need it.
+**My requests** shows where each request is: who decides now, how long it has waited and until when. You can withdraw a request while it is pending. A request nobody decides in 7 days expires; ask again if you still need it.
 
 ## Emails
 
-Grantra emails you when a request of yours is decided, and when something waits on you: a request to approve, or access to review, with a reminder before its deadline. The bell at the top of every page turns each kind of email on or off.
+Grantra emails you when a request of yours is decided, and when something waits on you: a request to approve, or access to review, with a reminder before its deadline. Each email links to the exact request or campaign. **Email notifications**, in the menu under your name at the top right, turns each kind of email on or off.
 
 ## When you join, move or leave
 

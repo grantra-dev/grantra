@@ -119,6 +119,10 @@ func TestDecisions(t *testing.T) {
 		{"admin manages service tokens", Request{Principal: admin, Action: ManageServiceTokens, Resource: ServiceTokensResource()}, true, []string{"admin-all"}},
 		{"auditor reads service tokens", Request{Principal: auditor, Action: ReadServiceTokens, Resource: ServiceTokensResource()}, true, []string{"auditor-read-all"}},
 		{"auditor cannot make service tokens", Request{Principal: auditor, Action: ManageServiceTokens, Resource: ServiceTokensResource()}, false, nil},
+		{"admin turns modules off", Request{Principal: admin, Action: ManageModules, Resource: ModulesResource()}, true, []string{"admin-all"}},
+		{"auditor reads modules", Request{Principal: auditor, Action: ReadModules, Resource: ModulesResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot turn modules off", Request{Principal: auditor, Action: ManageModules, Resource: ModulesResource()}, false, nil},
+		{"helpdesk cannot turn modules off", Request{Principal: helpdesk, Action: ManageModules, Resource: ModulesResource()}, false, nil},
 		{"helpdesk cannot read service tokens", Request{Principal: helpdesk, Action: ReadServiceTokens, Resource: ServiceTokensResource()}, false, nil},
 
 		// Catalog and birthright rules.

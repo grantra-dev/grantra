@@ -1,6 +1,8 @@
 # Administration
 
-For Grantra admins. Applications, roles and rules, separation of duties and standing access are under **Governance** in the menu; HR sources, Grantra Login and API tokens under **Settings**.
+For Grantra admins. Applications, roles and rules, separation of duties and standing access are under **Governance** in the menu; HR sources, connectors, Grantra Login, API tokens and modules under **Settings**. Auditors see all of these pages read only.
+
+**Home** shows admins what needs fixing: connections whose last run failed, accounts that belong to nobody, open separation of duties violations and access with no description (people ask for what they understand).
 
 ## HR sources
 
@@ -16,7 +18,7 @@ The format of the file, a template and what each error means are in [CSV files](
 
 Add applications and their entitlements (roles, groups). Applications connect in one of three ways:
 
-- **SCIM or LDAP / Active Directory**, set up through the API: Grantra reads the accounts, and can write changes back once provisioning is on.
+- **SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Secrets are never typed in: you give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN`, and the secret lives in the server's environment. Grantra reads the accounts, and can write changes back once provisioning is on. Changing an existing connector's settings is done through the API.
 - **Account files**, for applications with no API: **Load accounts from a file**, map the columns, then **Check file** and **Import**. See [CSV files](csv-files.md).
 - **By hand**: Grantra keeps the catalog, and someone makes the changes in the application.
 
@@ -37,3 +39,7 @@ High and critical risk access held with no end date. Turn it into eligibility in
 ## API tokens
 
 Tokens for scripts that send HR exports and account files. Each one is shown once, with a `curl` example, can only do what its scopes say and expires. Revoke a token you no longer use.
+
+## Modules
+
+**Settings → Modules** turns privileged access (vault, servers, remote access) or Grantra Login off for the whole company, for those who don't use them. Their pages, search results and inbox tasks disappear for everyone. It doesn't change anyone's access or stop the gateways: remove the access, or turn the gateway off, for that.
