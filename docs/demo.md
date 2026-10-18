@@ -50,7 +50,7 @@ On top of the people:
 GitHub, ERP, CRM and Slack have no connector, so nothing is provisioned there:
 Grantra keeps track of who should have what. **Grantra Login** is connected
 for real: a few minutes after start (or right away with **Read accounts now** on its
-page under **Administration** → **Applications**), Grantra reads its users and
+page under **Governance** → **Applications**), Grantra reads its users and
 the groups *VPN users* and *Wiki editors*, and links each account to its
 person. Turn provisioning on for it to see joiners get a Grantra Login
 account with a "set up your account" email in Mailpit, and leavers get
@@ -58,7 +58,7 @@ disabled. See [connectors.md](connectors.md) to connect a real application.
 
 ## 1. Joiner
 
-Sign in as `admin` and go to **Administration** → **HR sources**. For
+Sign in as `admin` and go to **Settings** → **HR sources**. For
 *HR (demo)*, choose the file `deploy/samples/demo/2-joiner.csv` and click
 **Check file**. Nothing changes yet: Grantra shows that Elena Ortiz joins.
 
@@ -94,7 +94,7 @@ explains the conflict: write why the risk is acceptable, pick for how long, and
 click **Accept the risk and approve**. Sara gets the access, and the violation
 is recorded as an exception that reopens when its time is up.
 
-Back as `admin`, open **Administration** → **Separation of duties**. Sara is
+Back as `admin`, open **Governance** → **Separation of duties**. Sara is
 listed as an exception, with your reason. Pedro shows up as an open violation: he enters payments as a Finance clerk and was
 also granted *Approve payments* by hand. You can **Accept the risk** for a
 time, with a reason, or remove one side of it. The admins also got an email
@@ -171,7 +171,7 @@ read it yet, not even the admin.
    access** → **Sessions** → **Recording** plays it back.
 
 As `admin`, click the account's name in **Vault** to see every check-out and
-its reason, and **Administration** → **Standing access** to see who holds
+its reason, and **Governance** → **Standing access** to see who holds
 high-risk access for good and turn it into eligibility. Once Grantra Login has been read, the **Discovery** tab lists its
 accounts that look privileged or belong to nobody, and **Servers** shows the
 key servers trust and every recorded session. See [vault.md](vault.md),

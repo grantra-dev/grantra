@@ -1,6 +1,6 @@
 # Administration
 
-For Grantra admins. Everything here is under **Administration**.
+For Grantra admins. Applications, roles and rules, separation of duties and standing access are under **Governance** in the menu; HR sources, Grantra Login and API tokens under **Settings**.
 
 ## HR sources
 

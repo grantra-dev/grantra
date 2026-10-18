@@ -8,7 +8,7 @@ provisioning takes it back from the application.
 
 ## Settings on an entitlement
 
-In **Administration → Applications → (application) → Entitlements**, click
+In **Governance → Applications → (application) → Entitlements**, click
 **Change** under *Held*, or call the API:
 
 ```sh
@@ -59,7 +59,7 @@ and say why. Only the person can activate their own eligibility.
 
 ## Standing access report
 
-**Administration → Standing access** lists high and critical risk access held
+**Governance → Standing access** lists high and critical risk access held
 with no end date, and any just-in-time only access still held from before it
 became so. **Make it just in time** removes the access and makes the
 person eligible instead, keeping the entitlement's settings. Birthright

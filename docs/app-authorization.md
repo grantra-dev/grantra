@@ -4,7 +4,7 @@ Your company's own apps can ask Grantra "may this person do this?" instead of co
 
 ## Setting it up
 
-Open the application in **Administration** → **Applications**, then the **Authorization** tab. Admins change things; auditors can look.
+Open the application in **Governance** → **Applications**, then the **Authorization** tab. Admins change things; auditors can look.
 
 1. **Policies**: write the rules. **Start from an example** fills in a sample. With no policies, every question is denied.
 2. **Try it**: ask a question as the app would and see the answer, the policies that decided, and what the policies see of the person. It uses the policies being edited, so you can test before saving.

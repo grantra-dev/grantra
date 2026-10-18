@@ -23,7 +23,7 @@ The bundled realm ([`grantra-realm.json`](../deploy/keycloak/grantra-realm.json)
 
 ## The console page
 
-**Administration** → **Grantra Login** manages the realm behind the application that uses the `grantra-login` connector (the oldest one, if there are several). Admins change things; auditors can look. Every change is in the audit log (`login.*` events).
+**Settings** → **Grantra Login** manages the realm behind the application that uses the `grantra-login` connector (the oldest one, if there are several). Admins change things; auditors can look. Every change is in the audit log (`login.*` events).
 
 ### Apps that sign in with Grantra Login
 

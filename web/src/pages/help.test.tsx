@@ -129,7 +129,7 @@ describe("CSV help next to uploads", () => {
         ],
       }),
     });
-    renderAt("/admin");
+    renderAt("/settings/hr-sources");
 
     const tip = await screen.findByRole("button", { name: "HR export format" });
     expect(tip).toHaveAttribute("aria-expanded", "false");
@@ -174,7 +174,7 @@ describe("CSV help next to uploads", () => {
       "GET /api/v1/applications": ok({ applications: [app] }),
       "GET /api/v1/applications/erp/entitlements": ok({ entitlements: [] }),
     });
-    renderAt("/admin/applications/erp");
+    renderAt("/governance/applications/erp");
 
     await userEvent.click(await screen.findByRole("button", { name: "Account file format" }));
     const dialog = screen.getByRole("dialog", { name: "Account file format" });

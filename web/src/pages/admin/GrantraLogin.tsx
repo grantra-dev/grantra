@@ -60,7 +60,7 @@ export function GrantraLogin() {
           <p className="text-sm text-slate-600">
             Managed through{" "}
             <Link
-              to={`/admin/applications/${data.application!.id}`}
+              to={`/governance/applications/${data.application!.id}`}
               className="text-brand-700 hover:underline"
             >
               {data.application!.name}
