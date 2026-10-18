@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -121,21 +122,52 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-// The sample in deploy/samples must stay a valid feed.
+// The sample in deploy/samples and the template the console offers must
+// stay valid feeds.
 func TestSampleFile(t *testing.T) {
-	f, err := os.Open("../../../deploy/samples/hr-employees.csv")
+	for file, people := range map[string]int{
+		"../../../deploy/samples/hr-employees.csv":    6,
+		"../../../web/public/templates/hr-people.csv": 3,
+	} {
+		f, err := os.Open(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		cfg := Config{}
+		cfg.Validate() //nolint:errcheck
+		recs, issues, err := ParseCSV(f, cfg)
+		if err != nil || len(issues) > 0 || len(recs) != people {
+			t.Fatalf("%s: %d records, issues %v, err %v", file, len(recs), issues, err)
+		}
+		r := Plan("s", cfg, recs, nil, today)
+		if len(r.Warnings) > 0 || len(r.Errors) > 0 {
+			t.Errorf("%s plan: warnings %v, errors %v", file, r.Warnings, r.Errors)
+		}
+	}
+}
+
+// docs/help/csv-files.md, which the console shows as help, lists every
+// column and status value Grantra reads.
+func TestHelpPageListsTheFormat(t *testing.T) {
+	doc, err := os.ReadFile("../../../docs/help/csv-files.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	for _, v := range slices.Concat(knownFields, activeValues, terminatedValues) {
+		if v != "" && !strings.Contains(string(doc), "`"+v+"`") {
+			t.Errorf("csv-files.md does not mention `%s`", v)
+		}
+	}
+}
+
+// A file saved with semicolons, as spreadsheets in many languages do, reads
+// as one column: the help page explains the error it gets.
+func TestParseCSVSemicolons(t *testing.T) {
 	cfg := Config{}
 	cfg.Validate() //nolint:errcheck
-	recs, issues, err := ParseCSV(f, cfg)
-	if err != nil || len(issues) > 0 || len(recs) != 6 {
-		t.Fatalf("sample: %d records, issues %v, err %v", len(recs), issues, err)
-	}
-	r := Plan("s", cfg, recs, nil, today)
-	if len(r.Warnings) > 0 || len(r.Errors) > 0 {
-		t.Errorf("sample plan: warnings %v, errors %v", r.Warnings, r.Errors)
+	_, _, err := ParseCSV(strings.NewReader("employee_id;first_name\n1;Ana\n"), cfg)
+	if err == nil || err.Error() != `no "employee_id" column (map it with columns.employee_id)` {
+		t.Errorf("err = %v", err)
 	}
 }

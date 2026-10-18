@@ -1,0 +1,4 @@
+employee_id,first_name,last_name,email,manager_id,department,title,location,status,start_date,end_date
+1001,Ana,García,ana.garcia@example.com,,Executive,CEO,Madrid,active,2019-03-01,
+1002,Luis,Pérez,luis.perez@example.com,1001,Finance,Controller,Madrid,active,2024-06-15,
+1003,Marta,Ruiz,marta.ruiz@example.com,1002,Finance,Accountant,Barcelona,terminated,2022-01-10,2026-09-30

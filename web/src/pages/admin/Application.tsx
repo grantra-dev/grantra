@@ -8,6 +8,7 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
+import { CsvHelp } from "@/components/CsvHelp";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
@@ -229,6 +230,10 @@ function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => v
           }}
           className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
         />
+        <CsvHelp
+          kind="accounts"
+          separator={(app.config as FileConnectorConfig | null)?.separator}
+        />
         <Button
           variant="outline"
           disabled={!file || upload.isPending}
@@ -271,10 +276,13 @@ function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () =>
     <Card>
       <CardHeader>
         <CardTitle>Accounts from a file</CardTitle>
-        <p className="text-sm text-slate-500">
-          How Grantra reads {app.name}&apos;s account files. Every other column is kept as an
-          attribute of the account.
-        </p>
+        <div className="flex items-center gap-1 text-sm text-slate-500">
+          <p>
+            How Grantra reads {app.name}&apos;s account files. Every other column is kept as an
+            attribute of the account.
+          </p>
+          <CsvHelp kind="accounts" separator={current?.separator} align="end" />
+        </div>
       </CardHeader>
       <CardContent>
         <form

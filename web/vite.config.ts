@@ -13,6 +13,9 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   server: {
+    // The help pages are read from docs/help, outside this folder; their
+    // tests check links into the rest of docs.
+    fs: { allow: [".", "../docs"] },
     proxy: {
       "/api": core,
       "/auth": core,

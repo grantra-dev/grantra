@@ -30,6 +30,8 @@ const Desktop = lazy(() => import("@/pages/Desktop").then((m) => ({ default: m.D
 const GatewaySessionLog = lazy(() =>
   import("@/pages/GatewaySessionLog").then((m) => ({ default: m.GatewaySessionLog })),
 );
+const Help = lazy(() => import("@/pages/Help").then((m) => ({ default: m.Help })));
+const HelpArticle = lazy(() => import("@/pages/Help").then((m) => ({ default: m.HelpArticle })));
 const SessionPlayback = lazy(() =>
   import("@/pages/SessionPlayback").then((m) => ({ default: m.SessionPlayback })),
 );
@@ -79,11 +81,22 @@ export function App() {
     "/people": <People />,
     "/audit": <AuditLog />,
     "/admin": <Administration />,
+    "/help": (
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <Help me={me} />
+      </Suspense>
+    ),
   };
   // Pages under a section, shown to whoever sees the section.
   const subpages: Record<string, [string, React.ReactNode]> = {
     "/people": ["/people/:id", <Person me={me} />],
     "/admin": ["/admin/applications/:id", <Application />],
+    "/help": [
+      "/help/:page",
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+        <HelpArticle me={me} />
+      </Suspense>,
+    ],
     "/servers": [
       "/servers/sessions/:id",
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>

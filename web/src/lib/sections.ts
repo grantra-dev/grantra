@@ -1,4 +1,5 @@
 import {
+  CircleHelp,
   ClipboardCheck,
   FileSearch,
   House,
@@ -26,13 +27,14 @@ export interface Section {
   issue?: number;
 }
 
-const hasRole = (me: Me, ...roles: string[]) => roles.some((r) => me.platform_roles.includes(r));
+export const hasRole = (me: Me, ...roles: string[]) =>
+  roles.some((r) => me.platform_roles.includes(r));
 
 const everyone = () => true;
 
 // Managers and application owners approve requests and review access; admins
 // run the campaigns.
-const approves = (me: Me) =>
+export const approves = (me: Me) =>
   me.manages_people || me.owns_applications || hasRole(me, PlatformRole.Admin);
 
 // Sections follow docs/console.md: one app, and each person sees what their
@@ -122,6 +124,13 @@ export const sections: Section[] = [
     description: "Every change and decision, searchable.",
     icon: FileSearch,
     visible: (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
+  },
+  {
+    path: "/help",
+    title: "Help",
+    description: "How Grantra works, for what you do in it.",
+    icon: CircleHelp,
+    visible: everyone,
   },
 ];
 

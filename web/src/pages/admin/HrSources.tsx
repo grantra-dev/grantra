@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { CsvHelp } from "@/components/CsvHelp";
 import { Loaded } from "@/components/Loaded";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -132,10 +133,13 @@ function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () =>
           <div className="md:col-span-3">
             <ColumnMapping fields={hrFields} value={columns} onChange={setColumns} />
           </div>
-          <p className="text-sm text-slate-500 md:col-span-3">
-            Files are CSV with a header row and one person per line; see the identity lifecycle docs
-            for every column. Any other column is kept as an attribute of the person.
-          </p>
+          <div className="flex items-center gap-1 text-sm text-slate-500 md:col-span-3">
+            <p>
+              Files are CSV with a header row and one person per line. Any other column is kept as
+              an attribute of the person.
+            </p>
+            <CsvHelp kind="hr" align="end" />
+          </div>
           {save.error && (
             <Alert variant="error" className="md:col-span-3">
               {save.error.message}
@@ -225,6 +229,7 @@ function Source({ source }: { source: IdentitySource }) {
             className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
           />
         </label>
+        <CsvHelp kind="hr" />
         <Button
           variant="outline"
           disabled={!file || sync.isPending}

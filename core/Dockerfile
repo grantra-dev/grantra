@@ -5,6 +5,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# The console's help pages.
+COPY docs/help/ /docs/help/
 RUN npm run build
 
 FROM golang:1.26-alpine AS build

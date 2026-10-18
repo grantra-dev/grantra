@@ -131,15 +131,32 @@ func TestConnector(t *testing.T) {
 	}
 }
 
-// The sample in deploy/samples must stay a valid file.
+// The sample in deploy/samples and the template the console offers must
+// stay valid files.
 func TestSampleFile(t *testing.T) {
-	f, err := os.Open("../../../../deploy/samples/app-accounts.csv")
+	for _, file := range []string{"../../../../deploy/samples/app-accounts.csv", "../../../../web/public/templates/app-accounts.csv"} {
+		f, err := os.Open(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		snap, err := Parse(nil, f)
+		if err != nil || len(snap.Accounts) != 4 || len(snap.Entitlements) != 3 {
+			t.Fatalf("%s: %+v, %v", file, snap, err)
+		}
+	}
+}
+
+// docs/help/csv-files.md, which the console shows as help, lists every
+// column and status value Grantra reads.
+func TestHelpPageListsTheFormat(t *testing.T) {
+	doc, err := os.ReadFile("../../../../docs/help/csv-files.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	snap, err := Parse(nil, f)
-	if err != nil || len(snap.Accounts) != 4 || len(snap.Entitlements) != 3 {
-		t.Fatalf("sample: %+v, %v", snap, err)
+	for _, v := range slices.Concat(Fields, activeValues, disabledValues) {
+		if v != "" && !strings.Contains(string(doc), "`"+v+"`") {
+			t.Errorf("csv-files.md does not mention `%s`", v)
+		}
 	}
 }
