@@ -1,5 +1,14 @@
 import { CircleHelp, X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { placement } from "@/lib/placement";
 
 /**
  * A "?" that opens a short explanation next to what it explains. It closes
@@ -12,11 +21,12 @@ export function HelpTip({
   children,
 }: {
   label: string;
-  /** Which edge of the "?" the explanation lines up with, from sm up. */
+  /** Which edge of the "?" the explanation lines up with, when it fits. */
   align?: "start" | "end";
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [style, setStyle] = useState<CSSProperties>();
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -40,8 +50,25 @@ export function HelpTip({
     };
   }, [open]);
 
+  // Placed before the browser paints, and again when the page scrolls or
+  // the window changes size, so it follows the "?".
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const anchor = button.current?.getBoundingClientRect();
+      if (anchor) setStyle(placement(anchor, align, window.innerWidth, window.innerHeight));
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, align]);
+
   return (
-    <div ref={root} className="relative inline-flex">
+    <div ref={root} className="inline-flex">
       <button
         ref={button}
         type="button"
@@ -55,12 +82,12 @@ export function HelpTip({
         <CircleHelp className="size-5" aria-hidden />
       </button>
       {open && (
-        // On a phone it spans the screen; from sm up it hangs below the "?".
         <div
           id={id}
           role="dialog"
           aria-label={label}
-          className={`fixed inset-x-4 top-20 z-30 max-h-[75vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 text-left text-sm font-normal text-slate-700 shadow-lg sm:absolute sm:inset-x-auto sm:top-full sm:mt-2 sm:w-[26rem] ${align === "end" ? "sm:right-0" : "sm:left-0"}`}
+          style={style}
+          className="fixed z-30 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-sm font-normal text-slate-700 shadow-lg"
         >
           <button
             type="button"
@@ -69,11 +96,12 @@ export function HelpTip({
               setOpen(false);
               button.current?.focus();
             }}
-            className="absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="absolute top-2 right-2 z-10 inline-flex size-7 items-center justify-center rounded-md bg-white text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           >
             <X className="size-4" aria-hidden />
           </button>
-          {children}
+          {/* Only the content scrolls, so the close button stays in view. */}
+          <div className="overflow-y-auto overscroll-contain p-4">{children}</div>
         </div>
       )}
     </div>
