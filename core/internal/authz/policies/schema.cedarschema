@@ -57,6 +57,14 @@ entity ReviewItem {
 // The tenant's separation of duties policies and their violations.
 entity SoD;
 
+// Threat detection: sign-ins, alerts and the detections' settings.
+entity Threats;
+
+// One threat alert, and who it is about (none for an address).
+entity ThreatAlert {
+  identity?: Identity,
+};
+
 // Grantra Login: its apps and sign-in policy.
 entity Login;
 
@@ -210,6 +218,33 @@ action "sod.read" in ["read"] appliesTo {
 action "sod.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: SoD,
+  context: {},
+};
+
+// manage sets up detections, runs scans and takes sign-ins from scripts.
+action "threat.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Threats,
+  context: {},
+};
+
+action "threat.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Threats,
+  context: {},
+};
+
+// Ending someone's sessions, requiring them a second factor, suspending or
+// reinstating them; the resource is that person.
+action "threat.respond" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Identity,
+  context: {},
+};
+
+action "threat_alert.close" in ["write"] appliesTo {
+  principal: Identity,
+  resource: ThreatAlert,
   context: {},
 };
 

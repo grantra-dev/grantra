@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/vault"
@@ -22,6 +23,15 @@ type breakGlassTask struct {
 	CheckedOutAt time.Time `json:"checked_out_at"`
 }
 
+// threatTask is a serious alert for an admin to look at.
+type threatTask struct {
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Summary    string    `json:"summary"`
+	Severity   string    `json:"severity"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
 type inbox struct {
 	// Approvals are requests waiting on your decision, the same ones the
 	// Approvals page lists.
@@ -30,8 +40,11 @@ type inbox struct {
 	Reviews []reviews.ToReview `json:"reviews"`
 	// BreakGlass are break-glass uses for an admin to review; never your own.
 	BreakGlass []breakGlassTask `json:"break_glass"`
+	// Threats are open high and critical alerts for an admin to look at;
+	// never the ones about yourself.
+	Threats []threatTask `json:"threats"`
 	// Total is how many things wait on you: each approval, each access to
-	// review and each break-glass use.
+	// review, each break-glass use and each threat.
 	Total int `json:"total"`
 }
 
@@ -56,6 +69,27 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		if !admin {
 			return nil
 		}
+		if on, err := moduleOn(ctx, tx, ModuleITDR); err != nil {
+			return err
+		} else if on {
+			rows, err := tx.Query(ctx,
+				`SELECT id, detection, summary, severity, last_seen_at FROM threat_alerts
+				 WHERE status = 'open' AND severity IN ('high', 'critical') AND identity_id IS DISTINCT FROM $1::uuid
+				 ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen_at DESC LIMIT 100`, me.ID)
+			if err != nil {
+				return err
+			}
+			if out.Threats, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (threatTask, error) {
+				var t threatTask
+				var detection string
+				err := row.Scan(&t.ID, &detection, &t.Summary, &t.Severity, &t.LastSeenAt)
+				t.Title = itdr.Title(detection)
+				return t, err
+			}); err != nil {
+				return err
+			}
+			out.Total += len(out.Threats)
+		}
 		if on, err := moduleOn(ctx, tx, ModulePAM); err != nil || !on {
 			return err
 		}
@@ -74,6 +108,6 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		out.Total += len(out.BreakGlass)
 		return nil
 	})
-	out.Approvals, out.Reviews, out.BreakGlass = nonNil(out.Approvals), nonNil(out.Reviews), nonNil(out.BreakGlass)
+	out.Approvals, out.Reviews, out.BreakGlass, out.Threats = nonNil(out.Approvals), nonNil(out.Reviews), nonNil(out.BreakGlass), nonNil(out.Threats)
 	a.respond(w, r, http.StatusOK, out, err)
 }

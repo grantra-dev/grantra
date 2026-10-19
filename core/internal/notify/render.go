@@ -26,6 +26,7 @@ var pages = map[Kind]string{
 	BreakGlassUsed:   "/vault?tab=break-glass",
 	BreakGlassDue:    "/vault?tab=break-glass",
 	TokenCreatorLeft: "/settings/api-tokens",
+	ThreatDetected:   "/security/threats",
 }
 
 // pageFor is the console page a notification of kind, with data, links to:
@@ -112,7 +113,7 @@ func render(kind Kind, v view) (subject, body string, err error) {
 	// A subject is one line, whatever the data holds.
 	subject = strings.Join(strings.Fields(s.String()), " ")
 	body = strings.TrimLeft(b.String(), "\n") +
-		"\n--\nGrantra sends this because of your role in access requests, reviews, separation of duties or the vault.\n" +
+		"\n--\nGrantra sends this because of your role in access requests, reviews, separation of duties, the vault or security.\n" +
 		"Choose which emails you get: " + v.SettingsURL + "\n"
 	return subject, body, nil
 }

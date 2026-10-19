@@ -464,10 +464,16 @@ func (c *Client) SetActive(ctx context.Context, accountID string, active bool) e
 		return err
 	}
 	if !active {
-		_, err := c.do(ctx, http.MethodPost, path+"/logout", nil, nil)
-		return err
+		return c.Logout(ctx, accountID)
 	}
 	return nil
+}
+
+// Logout ends every session of a user, so their next sign-in goes through
+// the sign-in flow again.
+func (c *Client) Logout(ctx context.Context, accountID string) error {
+	_, err := c.do(ctx, http.MethodPost, "/users/"+url.PathEscape(accountID)+"/logout", nil, nil)
+	return err
 }
 
 // SetPassword sets a user's password, for good (not one to change at next

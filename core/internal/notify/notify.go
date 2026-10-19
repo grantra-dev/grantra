@@ -1,6 +1,6 @@
 // Package notify sends email about the things people need to act on or
-// know about: approvals to give, decisions on their requests, reviews to do
-// and separation of duties violations.
+// know about: approvals to give, decisions on their requests, reviews to do,
+// separation of duties violations and identity threats.
 //
 // Flows queue a notification in their own transaction with Enqueue; a
 // background Sender delivers the queue over SMTP. A failed send is retried
@@ -31,6 +31,8 @@ const (
 	BreakGlassDue   Kind = "break_glass_review"
 	// TokenCreatorLeft is about API tokens whose creator left the company.
 	TokenCreatorLeft Kind = "service_token_creator_left"
+	// ThreatDetected is about high and critical identity threats.
+	ThreatDetected Kind = "threat_detected"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -53,6 +55,7 @@ var Kinds = []KindInfo{
 	{BreakGlassUsed, "Break-glass use", "For admins and auditors: someone opened a break-glass vault account in an emergency.", true},
 	{BreakGlassDue, "Break-glass reviews", "For admins: a break-glass use still waits for someone to confirm it was justified.", false},
 	{TokenCreatorLeft, "API tokens of people who left", "For admins: someone who left the company had created API tokens that still work.", false},
+	{ThreatDetected, "Identity threats", "For admins: Grantra found a high or critical threat, such as a password spray or a leaver signing in.", false},
 }
 
 // required reports whether nobody may turn k off.
