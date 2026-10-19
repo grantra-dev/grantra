@@ -32,7 +32,7 @@ curl -X POST https://grantra.example.com/api/v1/authz/check \
 
 | Field | What it is |
 |---|---|
-| `principal` | The person, by one of `id` (Grantra's), `email`, `external_id` (employee id) or `username` (their account in this application) |
+| `principal` | The person, by one of `id` (Grantra's), `email`, `external_id` (employee id) or `username` (their account in this application); or a [workload](non-human-identities.md) by its `spiffe_id` |
 | `action` | What they want to do, in the app's own words: becomes `Action::"approve"` |
 | `resource` | What they want to do it to: `type` and `id` become `Invoice::"42"`, and `attributes` are the resource's attributes |
 | `context` | Anything else the policies look at, such as whether the person used MFA or the time of day |
@@ -49,7 +49,8 @@ The principal is a `Person` entity:
 |---|---|
 | `email`, `display_name` | From the person in Grantra |
 | `status` | `active` (others never reach the policies) |
-| `kind` | `human`, `service` or `agent` |
+| `kind` | `human`, `service`, `agent` or `workload` |
+| `spiffe_id` | A workload's SPIFFE ID, empty for people |
 | `department`, `title`, `location`... | Every attribute the HR source sends, also under `attributes` |
 | `manager` | The manager, as an entity with an `email` |
 | `roles` | Names of the business roles assigned to the person |

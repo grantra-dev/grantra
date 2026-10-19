@@ -39,8 +39,11 @@ func TestSeed(t *testing.T) {
 		}
 		return n
 	}
-	if n := count(`SELECT count(*) FROM identities WHERE status = 'active'`); n != 8 {
+	if n := count(`SELECT count(*) FROM identities WHERE status = 'active' AND kind = 'human'`); n != 8 {
 		t.Errorf("active people = %d, want 8", n)
+	}
+	if n := count(`SELECT count(*) FROM identities WHERE kind <> 'human' AND manager_id IS NOT NULL`); n != 3 {
+		t.Errorf("owned service accounts, agents and workloads = %d, want 3", n)
 	}
 	if n := count(`SELECT count(*) FROM applications WHERE connector IS DISTINCT FROM $1`, authz.BuiltinConnector); n != 5 {
 		t.Errorf("applications = %d, want 5 (4 and SSH servers)", n)

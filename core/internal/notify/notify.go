@@ -33,6 +33,8 @@ const (
 	TokenCreatorLeft Kind = "service_token_creator_left"
 	// ThreatDetected is about high and critical identity threats.
 	ThreatDetected Kind = "threat_detected"
+	// OwnerLeft is about non-human identities whose owner left.
+	OwnerLeft Kind = "non_human_owner_left"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -56,6 +58,7 @@ var Kinds = []KindInfo{
 	{BreakGlassDue, "Break-glass reviews", "For admins: a break-glass use still waits for someone to confirm it was justified.", false},
 	{TokenCreatorLeft, "API tokens of people who left", "For admins: someone who left the company had created API tokens that still work.", false},
 	{ThreatDetected, "Identity threats", "For admins: Grantra found a high or critical threat, such as a password spray or a leaver signing in.", false},
+	{OwnerLeft, "Service accounts and agents whose owner left", "For admins, and for whoever takes them over: someone who left owned service accounts, AI agents or workloads, which passed to their manager.", false},
 }
 
 // required reports whether nobody may turn k off.

@@ -33,6 +33,9 @@ func TestAppAuthorization(t *testing.T) {
 		}
 	}
 	exec(`UPDATE identities SET attributes = '{"department": "Finance", "title": "Accountant"}' WHERE id = $1`, ana)
+	// A workload the boss owns, which names itself by its SPIFFE ID.
+	exec(`INSERT INTO identities (tenant_id, kind, display_name, manager_id, spiffe_id) VALUES ($1, 'workload', 'reports-job', $2, 'spiffe://example.com/reports')`,
+		e.tenant, boss)
 
 	app := decode[catalog.Application](t, e.do(admin, http.MethodPost, "/api/v1/applications", `{"name": "Billing"}`))
 	approve := decode[catalog.Entitlement](t, e.do(admin, http.MethodPost, "/api/v1/applications/"+app.ID+"/entitlements",
@@ -128,6 +131,8 @@ when { principal.entitlements.contains("viewer") || principal.manager.email == "
 		{"stranger", invoice(`{"email": "nobody@example.com"}`, ""), false, appauthz.ReasonUnknown},
 		{"bad id", invoice(`{"id": "not-a-uuid"}`, ""), false, appauthz.ReasonUnknown},
 		{"manager", `{"principal": {"id": "` + ana + `"}, "action": "view", "resource": {"type": "Report", "id": "q3"}}`, true, ""},
+		{"workload", `{"principal": {"spiffe_id": "spiffe://example.com/reports"}, "action": "view", "resource": {"type": "Report", "id": "q3"}}`, true, ""},
+		{"unknown workload", `{"principal": {"spiffe_id": "spiffe://example.com/other"}, "action": "view", "resource": {"type": "Report", "id": "q3"}}`, false, appauthz.ReasonUnknown},
 	} {
 		code, a := check(created.Secret, tc.body)
 		if code != http.StatusOK || a.Allowed != tc.allowed || a.Reason != tc.reason {

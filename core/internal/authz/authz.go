@@ -55,6 +55,7 @@ type Action string
 const (
 	ReadIdentity        Action = "identity.read"
 	ListIdentities      Action = "identity.list"
+	ManageIdentities    Action = "identity.manage"
 	ReadAuditLog        Action = "audit.read"
 	ReadPlatformRole    Action = "platform_role.read"
 	GrantPlatformRole   Action = "platform_role.grant"
@@ -102,6 +103,7 @@ const (
 var actionGroup = map[Action]string{
 	ReadIdentity:        "read",
 	ListIdentities:      "read",
+	ManageIdentities:    "write",
 	ReadAuditLog:        "read",
 	ReadPlatformRole:    "read",
 	GrantPlatformRole:   "write",

@@ -250,6 +250,15 @@ func TestApplyDueDates(t *testing.T) {
 		t.Fatalf("ana = %+v", s)
 	}
 
+	// Luis owns a service account, and reports to Marta.
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE identities SET manager_id = (SELECT id FROM identities WHERE external_id = 'E3') WHERE external_id = 'E2';
+			INSERT INTO identities (tenant_id, kind, display_name, manager_id)
+			SELECT tenant_id, 'service', 'luis-svc', id FROM identities WHERE external_id = 'E2'`)
+		return err
+	})
+
 	// On the start date Ana starts; Luis works his last day.
 	activated, left, err := ApplyDueDates(context.Background(), e.pool, e.tenant, day1.AddDate(0, 0, 1))
 	if err != nil || activated != 1 || left != 0 {
@@ -268,6 +277,11 @@ func TestApplyDueDates(t *testing.T) {
 	}
 	if n := e.count(`SELECT count(*) FROM audit_events WHERE action = 'identity.activated'`); n != 1 {
 		t.Errorf("identity.activated audit events = %d, want 1", n)
+	}
+	// His service account passed to Marta.
+	if n := e.count(`SELECT count(*) FROM identities s JOIN identities m ON m.id = s.manager_id
+		WHERE s.display_name = 'luis-svc' AND m.external_id = 'E3'`); n != 1 {
+		t.Error("Luis's service account did not pass to his manager")
 	}
 }
 

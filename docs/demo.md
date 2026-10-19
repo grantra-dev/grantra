@@ -43,6 +43,7 @@ On top of the people:
 - **Separation of duties**: the policy *Create and approve payments* (prevent mode) says nobody may hold both.
 - **Just-in-time access**: nobody holds GitHub *Org admins* for good; Luis is eligible to activate it for up to two hours.
 - **Vault**: the root password of a production database, which only people granted *Use Production database root* can check out (needs `GRANTRA_VAULT_KEY`, set in docker-compose). Luis can also break the glass on it in an emergency.
+- **Service accounts and agents**: *erp-bank-sync*, a service account Pedro owns that was given *Approve payments* by hand; *support-assistant*, an AI agent Lucía owns, reading the CRM until its end date in six months; and *billing-api*, a workload Luis owns that asks for authorization with its SPIFFE ID. See Governance → Service accounts and agents.
 - **Remote access**: the shop's orders database, *shop-db*, which Luis can activate and query through the gateway, logged as he goes, and the office desktop *office-pc*, which he can open in the browser, recorded (both need the vault key too).
 
 `elena` signs in once she joins in step 1.

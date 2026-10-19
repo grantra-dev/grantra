@@ -60,7 +60,9 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 		if a.may(me, authz.ListIdentities, authz.DirectoryResource()) {
 			// Whoever is still here first, then by name.
 			if err := find(
-				`SELECT 'person', id::text, display_name, coalesce(email, ''), '' FROM identities
+				`SELECT 'person', id::text, display_name,
+				        coalesce(email, CASE kind WHEN 'service' THEN 'Service account' WHEN 'agent' THEN 'AI agent'
+				                                  WHEN 'workload' THEN 'Workload' END, ''), '' FROM identities
 				 WHERE lower(display_name) LIKE $1 OR lower(email) LIKE $1
 				 ORDER BY status = 'terminated', display_name, id LIMIT $2`, pattern, searchPerKind); err != nil {
 				return err

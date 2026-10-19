@@ -912,14 +912,14 @@ func TeamHolders(ctx context.Context, tx pgx.Tx, identity string) (size int, hel
 	held = map[string]int{}
 	err = tx.QueryRow(ctx,
 		`SELECT count(*) FROM identities t JOIN identities me ON t.manager_id = me.manager_id
-		 WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active'`, identity).Scan(&size)
+		 WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active' AND t.kind = 'human'`, identity).Scan(&size)
 	if err != nil || size < MinTeamForHolders {
 		return size, held, err
 	}
 	rows, err := tx.Query(ctx,
 		`WITH team AS (
 		   SELECT t.id FROM identities t JOIN identities me ON t.manager_id = me.manager_id
-		   WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active'),
+		   WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active' AND t.kind = 'human'),
 		 current AS (
 		   SELECT x.* FROM access_assignments x JOIN team ON team.id = x.identity_id
 		   WHERE x.expires_at IS NULL OR x.expires_at > now()),

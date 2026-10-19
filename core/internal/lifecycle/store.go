@@ -15,6 +15,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/nhi"
 	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
 
@@ -430,7 +431,8 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID, sourceID, runID string, cha
 
 // recordAll writes the lifecycle event and the audit event for each change,
 // and ends leavers' console sessions, in batches. Admins hear about the API
-// tokens leavers created.
+// tokens leavers created, and the non-human identities leavers owned pass to
+// their managers.
 func recordAll(ctx context.Context, tx pgx.Tx, tenantID, actor, runID string, changes []*Change, opts Options) error {
 	var run *string
 	if runID != "" {
@@ -444,6 +446,9 @@ func recordAll(ctx context.Context, tx pgx.Tx, tenantID, actor, runID string, ch
 	}
 	if err := servicetoken.CreatorsLeft(ctx, tx, tenantID, actor, leavers); err != nil {
 		return fmt.Errorf("tokens of leavers: %w", err)
+	}
+	if err := nhi.OwnersLeft(ctx, tx, tenantID, actor, leavers); err != nil {
+		return fmt.Errorf("non-human identities of leavers: %w", err)
 	}
 	return db.SendBatch(ctx, tx, changes, func(b *pgx.Batch, ch *Change) {
 		details := map[string]any{"external_id": ch.ExternalID, "status": ch.Status}

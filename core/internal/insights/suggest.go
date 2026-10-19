@@ -43,7 +43,8 @@ type Suggestion struct {
 	Use
 	// PeerGroup is who they were compared with: "department" (the people
 	// in Department) or "team" (the people with the same manager). Empty
-	// when they have no peers to compare with.
+	// when they have no peers to compare with, as for service accounts, AI
+	// agents and workloads: each one does its own job.
 	PeerGroup  string `json:"peer_group,omitempty"`
 	Department string `json:"department,omitempty"`
 	// Peers is how many people are in the group, them aside, and
@@ -108,15 +109,16 @@ func Suggest(ctx context.Context, tx pgx.Tx, items []Access) ([]Suggestion, erro
 		JOIN identities me ON me.id = k.identity_id
 		CROSS JOIN LATERAL (`+useSQL("k.identity_id", role, ent, `nullif(k.eligibility_id, '')::uuid`)+`) u
 		CROSS JOIN LATERAL (
-			SELECT CASE WHEN coalesce(me.attributes ->> 'department', '') <> '' THEN 'department'
+			SELECT CASE WHEN me.kind <> 'human' THEN ''
+			            WHEN coalesce(me.attributes ->> 'department', '') <> '' THEN 'department'
 			            WHEN me.manager_id IS NOT NULL THEN 'team' ELSE '' END AS by,
 			       count(p.id) AS peers, count(p.id) FILTER (WHERE `+holds+`) AS holders
 			FROM (SELECT q.id FROM identities q
-			      WHERE coalesce(me.attributes ->> 'department', '') <> '' AND q.status = 'active'
+			      WHERE me.kind = 'human' AND coalesce(me.attributes ->> 'department', '') <> '' AND q.status = 'active' AND q.kind = 'human'
 			        AND q.attributes ->> 'department' = me.attributes ->> 'department'
 			      UNION ALL
 			      SELECT q.id FROM identities q
-			      WHERE coalesce(me.attributes ->> 'department', '') = '' AND q.status = 'active'
+			      WHERE me.kind = 'human' AND coalesce(me.attributes ->> 'department', '') = '' AND q.status = 'active' AND q.kind = 'human'
 			        AND q.manager_id = me.manager_id) p
 			WHERE p.id <> me.id
 		) g`, n, ids, roles, ents, els)

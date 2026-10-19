@@ -18,6 +18,7 @@ someone already decided it.
 | `break_glass_review` | Admins, about uses other than their own | A break-glass use is still not reviewed a day after it started, then daily |
 | `sod_violation` | Admins | A separation of duties check (every 30 minutes, or run from the console) finds new violations or ends exceptions. One email per check lists up to 20, most severe first |
 | `service_token_creator_left` | Admins | Someone who created [API tokens](service-tokens.md) that still work leaves the company. One email per HR sync or end-date check lists their tokens |
+| `non_human_owner_left` | Admins, and whoever takes them over | Someone who owned [service accounts, AI agents or workloads](non-human-identities.md) leaves. Admins get the whole list; each new owner (the leaver's manager) gets what is theirs now |
 
 Nobody is emailed about their own access as an approver. Withdrawn requests,
 and requests cancelled because the person left, send nothing.

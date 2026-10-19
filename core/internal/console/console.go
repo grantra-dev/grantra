@@ -209,6 +209,13 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/attack-paths", a.listAttackPaths)
 	route("GET /api/v1/attack-paths/{id}", a.getAttackPaths)
 	route("GET /api/v1/identities/{id}/reach", a.identityReach)
+	route("GET /api/v1/non-human-identities", a.listNonHuman)
+	route("POST /api/v1/non-human-identities", a.createNonHuman)
+	route("GET /api/v1/non-human-identities/summary", a.nonHumanSummary)
+	route("GET /api/v1/non-human-identities/candidates", a.listNonHumanCandidates)
+	route("GET /api/v1/non-human-identities/{id}", a.getNonHuman)
+	route("PATCH /api/v1/non-human-identities/{id}", a.updateNonHuman)
+	route("POST /api/v1/non-human-identities/{id}/retire", a.retireNonHuman)
 	route("GET /api/v1/unused-access", a.listUnusedAccess)
 	route("GET /api/v1/role-suggestions", a.listRoleSuggestions)
 
@@ -276,22 +283,26 @@ type identity struct {
 	ManagerID   string `json:"manager_id,omitempty"`
 	// SourceID and ExternalID say which HR source owns the identity and the
 	// employee id it has there.
-	SourceID   string         `json:"source_id,omitempty"`
-	ExternalID string         `json:"external_id,omitempty"`
-	StartDate  string         `json:"start_date,omitempty"`
-	EndDate    string         `json:"end_date,omitempty"`
+	SourceID   string `json:"source_id,omitempty"`
+	ExternalID string `json:"external_id,omitempty"`
+	StartDate  string `json:"start_date,omitempty"`
+	EndDate    string `json:"end_date,omitempty"`
+	// Purpose and SpiffeID are for non-human identities, whose manager is
+	// their owner.
+	Purpose    string         `json:"purpose,omitempty"`
+	SpiffeID   string         `json:"spiffe_id,omitempty"`
 	Attributes map[string]any `json:"attributes"`
 	CreatedAt  time.Time      `json:"created_at"`
 }
 
 const identityColumns = `id, display_name, coalesce(email, ''), kind, status, coalesce(manager_id::text, ''),
 	coalesce(source_id::text, ''), coalesce(external_id, ''), coalesce(to_char(start_date, 'YYYY-MM-DD'), ''), coalesce(to_char(end_date, 'YYYY-MM-DD'), ''),
-	attributes, created_at`
+	coalesce(purpose, ''), coalesce(spiffe_id, ''), attributes, created_at`
 
 func scanIdentity(row pgx.CollectableRow) (identity, error) {
 	var i identity
 	err := row.Scan(&i.ID, &i.DisplayName, &i.Email, &i.Kind, &i.Status, &i.ManagerID,
-		&i.SourceID, &i.ExternalID, &i.StartDate, &i.EndDate, &i.Attributes, &i.CreatedAt)
+		&i.SourceID, &i.ExternalID, &i.StartDate, &i.EndDate, &i.Purpose, &i.SpiffeID, &i.Attributes, &i.CreatedAt)
 	return i, err
 }
 
@@ -313,7 +324,8 @@ var identityStatuses = map[string]bool{"pending": true, "active": true, "suspend
 
 // listIdentities pages through all identities by id: ?limit=50&after=<id>.
 // ?q= keeps the ones whose name or email contains it, ignoring case, and
-// ?status= the ones in that status.
+// ?status= the ones in that status, and ?kind=human or ?kind=non_human
+// people or the service accounts, agents and workloads.
 func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 	limit, ok := pageLimit(w, r)
 	if !ok {
@@ -335,6 +347,11 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "status must be pending, active, suspended or terminated")
 		return
 	}
+	kind := q.Get("kind")
+	if kind != "" && kind != "human" && kind != "non_human" {
+		httpjson.Error(w, http.StatusBadRequest, "kind must be human or non_human")
+		return
+	}
 	var out []identity
 	err := a.guardedOn(r, authz.ListIdentities, authz.DirectoryResource(), func(tx pgx.Tx, _ authz.Subject) error {
 		rows, err := tx.Query(r.Context(),
@@ -342,7 +359,8 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 			 WHERE ($1 = '' OR id > $1::uuid)
 			   AND ($3 = '' OR lower(display_name) LIKE $5 OR lower(email) LIKE $5)
 			   AND ($4 = '' OR status = $4)
-			 ORDER BY id LIMIT $2`, after, limit, search, status, db.ContainsPattern(search))
+			   AND ($6 = '' OR (kind = 'human') = ($6 = 'human'))
+			 ORDER BY id LIMIT $2`, after, limit, search, status, db.ContainsPattern(search), kind)
 		if err != nil {
 			return err
 		}

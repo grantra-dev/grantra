@@ -35,6 +35,9 @@ func TestConditions(t *testing.T) {
 		{Conditions{"title": {"CTO"}}, sales, "human", false},
 		{Conditions{"kind": {"service"}}, sales, "human", false},
 		{Conditions{"kind": {"human"}, "department": {"Sales"}}, sales, "human", true},
+		{Conditions{}, sales, "service", false},
+		{Conditions{"department": {"Sales"}}, sales, "agent", false},
+		{Conditions{"kind": {"service"}, "department": {"Sales"}}, sales, "service", true},
 	}
 	for _, tt := range tests {
 		if got := tt.conds.Match(tt.attrs, tt.kind); got != tt.want {

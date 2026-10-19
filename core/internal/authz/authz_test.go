@@ -90,6 +90,9 @@ func TestDecisions(t *testing.T) {
 		{"manager cannot list", Request{Principal: manager, Action: ListIdentities, Resource: DirectoryResource()}, false, nil},
 		{"helpdesk lists", Request{Principal: helpdesk, Action: ListIdentities, Resource: DirectoryResource()}, true, nil},
 		{"admin lists", Request{Principal: admin, Action: ListIdentities, Resource: DirectoryResource()}, true, []string{"admin-all"}},
+		{"helpdesk cannot manage non-human identities", Request{Principal: helpdesk, Action: ManageIdentities, Resource: DirectoryResource()}, false, nil},
+		{"auditor cannot manage non-human identities", Request{Principal: auditor, Action: ManageIdentities, Resource: DirectoryResource()}, false, nil},
+		{"admin manages non-human identities", Request{Principal: admin, Action: ManageIdentities, Resource: DirectoryResource()}, true, []string{"admin-all"}},
 
 		// Audit log.
 		{"auditor reads audit log", Request{Principal: auditor, Action: ReadAuditLog, Resource: AuditLogResource()}, true, nil},

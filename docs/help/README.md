@@ -11,6 +11,7 @@ The help pages people read inside the console, under **Help**. Each person sees 
 | [Administration](administration.md) | Admins |
 | [Threats](threats.md) | Admins, auditors |
 | [Insights](insights.md) | Admins, auditors |
+| [Service accounts and agents](non-human-identities.md) | Owners (managers), admins, auditors |
 | [CSV files](csv-files.md) | Admins |
 
 The console renders a small part of Markdown: headings, paragraphs, lists, tables, code, bold, italics and links. A link to another page here opens it in the console, a link to a file under `web/public` downloads it, and any other relative link opens on GitHub.

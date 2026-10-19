@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  Bot,
   Cable,
   ClipboardCheck,
   Inbox,
@@ -114,6 +115,18 @@ export const iga: NavItem[] = [
     visible: governs,
     manages: true,
     page: lazyPage(() => import("@/pages/admin/StandingAccess"), "StandingAccess"),
+    header: true,
+  },
+  {
+    path: "/governance/non-human-identities",
+    title: "Service accounts and agents",
+    description: "Service accounts, AI agents and workloads, and who answers for each.",
+    icon: Bot,
+    module: "iga",
+    group: "governance",
+    visible: governs,
+    manages: true,
+    page: lazyPage(() => import("@/pages/NonHuman"), "NonHumanIdentities"),
     header: true,
   },
   {

@@ -81,6 +81,7 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `/api/v1/applications/{id}/connector`, `/aggregations`, `/account-imports`, `/accounts`, `/provisioning`, `/provisioning-runs`, `/api/v1/accounts/{id}/identity` | Connectors, aggregation, account files, correlation and provisioning, see [connectors.md](connectors.md) |
 | `/api/v1/service-tokens` | Tokens scripts use to send HR exports, account files and sign-ins, see [service-tokens.md](service-tokens.md) |
 | `/api/v1/threats/...`, `/api/v1/sign-in-events`, `/api/v1/identities/{id}/threat-responses` | Threat detection: alerts, detections, sign-ins and responses, see [threat-detection.md](threat-detection.md) |
+| `/api/v1/non-human-identities`, `/summary`, `/candidates`, `/{id}`, `/{id}/retire` | Service accounts, AI agents and workloads, see [non-human-identities.md](non-human-identities.md) |
 | `/api/v1/attack-paths`, `/api/v1/attack-paths/{id}`, `/api/v1/identities/{id}/reach`, `/api/v1/unused-access`, `/api/v1/role-suggestions` | Attack paths, unused access and role suggestions, see [access-insights.md](access-insights.md) |
 | `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
 | `/api/v1/review-campaigns`, `/api/v1/review-items` | Access reviews, see [access-reviews.md](access-reviews.md) |

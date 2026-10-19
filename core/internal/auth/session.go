@@ -82,11 +82,12 @@ func (s *Service) linkLogin(ctx context.Context, tx pgx.Tx, l login) (string, er
 		return "", err
 	}
 
-	// An unverified email could belong to anyone, so it never links.
+	// An unverified email could belong to anyone, so it never links. Only
+	// people sign in to the console.
 	if !l.emailVerified || l.email == "" {
 		return "", nil
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM identities WHERE lower(email) = lower($1) LIMIT 2`, l.email)
+	rows, err := tx.Query(ctx, `SELECT id FROM identities WHERE lower(email) = lower($1) AND kind = 'human' LIMIT 2`, l.email)
 	if err != nil {
 		return "", err
 	}

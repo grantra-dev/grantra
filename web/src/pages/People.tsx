@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { identitiesPageSize, listIdentities } from "@/lib/api";
 import { useDebounced, usePages } from "@/lib/hooks";
+import { identityKindLabels } from "@/lib/nhi";
 import { formatDate } from "@/lib/utils";
 import { ShowMore } from "@/components/ShowMore";
 
@@ -88,7 +89,11 @@ export function People() {
                       <IdentityStatusBadge status={p.status} />
                     </TableCell>
                     <TableCell className="text-slate-600">
-                      {p.source_id ? `HR, employee ${p.external_id}` : "Created by hand"}
+                      {p.kind !== "human"
+                        ? identityKindLabels[p.kind]
+                        : p.source_id
+                          ? `HR, employee ${p.external_id}`
+                          : "Created by hand"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {p.start_date ? formatDate(p.start_date) : "—"}
