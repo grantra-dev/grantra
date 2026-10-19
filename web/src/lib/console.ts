@@ -31,11 +31,21 @@ export interface BreakGlassTask {
   checked_out_at: string;
 }
 
+/** A serious threat alert for an admin to look at; never one about themselves. */
+export interface ThreatTask {
+  id: string;
+  title: string;
+  summary: string;
+  severity: "high" | "critical";
+  last_seen_at: string;
+}
+
 /** Everything waiting on you, from GET /api/v1/me/inbox. */
 export interface Inbox {
   approvals: WaitingRequest[];
   reviews: CampaignToReview[];
   break_glass: BreakGlassTask[];
+  threats: ThreatTask[];
   total: number;
 }
 
@@ -63,6 +73,8 @@ export interface Home {
     undescribed: number;
     open_violations?: number;
   };
+  /** For whoever watches for threats, while threat detection is on. */
+  security?: { open_alerts: Partial<Record<"low" | "medium" | "high" | "critical", number>> };
 }
 
 export const getHome = () => api<Home>("/api/v1/me/home");
@@ -83,7 +95,7 @@ export const search = (q: string) =>
 
 /** A part of Grantra a tenant can turn off. */
 export interface ConsoleModule {
-  id: "pam" | "login";
+  id: "pam" | "login" | "itdr";
   title: string;
   description: string;
   enabled: boolean;

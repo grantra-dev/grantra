@@ -398,9 +398,13 @@ export const exceptSoDViolation = (violationId: string, reason: string, days: nu
 export const tokenScopes = {
   "identity_source.sync": "Feed an HR source",
   "application.import_accounts": "Load an application's account file",
+  "sign_in_event.send": "Send sign-ins from another login provider",
 } as const;
 
 export type TokenScope = keyof typeof tokenScopes;
+
+/** Scopes that always cover the whole tenant: there is nothing to pin them to. */
+export const unpinnedScopes: readonly TokenScope[] = ["sign_in_event.send"];
 
 export interface ServiceToken {
   id: string;

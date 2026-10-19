@@ -4,7 +4,13 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Threat detection reads Grantra Login's sign-ins**, which needs two more `realm-management` roles on the connector's service account: `view-events` and `manage-events`. New installs have them in `deploy/keycloak/grantra-realm.json`; on an existing realm add them in Keycloak (Clients → `grantra-connector` → Service account roles), or run `make reset` in the demo. Without them Grantra still looks at access and at the sign-ins scripts send; the job logs that it cannot read Grantra Login, and **Look now** on the Threats page shows the error.
+
 ### Added
+
+- **Identity threat detection and response** ([docs](docs/threat-detection.md)). Security → Threats shows alerts for a leaver who still signs in, impossible travel, a new country, a dormant account used, password guessing, password spray, MFA fatigue, high-risk access granted outside Grantra and new Grantra admins. Sign-ins come from Grantra Login on their own and from other providers through `POST /api/v1/sign-in-events` with a service token (new scope `sign_in_event.send`). From an alert, admins end the person's sessions everywhere, require a second factor for some days, or suspend and reinstate them; each detection can be tuned, turned off or set to respond on its own with the responses safe for it. High and critical alerts go to the admins' Inbox and email, never to the person they are about. Turn it off in Settings → Modules.
 
 - **Help in the console.** A Help section with pages for what each person does in Grantra (everyone, approvers and reviewers, helpdesk and auditors, admins), read from [`docs/help`](docs/help) so the same text is on GitHub.
 - **Console search.** <kbd>⌘K</kbd> (or <kbd>Ctrl K</kbd>, or <kbd>/</kbd>) searches pages, people, roles, entitlements, applications, vault accounts, servers and remote targets, showing each person only what they may see, and opens the exact thing ([docs](docs/console.md)).

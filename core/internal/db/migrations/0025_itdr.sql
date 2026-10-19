@@ -133,3 +133,7 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- The access scan reads, every minute, what accounts gained since its last
+-- look.
+CREATE INDEX account_entitlements_granted ON account_entitlements (tenant_id, granted_at);

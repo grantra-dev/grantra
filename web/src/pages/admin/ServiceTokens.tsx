@@ -24,6 +24,7 @@ import {
   tokenScopes,
   type ServiceToken,
   type TokenScope,
+  unpinnedScopes,
 } from "@/lib/admin";
 import { formatDate, formatTime } from "@/lib/utils";
 import { useCanManage } from "@/lib/manage";
@@ -37,6 +38,7 @@ function useTargets() {
     "application.import_accounts": (apps.data ?? [])
       .filter((a) => a.connector === "csv")
       .map((a) => ({ id: a.id, name: a.name })),
+    "sign_in_event.send": [],
   } satisfies Record<TokenScope, { id: string; name: string }[]>;
 }
 
@@ -57,6 +59,7 @@ export function ServiceTokens() {
   const describe = (scope: string) => {
     const [action, target] = scope.split(":") as [TokenScope, string | undefined];
     const what = tokenScopes[action] ?? action;
+    if (unpinnedScopes.includes(action)) return what;
     if (!target) return `${what}: any`;
     return `${what}: ${targets[action]?.find((t) => t.id === target)?.name ?? target}`;
   };
@@ -64,9 +67,9 @@ export function ServiceTokens() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-slate-500">
-        Scripts and scheduled jobs use a token to send HR exports and account files without anyone
-        signing in. A token can only do what you allow, stops working on its expiry date, and
-        everything it does is in the audit log under its name.
+        Scripts and scheduled jobs use a token to send HR exports, account files and sign-ins
+        without anyone signing in. A token can only do what you allow, stops working on its expiry
+        date, and everything it does is in the audit log under its name.
       </p>
       <Manage>
         <NewToken onCreated={setCreated} />
@@ -227,19 +230,21 @@ function NewToken({
                     </option>
                   ))}
                 </Select>
-                <Select
-                  aria-label={`Permission ${i + 1} applies to`}
-                  className="w-auto"
-                  value={g.target}
-                  onChange={(e) => change(i, { ...g, target: e.target.value })}
-                >
-                  <option value="">Any</option>
-                  {targets[g.action].map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </Select>
+                {!unpinnedScopes.includes(g.action) && (
+                  <Select
+                    aria-label={`Permission ${i + 1} applies to`}
+                    className="w-auto"
+                    value={g.target}
+                    onChange={(e) => change(i, { ...g, target: e.target.value })}
+                  >
+                    <option value="">Any</option>
+                    {targets[g.action].map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
                 {grants.length > 1 && (
                   <Button
                     type="button"

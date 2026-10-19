@@ -96,7 +96,14 @@ describe("App", () => {
     const groups = within(nav)
       .getAllByRole("button")
       .map((b) => b.textContent);
-    expect(groups).toEqual(["For you", "To do", "Privileged access", "Governance", "Settings"]);
+    expect(groups).toEqual([
+      "For you",
+      "To do",
+      "Privileged access",
+      "Security",
+      "Governance",
+      "Settings",
+    ]);
     expect(nav).toHaveTextContent("Approvals");
     expect(nav).toHaveTextContent("Separation of duties");
     expect(nav).toHaveTextContent("HR sources");

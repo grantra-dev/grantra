@@ -1,5 +1,6 @@
 import type { Me } from "@/lib/api";
 import { iga } from "./iga";
+import { itdr } from "./itdr";
 import { login } from "./login";
 import { pam } from "./pam";
 import { helpItem, home, inboxItem, platform } from "./platform";
@@ -16,6 +17,7 @@ export const navItems: NavItem[] = [
   inboxItem,
   ...iga,
   ...pam,
+  ...itdr,
   ...login,
   ...platform,
   helpItem,
