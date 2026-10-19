@@ -764,6 +764,54 @@ type Filter struct {
 	After string
 }
 
+// waitingOn is an SQL condition on the request r, true when it waits on
+// the decision of me (an SQL expression): the approver of its current step,
+// or an admin (admin) when that step has nobody else to ask. Nobody decides
+// on their own access.
+func waitingOn(me string, admin bool) string {
+	cond := "s.approver_id = " + me + " AND a.status = 'active'"
+	if admin {
+		cond = "(" + cond + ") OR s.approver_id IS NULL OR a.status <> 'active'"
+	}
+	return `r.status = 'pending' AND r.beneficiary_id <> ` + me + ` AND EXISTS (
+		SELECT 1 FROM access_request_steps s LEFT JOIN identities a ON a.id = s.approver_id
+		WHERE s.request_id = r.id AND s.status = 'pending' AND (` + cond + `))`
+}
+
+// Waiting is a request that waits on someone's decision, as an inbox lists it.
+type Waiting struct {
+	ID              string     `json:"id"`
+	BeneficiaryName string     `json:"beneficiary_name"`
+	TargetName      string     `json:"target_name"`
+	Application     string     `json:"application,omitempty"`
+	Kind            string     `json:"kind"`
+	CreatedAt       time.Time  `json:"created_at"`
+	DueAt           *time.Time `json:"due_at,omitempty"`
+}
+
+// ListWaiting returns the requests waiting on me's decision, the soonest
+// deadline first: the same requests as List with ScopeApprovals.
+func ListWaiting(ctx context.Context, tx pgx.Tx, me string, admin bool) ([]Waiting, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT r.id, b.display_name, coalesce(ro.name, e.name), coalesce(app.name, ''), r.kind, r.created_at,
+		        (SELECT s.due_at FROM access_request_steps s WHERE s.request_id = r.id AND s.status = 'pending' LIMIT 1) AS due
+		 FROM access_requests r
+		 JOIN identities b ON b.id = r.beneficiary_id
+		 LEFT JOIN roles ro ON ro.id = r.role_id
+		 LEFT JOIN entitlements e ON e.id = r.entitlement_id
+		 LEFT JOIN applications app ON app.id = e.application_id
+		 WHERE `+waitingOn("$1", admin)+`
+		 ORDER BY due NULLS LAST, r.created_at, r.id`, me)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Waiting, error) {
+		var w Waiting
+		err := row.Scan(&w.ID, &w.BeneficiaryName, &w.TargetName, &w.Application, &w.Kind, &w.CreatedAt, &w.DueAt)
+		return w, err
+	})
+}
+
 // List returns requests, newest first.
 func List(ctx context.Context, tx pgx.Tx, f Filter) ([]Request, error) {
 	var where []string
@@ -777,14 +825,7 @@ func List(ctx context.Context, tx pgx.Tx, f Filter) ([]Request, error) {
 		me := arg(f.Me)
 		where = append(where, "(r.requester_id = "+me+" OR r.beneficiary_id = "+me+")")
 	case ScopeApprovals:
-		me := arg(f.Me)
-		cond := "s.approver_id = " + me + " AND a.status = 'active'"
-		if f.Admin {
-			cond = "(" + cond + ") OR s.approver_id IS NULL OR a.status <> 'active'"
-		}
-		where = append(where, `r.status = 'pending' AND r.beneficiary_id <> `+me+` AND EXISTS (
-			SELECT 1 FROM access_request_steps s LEFT JOIN identities a ON a.id = s.approver_id
-			WHERE s.request_id = r.id AND s.status = 'pending' AND (`+cond+`))`)
+		where = append(where, waitingOn(arg(f.Me), f.Admin))
 	case ScopeAll:
 	default:
 		return nil, apperr.Invalidf("scope must be mine, approvals or all")
@@ -832,6 +873,9 @@ type Requestable struct {
 	// JITOnly says the access is only held for a time: ask for it with a
 	// duration, or to be made eligible.
 	JITOnly bool `json:"jit_only"`
+	// TeamHolders is how many people on the asker's team hold it now: the
+	// active people who share their manager. See TeamHolders.
+	TeamHolders int `json:"team_holders,omitempty"`
 }
 
 // ListRequestable returns the roles and entitlements people can ask for:
@@ -852,6 +896,53 @@ func ListRequestable(ctx context.Context, tx pgx.Tx) ([]Requestable, error) {
 		err := row.Scan(&r.Type, &r.ID, &r.Name, &r.Description, &r.Application, &r.Risk, &r.JITOnly)
 		return r, err
 	})
+}
+
+// MinTeamForHolders is the smallest team whose holdings TeamHolders counts:
+// in a team of one or two, a count tells what a given colleague holds.
+const MinTeamForHolders = 3
+
+// TeamHolders tells what the team of identity holds, to help people pick
+// from a catalog of names they may not know: how many active people share
+// identity's manager (identity aside), and how many of them hold each role
+// and entitlement now, keyed by Requestable.Type + ":" + ID. An identity
+// with no manager has no team, and a team smaller than MinTeamForHolders
+// gets its size only.
+func TeamHolders(ctx context.Context, tx pgx.Tx, identity string) (size int, held map[string]int, err error) {
+	held = map[string]int{}
+	err = tx.QueryRow(ctx,
+		`SELECT count(*) FROM identities t JOIN identities me ON t.manager_id = me.manager_id
+		 WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active'`, identity).Scan(&size)
+	if err != nil || size < MinTeamForHolders {
+		return size, held, err
+	}
+	rows, err := tx.Query(ctx,
+		`WITH team AS (
+		   SELECT t.id FROM identities t JOIN identities me ON t.manager_id = me.manager_id
+		   WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active'),
+		 current AS (
+		   SELECT x.* FROM access_assignments x JOIN team ON team.id = x.identity_id
+		   WHERE x.expires_at IS NULL OR x.expires_at > now()),
+		 holds AS (
+		   SELECT identity_id, 'role' AS type, role_id AS id FROM current WHERE role_id IS NOT NULL
+		   UNION
+		   SELECT identity_id, 'entitlement', entitlement_id FROM current WHERE entitlement_id IS NOT NULL
+		   UNION
+		   SELECT c.identity_id, 'entitlement', re.entitlement_id FROM current c JOIN role_entitlements re ON re.role_id = c.role_id)
+		 SELECT type || ':' || id, count(*) FROM holds GROUP BY type, id`, identity)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var n int
+		if err := rows.Scan(&key, &n); err != nil {
+			return 0, nil, err
+		}
+		held[key] = n
+	}
+	return size, held, rows.Err()
 }
 
 // Housekeeping counts what ExpireDue did.

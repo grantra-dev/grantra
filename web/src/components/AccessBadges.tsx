@@ -1,4 +1,13 @@
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { Assignment, IdentityStatus } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
@@ -51,4 +60,40 @@ const statusLabels = {
 
 export function IdentityStatusBadge({ status }: { status: IdentityStatus }) {
   return <Badge variant={statusVariants[status]}>{statusLabels[status]}</Badge>;
+}
+
+/** Someone's access: what, why they have it ("you" or "they"), since and until when. */
+export function AccessTable({ rows, who }: { rows: Assignment[]; who: "you" | "they" }) {
+  const [now] = useState(() => Date.now());
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Access</TableHead>
+          <TableHead>Why {who} have it</TableHead>
+          <TableHead>Since</TableHead>
+          <TableHead>Until</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((a) => (
+          <TableRow key={a.id}>
+            <TableCell>
+              <div className="font-medium">{a.name}</div>
+              <div className="text-slate-500">
+                {a.type === "role" ? "Role" : a.application || "Entitlement"}
+              </div>
+            </TableCell>
+            <TableCell>
+              <Origin a={a} />
+            </TableCell>
+            <TableCell className="whitespace-nowrap">{formatDate(a.granted_at)}</TableCell>
+            <TableCell className="whitespace-nowrap">
+              <Expiry at={a.expires_at} now={now} />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 }

@@ -125,3 +125,36 @@ func TestRenderRisk(t *testing.T) {
 		t.Errorf("risk reminder: %v\n%s", err, body)
 	}
 }
+
+// Emails link to the exact request or campaign, not to the list it is in.
+func TestPageForLinksToTheTask(t *testing.T) {
+	request := map[string]any{"request_id": "0b7c5e3e-4f39-4a5e-9a59-d2c1a1e6a001"}
+	campaign := map[string]any{"campaign_id": "6f2d9a3c-1b8e-4c47-8e1f-2a9b7c3d4e5f"}
+	for _, tc := range []struct {
+		kind Kind
+		data map[string]any
+		want string
+	}{
+		{ApprovalNeeded, request, "/approvals?request=0b7c5e3e-4f39-4a5e-9a59-d2c1a1e6a001"},
+		{RequestExpiring, request, "/approvals?request=0b7c5e3e-4f39-4a5e-9a59-d2c1a1e6a001"},
+		{RequestDecided, request, "/requests?request=0b7c5e3e-4f39-4a5e-9a59-d2c1a1e6a001"},
+		{ReviewAssigned, campaign, "/reviews?campaign=6f2d9a3c-1b8e-4c47-8e1f-2a9b7c3d4e5f"},
+		{CampaignDueSoon, campaign, "/reviews?campaign=6f2d9a3c-1b8e-4c47-8e1f-2a9b7c3d4e5f"},
+		// Without the id, the list; kinds about many things keep their page.
+		{ApprovalNeeded, map[string]any{}, "/approvals"},
+		{ReviewAssigned, map[string]any{"campaign_id": ""}, "/reviews"},
+		{BreakGlassUsed, request, "/vault?tab=break-glass"},
+		{SoDViolation, campaign, "/governance/separation-of-duties"},
+		// Ids come from the data, so they are escaped like any value.
+		{RequestDecided, map[string]any{"request_id": "a&b=c"}, "/requests?request=a%26b%3Dc"},
+	} {
+		if got := pageFor(tc.kind, tc.data); got != tc.want {
+			t.Errorf("pageFor(%s, %v) = %q, want %q", tc.kind, tc.data, got, tc.want)
+		}
+	}
+	for _, k := range Kinds {
+		if pages[k.Kind] == "" {
+			t.Errorf("%s has no console page", k.Kind)
+		}
+	}
+}

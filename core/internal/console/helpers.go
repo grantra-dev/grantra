@@ -39,6 +39,12 @@ func (a *API) inTenant(r *http.Request, fn func(tx pgx.Tx, me authz.Subject) err
 	})
 }
 
+// may says whether the policies let me do action on resource, for
+// handlers that show more or less rather than refuse.
+func (a *API) may(me authz.Subject, action authz.Action, resource authz.Resource) bool {
+	return a.authz.Authorize(authz.Request{Principal: me, Action: action, Resource: resource}).Allowed
+}
+
 // check asks the policies about req. Refused writes are recorded in the audit
 // log, from their own transaction so that they survive the refusal.
 func (a *API) check(ctx context.Context, req authz.Request) error {

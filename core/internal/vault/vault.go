@@ -94,8 +94,8 @@ type Account struct {
 	BreakGlass bool        `json:"break_glass"`
 	Responders []Responder `json:"break_glass_responders"`
 	// Held says whether the person asking holds access to it, and so can
-	// check it out; Responder whether they may break the glass. Set by the
-	// console.
+	// check it out (set by List); Responder whether they may break the
+	// glass (set by the console).
 	Held      bool      `json:"held"`
 	Responder bool      `json:"responder"`
 	CreatedAt time.Time `json:"created_at"`
@@ -798,31 +798,45 @@ const accountFrom = ` FROM vault_accounts va
 	LEFT JOIN vault_secret_versions s ON s.vault_account_id = va.id AND s.status = 'current'`
 
 func scanAccount(row pgx.CollectableRow) (Account, error) {
+	return scanAccountWith(row)
+}
+
+// scanHeldAccount reads an account followed by whether the asker holds it.
+func scanHeldAccount(row pgx.CollectableRow) (Account, error) {
+	var held bool
+	a, err := scanAccountWith(row, &held)
+	a.Held = held
+	return a, err
+}
+
+// scanAccountWith reads the columns of accountColumns, then extra.
+func scanAccountWith(row pgx.CollectableRow, extra ...any) (Account, error) {
 	var a Account
 	var connKind string
-	err := row.Scan(&a.ID, &a.Name, &a.Username, &a.Address, &a.Notes, &a.Kind,
+	err := row.Scan(append([]any{&a.ID, &a.Name, &a.Username, &a.Address, &a.Notes, &a.Kind,
 		&a.AccountID, &a.ApplicationID, &a.ApplicationName, &connKind,
 		&a.EntitlementID, &a.EntitlementName, &a.Risk, &a.CheckoutMinutes, &a.Exclusive, &a.RotateEveryDays, &a.RotateAfterCheckin,
-		&a.RotateAt, &a.RotationFailures, &a.LastRotationError, &a.Version, &a.SecretAt, &a.BreakGlass, &a.CreatedAt)
+		&a.RotateAt, &a.RotationFailures, &a.LastRotationError, &a.Version, &a.SecretAt, &a.BreakGlass, &a.CreatedAt}, extra...)...)
 	a.CanRotate = a.AccountID != "" && a.Kind == KindPassword && connector.SetsPasswords(connKind)
 	a.Checkouts = []Checkout{}
 	a.Responders = []Responder{}
 	return a, err
 }
 
-// List returns every vault account, or with holder set only the ones that
-// identity holds access to, with their open check-outs.
-func List(ctx context.Context, tx pgx.Tx, holder string) ([]Account, error) {
-	rows, err := tx.Query(ctx, `SELECT `+accountColumns+accountFrom+`
-		WHERE $1 = '' OR va.entitlement_id IN (
-			SELECT coalesce(x.entitlement_id, re.entitlement_id) FROM access_assignments x
-			LEFT JOIN role_entitlements re ON re.role_id = x.role_id
-			WHERE x.identity_id = nullif($1, '')::uuid AND (x.expires_at IS NULL OR x.expires_at > now()))
-		ORDER BY va.name`, holder)
+// heldBy is true when $1, an active identity (empty for nobody), holds
+// va's access right now.
+var heldBy = catalog.HeldSQL(`nullif($1, '')::uuid`, `va.entitlement_id`)
+
+// List returns the vault accounts with their open check-outs and Held set
+// for identity: every account, or with onlyHeld only the ones identity
+// holds access to right now.
+func List(ctx context.Context, tx pgx.Tx, identity string, onlyHeld bool) ([]Account, error) {
+	rows, err := tx.Query(ctx, `SELECT `+accountColumns+`, `+heldBy+accountFrom+`
+		WHERE NOT $2 OR `+heldBy+` ORDER BY va.name`, identity, onlyHeld)
 	if err != nil {
 		return nil, err
 	}
-	list, err := pgx.CollectRows(rows, scanAccount)
+	list, err := pgx.CollectRows(rows, scanHeldAccount)
 	if err != nil || len(list) == 0 {
 		return list, err
 	}

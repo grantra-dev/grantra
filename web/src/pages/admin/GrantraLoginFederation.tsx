@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Manage } from "@/components/Manage";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
   type ImportSet,
   type ProviderKind,
 } from "@/lib/login";
+import { useCanManage } from "@/lib/manage";
 
 const kinds: { value: ProviderKind; label: string }[] = [
   { value: "entra", label: "Microsoft Entra ID" },
@@ -70,7 +72,9 @@ export function IdentityProviders({ providers }: { providers: IdentityProvider[]
             </TableBody>
           </Table>
         )}
-        <NewProvider />
+        <Manage>
+          <NewProvider />
+        </Manage>
       </CardContent>
     </Card>
   );
@@ -89,6 +93,7 @@ function Provider({ provider: p }: { provider: IdentityProvider }) {
     onSuccess: refresh,
   });
   const changed = splitDomains(domains).join(",") !== p.domains.join(",");
+  const canManage = useCanManage();
   return (
     <TableRow>
       <TableCell>
@@ -110,23 +115,31 @@ function Provider({ provider: p }: { provider: IdentityProvider }) {
         )}
       </TableCell>
       <TableCell>
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            route.mutate();
-          }}
-        >
-          <Input
-            aria-label={`Email domains for ${p.display_name || p.alias}`}
-            value={domains}
-            onChange={(e) => setDomains(e.target.value)}
-            placeholder="acme.com, acme.io"
-          />
-          <Button type="submit" variant="outline" size="sm" disabled={!changed || route.isPending}>
-            Save
-          </Button>
-        </form>
+        {!canManage && <span className="text-sm">{p.domains.join(", ") || "None"}</span>}
+        <Manage>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              route.mutate();
+            }}
+          >
+            <Input
+              aria-label={`Email domains for ${p.display_name || p.alias}`}
+              value={domains}
+              onChange={(e) => setDomains(e.target.value)}
+              placeholder="acme.com, acme.io"
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              disabled={!changed || route.isPending}
+            >
+              Save
+            </Button>
+          </form>
+        </Manage>
         {route.error && (
           <Alert variant="error" className="mt-2">
             {route.error.message}
@@ -134,21 +147,23 @@ function Provider({ provider: p }: { provider: IdentityProvider }) {
         )}
       </TableCell>
       <TableCell className="text-right">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={remove.isPending}
-          onClick={() => {
-            if (
-              window.confirm(
-                `Remove ${p.display_name || p.alias}? People who signed in with it keep their accounts, and need a Grantra Login password to sign in.`,
+        <Manage>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={remove.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Remove ${p.display_name || p.alias}? People who signed in with it keep their accounts, and need a Grantra Login password to sign in.`,
+                )
               )
-            )
-              remove.mutate();
-          }}
-        >
-          Remove
-        </Button>
+                remove.mutate();
+            }}
+          >
+            Remove
+          </Button>
+        </Manage>
         {remove.error && (
           <Alert variant="error" className="mt-2">
             {remove.error.message}

@@ -13,6 +13,8 @@ export const pam: NavItem[] = [
     group: "privileged",
     visible: everyone,
     page: lazyPage(() => import("@/pages/Vault"), "Vault"),
+    // Break-glass uses waiting for an admin's review.
+    count: (inbox) => inbox.break_glass.length,
   },
   {
     path: "/servers",

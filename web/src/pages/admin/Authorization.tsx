@@ -5,6 +5,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Manage } from "@/components/Manage";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import {
   Table,
@@ -24,6 +25,7 @@ import {
   type Question,
 } from "@/lib/appauthz";
 import { formatTime } from "@/lib/utils";
+import { useCanManage } from "@/lib/manage";
 
 const example = `// Who may do what in this app. principal is the person, with what Grantra
 // knows: entitlements (in this app), roles, department, title, manager...
@@ -94,6 +96,7 @@ function Policies({
     },
   });
   const changed = value !== stored;
+  const canManage = useCanManage();
   return (
     <Card>
       <CardHeader>
@@ -111,26 +114,31 @@ function Policies({
           className="font-mono text-xs"
           value={value}
           placeholder={example}
+          readOnly={!canManage}
           onChange={(e) => onChange(e.target.value)}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button disabled={!changed || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : "Save policies"}
-          </Button>
-          {changed && (
-            <Button variant="ghost" onClick={() => onChange(null)}>
-              Discard changes
+        <Manage>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={!changed || save.isPending} onClick={() => save.mutate()}>
+              {save.isPending ? "Saving…" : "Save policies"}
             </Button>
-          )}
-          {!value && (
-            <Button variant="outline" onClick={() => onChange(example)}>
-              Start from an example
-            </Button>
-          )}
-          {changed && (
-            <span className="text-sm text-slate-500">Unsaved: the playground uses this draft.</span>
-          )}
-        </div>
+            {changed && (
+              <Button variant="ghost" onClick={() => onChange(null)}>
+                Discard changes
+              </Button>
+            )}
+            {!value && (
+              <Button variant="outline" onClick={() => onChange(example)}>
+                Start from an example
+              </Button>
+            )}
+            {changed && (
+              <span className="text-sm text-slate-500">
+                Unsaved: the playground uses this draft.
+              </span>
+            )}
+          </div>
+        </Manage>
         {save.error && <Alert variant="error">{save.error.message}</Alert>}
       </CardContent>
     </Card>
@@ -341,6 +349,7 @@ function Keys({ appId, keys }: { appId: string; keys: APIKey[] }) {
     mutationFn: (id: string) => revokeAPIKey(appId, id),
     onSuccess: refresh,
   });
+  const canManage = useCanManage();
   return (
     <Card>
       <CardHeader>
@@ -381,17 +390,21 @@ function Keys({ appId, keys }: { appId: string; keys: APIKey[] }) {
                     {k.revoked_at ? (
                       <Badge>Revoked</Badge>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={revoke.isPending}
-                        onClick={() => {
-                          if (window.confirm(`Revoke ${k.name}? Apps using it get 401 right away.`))
-                            revoke.mutate(k.id);
-                        }}
-                      >
-                        Revoke
-                      </Button>
+                      canManage && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={revoke.isPending}
+                          onClick={() => {
+                            if (
+                              window.confirm(`Revoke ${k.name}? Apps using it get 401 right away.`)
+                            )
+                              revoke.mutate(k.id);
+                          }}
+                        >
+                          Revoke
+                        </Button>
+                      )
                     )}
                   </TableCell>
                 </TableRow>
@@ -399,27 +412,29 @@ function Keys({ appId, keys }: { appId: string; keys: APIKey[] }) {
             </TableBody>
           </Table>
         )}
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate();
-          }}
-        >
-          <div>
-            <Label htmlFor="key-name">Key name</Label>
-            <Input
-              id="key-name"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="billing backend (production)"
-            />
-          </div>
-          <Button type="submit" disabled={create.isPending}>
-            Create key
-          </Button>
-        </form>
+        <Manage>
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create.mutate();
+            }}
+          >
+            <div>
+              <Label htmlFor="key-name">Key name</Label>
+              <Input
+                id="key-name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="billing backend (production)"
+              />
+            </div>
+            <Button type="submit" disabled={create.isPending}>
+              Create key
+            </Button>
+          </form>
+        </Manage>
         {(create.error ?? revoke.error) && (
           <Alert variant="error">{(create.error ?? revoke.error)!.message}</Alert>
         )}

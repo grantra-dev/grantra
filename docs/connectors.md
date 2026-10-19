@@ -2,6 +2,8 @@
 
 A connector is how Grantra talks to an application. An *aggregation* **reads** the application's entitlements (groups, roles) and accounts, with who holds what, and stores them as the actual state next to the assignments (the desired state, see [access.md](access.md)). *Provisioning* **writes**: it changes the application so the actual state matches the desired one.
 
+In the console, **Settings → Connectors** connects an application in three steps (which application, its settings, a first read to test them) for SCIM, LDAP / Active Directory, Grantra Login and CSV files, and lists the connectors still planned. It saves the same config as the API calls below, which also cover the optional settings and changing a connector later.
+
 ## SCIM 2.0
 
 This connector speaks [SCIM 2.0](https://scim.cloud/), which Okta, Entra ID, Slack, GitHub Enterprise, Zoom and most SaaS tools offer.

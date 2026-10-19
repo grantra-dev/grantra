@@ -5,6 +5,7 @@ import { RiskBadge } from "@/components/RiskBadge";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Manage } from "@/components/Manage";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -93,23 +94,25 @@ function Row({ s }: { s: Standing }) {
       </TableCell>
       <TableCell className="whitespace-nowrap">{formatDate(s.granted_at)}</TableCell>
       <TableCell className="text-right">
-        {s.convertible ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => convert.mutate()}
-            disabled={convert.isPending}
-          >
-            Make it just in time
-          </Button>
-        ) : (
-          <span className="text-slate-500">Change the rule</span>
-        )}
-        {convert.error && (
-          <Alert variant="error" className="mt-2 text-left">
-            {convert.error.message}
-          </Alert>
-        )}
+        <Manage>
+          {s.convertible ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => convert.mutate()}
+              disabled={convert.isPending}
+            >
+              Make it just in time
+            </Button>
+          ) : (
+            <span className="text-slate-500">Change the rule</span>
+          )}
+          {convert.error && (
+            <Alert variant="error" className="mt-2 text-left">
+              {convert.error.message}
+            </Alert>
+          )}
+        </Manage>
       </TableCell>
     </TableRow>
   );

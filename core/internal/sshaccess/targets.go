@@ -41,8 +41,7 @@ type Target struct {
 	// first connection.
 	HostKey   string    `json:"host_key,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	// Held says whether the person asking holds access to it. Set by the
-	// console.
+	// Held says whether the person asking holds access to it. Set by List.
 	Held bool `json:"held"`
 }
 
@@ -222,14 +221,29 @@ func lockTarget(ctx context.Context, tx pgx.Tx, id string) (Target, error) {
 	return Get(ctx, tx, id)
 }
 
-const targetSelect = `SELECT t.id, t.name, t.address, t.login, coalesce(t.notes, ''), t.entitlement_id, e.name, e.risk,
-	t.max_certificate_hours, t.via_gateway, coalesce(t.host_key, ''), t.created_at
-	FROM ssh_targets t JOIN entitlements e ON e.id = t.entitlement_id`
+const targetColumns = `t.id, t.name, t.address, t.login, coalesce(t.notes, ''), t.entitlement_id, e.name, e.risk,
+	t.max_certificate_hours, t.via_gateway, coalesce(t.host_key, ''), t.created_at`
+
+const targetFrom = ` FROM ssh_targets t JOIN entitlements e ON e.id = t.entitlement_id`
+
+const targetSelect = `SELECT ` + targetColumns + targetFrom
+
+// targetFields are where the columns of targetColumns go.
+func targetFields(t *Target) []any {
+	return []any{&t.ID, &t.Name, &t.Address, &t.Login, &t.Notes, &t.EntitlementID, &t.EntitlementName, &t.Risk,
+		&t.MaxCertificateHours, &t.ViaGateway, &t.HostKey, &t.CreatedAt}
+}
 
 func scanTarget(row pgx.CollectableRow) (Target, error) {
 	var t Target
-	err := row.Scan(&t.ID, &t.Name, &t.Address, &t.Login, &t.Notes, &t.EntitlementID, &t.EntitlementName, &t.Risk,
-		&t.MaxCertificateHours, &t.ViaGateway, &t.HostKey, &t.CreatedAt)
+	err := row.Scan(targetFields(&t)...)
+	return t, err
+}
+
+// scanHeldTarget reads a target followed by whether the asker holds it.
+func scanHeldTarget(row pgx.CollectableRow) (Target, error) {
+	var t Target
+	err := row.Scan(append(targetFields(&t), &t.Held)...)
 	return t, err
 }
 
@@ -237,14 +251,15 @@ func scanTarget(row pgx.CollectableRow) (Target, error) {
 // the target t's access right now.
 var heldBy = catalog.HeldSQL(`nullif($1, '')::uuid`, `t.entitlement_id`)
 
-// List returns every target, or with holder set only the ones that identity
-// holds access to right now.
-func List(ctx context.Context, tx pgx.Tx, holder string) ([]Target, error) {
-	rows, err := tx.Query(ctx, targetSelect+` WHERE $1 = '' OR `+heldBy+` ORDER BY t.name`, holder)
+// List returns the targets with Held set for identity, in one query: every
+// target, or with onlyHeld only the ones identity holds access to right now.
+func List(ctx context.Context, tx pgx.Tx, identity string, onlyHeld bool) ([]Target, error) {
+	rows, err := tx.Query(ctx, `SELECT `+targetColumns+`, `+heldBy+targetFrom+`
+		WHERE NOT $2 OR `+heldBy+` ORDER BY t.name`, identity, onlyHeld)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, scanTarget)
+	return pgx.CollectRows(rows, scanHeldTarget)
 }
 
 // Get returns one target.

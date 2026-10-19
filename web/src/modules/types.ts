@@ -1,8 +1,9 @@
 import { lazy, type ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Me } from "@/lib/api";
+import type { Inbox } from "@/lib/console";
 
-/** A part of Grantra that brings its own pages. A tenant may later switch some off. */
+/** A part of Grantra that brings its own pages. A tenant can turn pam and login off (Settings → Modules). */
 export type ModuleId = "platform" | "iga" | "pam" | "login";
 
 /** Where an item sits in the menu, in the order the menu shows them. */
@@ -24,8 +25,9 @@ export interface NavItem {
   description: string;
   icon: LucideIcon;
   module: ModuleId;
-  /** No group: the item stands on its own at the top (Home) or bottom (Help). */
+  /** No group: the item stands on its own, at the top with top set (Home, Inbox), else at the bottom (Help). */
   group?: GroupId;
+  top?: boolean;
   /** Whether this person sees the item. The API still checks every call. */
   visible: (me: Me) => boolean;
   page?: Page;
@@ -35,6 +37,13 @@ export interface NavItem {
   subpages?: { path: string; page: Page }[];
   /** The milestone issue that builds the page, while it is still a placeholder. */
   issue?: number;
+  /** How many things on the page wait on this person, shown next to the item. */
+  count?: (inbox: Inbox) => number;
+  /**
+   * Whether the page changes settings. Governance and Settings pages are
+   * read-only for auditors; the API refuses their changes anyway.
+   */
+  manages?: boolean;
 }
 
 /** A page that loads the first time someone opens it. */

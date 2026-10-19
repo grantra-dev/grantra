@@ -2,7 +2,7 @@ import type { Me } from "@/lib/api";
 import { iga } from "./iga";
 import { login } from "./login";
 import { pam } from "./pam";
-import { helpItem, home, platform } from "./platform";
+import { helpItem, home, inboxItem, platform } from "./platform";
 import { groups, type GroupId, type NavItem } from "./types";
 
 export { groups, type GroupId, type NavItem } from "./types";
@@ -11,9 +11,19 @@ export { groups, type GroupId, type NavItem } from "./types";
  * Every page of the console, from every module. A new feature adds its items
  * to its module's list; the menu, routes and home page follow from here.
  */
-export const navItems: NavItem[] = [home, ...iga, ...pam, ...login, ...platform, helpItem];
+export const navItems: NavItem[] = [
+  home,
+  inboxItem,
+  ...iga,
+  ...pam,
+  ...login,
+  ...platform,
+  helpItem,
+];
 
-export const visibleItems = (me: Me) => navItems.filter((i) => i.visible(me));
+/** The items this person sees: what their roles show, of the modules the tenant keeps on. */
+export const visibleItems = (me: Me) =>
+  navItems.filter((i) => !me.disabled_modules?.includes(i.module) && i.visible(me));
 
 export interface NavGroup {
   id: GroupId;

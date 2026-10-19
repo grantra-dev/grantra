@@ -4,7 +4,7 @@ You see these pages when someone reports to you, when you own an application, or
 
 ## Approvals
 
-**Approvals** lists the requests waiting on you, soonest deadline first. For each one you see who asks, for what, why and for how long.
+**Approvals** lists the requests waiting on you, soonest deadline first. For each one you see who asks, for what, why, for how long, and how many days it has waited on you. Your **Inbox** and the menu count them too.
 
 - **Approve** sends it to the next step, or gives the access when you are the last one.
 - **Reject** needs a comment, which the person sees.
@@ -17,5 +17,7 @@ Every so often an admin launches a **campaign**: managers review what their peop
 
 - **Keep** what the person still needs for their job.
 - **Revoke** what they no longer need. Grantra takes it away. Revoking many at once asks you to confirm.
+
+In a long campaign, **Find** a person, access or application, filter by **Risk** or by how they got it (requested, birthright, eligible…), and sort by person, access, risk or the oldest first. Selecting all, keeping or revoking in bulk only reaches the items shown. A review email opens its campaign only; **Show every campaign** brings back the rest.
 
 When unsure, ask the person or their manager before the campaign ends. Admins launch and close campaigns, and admins and auditors follow each campaign's progress.

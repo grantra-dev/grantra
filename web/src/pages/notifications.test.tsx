@@ -35,7 +35,8 @@ describe("Email notifications", () => {
       "PUT /api/v1/me/notifications/request_decided": ok(settings(false)),
     });
     renderAt("/");
-    await userEvent.click(await screen.findByRole("link", { name: "Email notifications" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Account of/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Email notifications" }));
     expect(await screen.findByText("ana@example.com", { selector: "strong" })).toBeInTheDocument();
     const decided = await screen.findByRole("checkbox", { name: /Decisions on requests/ });
     expect(decided).toBeChecked();

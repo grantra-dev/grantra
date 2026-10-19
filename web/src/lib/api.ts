@@ -53,6 +53,8 @@ export interface Me {
   platform_roles: string[];
   manages_people: boolean;
   owns_applications: boolean;
+  /** Parts of Grantra the tenant turned off; their pages are hidden. */
+  disabled_modules?: string[];
 }
 
 /** A role or entitlement someone has, and why. */
@@ -89,6 +91,8 @@ export interface Requestable {
   risk?: "low" | "medium" | "high" | "critical";
   /** Nobody holds it for good: ask for it for a time, or to be eligible. */
   jit_only: boolean;
+  /** How many people on your team (who share your manager) hold it now. */
+  team_holders?: number;
 }
 
 /** What a request asks for: the access, to be eligible, or to activate. */
@@ -163,6 +167,34 @@ export const targetOf = (r: Pick<Requestable, "type" | "id">) =>
 export const listRequestable = () =>
   api<{ items: Requestable[] }>("/api/v1/requestable-access").then((r) => r.items);
 
+/** The catalog, with how many people are on your team to compare team_holders with. */
+export const listCatalog = () =>
+  api<{ items: Requestable[]; team_size: number }>("/api/v1/requestable-access");
+
+/**
+ * Every page of a list the API pages by id with ?after=: lists of things
+ * waiting on someone can outgrow one page, and a task left off the page
+ * is a task nobody sees.
+ */
+export async function fetchAllPages<T extends { id: string }>(
+  path: string,
+  pick: (body: never) => T[],
+  limit = 200,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let after = ""; ;) {
+    const sep = path.includes("?") ? "&" : "?";
+    const page = pick(
+      await api<never>(
+        `${path}${sep}limit=${limit}${after && `&after=${encodeURIComponent(after)}`}`,
+      ),
+    );
+    out.push(...page);
+    if (page.length < limit) return out;
+    after = page[page.length - 1]!.id;
+  }
+}
+
 export const previewRequest = (target: Pick<NewRequest, "role_id" | "entitlement_id">) =>
   post<{ sod_conflicts: string[] }>("/api/v1/access-requests/preview", target).then(
     (r) => r.sod_conflicts,
@@ -180,8 +212,9 @@ export const cancelRequest = (id: string) =>
   post<AccessRequest>(`/api/v1/access-requests/${encodeURIComponent(id)}/cancel`);
 
 export const listApprovals = () =>
-  api<{ requests: AccessRequest[] }>("/api/v1/access-requests?scope=approvals&limit=200").then(
-    (r) => r.requests,
+  fetchAllPages(
+    "/api/v1/access-requests?scope=approvals",
+    (r: { requests: AccessRequest[] }) => r.requests,
   );
 
 export const decideRequest = (
@@ -251,8 +284,9 @@ export interface Application {
 }
 
 export const listMyReviewItems = () =>
-  api<{ items: ReviewItem[] }>("/api/v1/review-items?scope=mine&decision=pending&limit=200").then(
-    (r) => r.items,
+  fetchAllPages(
+    "/api/v1/review-items?scope=mine&decision=pending",
+    (r: { items: ReviewItem[] }) => r.items,
   );
 
 export const decideReviewItem = (id: string, decision: "keep" | "revoke", comment: string) =>

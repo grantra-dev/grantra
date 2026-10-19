@@ -23,14 +23,15 @@ Thanks for your interest! Grantra is young, so this is a great moment to shape i
 - Never commit secrets, real credentials or customer data.
 - Reuse the shared building blocks instead of copying code:
   - Domain packages return errors from `core/internal/apperr` (`ErrNotFound`, `Invalid`, `Conflict`); the API turns them into 404, 400 and 409.
-  - Console handlers use the helpers in `core/internal/console/helpers.go` (`guardedOn`, `guardedOnIdentity`, `allowed`, `decodeBody`, `pageLimit`, `respond`, `noContent`), so a handler only holds what is particular to its endpoint.
+  - Console handlers use the helpers in `core/internal/console/helpers.go` (`guardedOn`, `guardedOnIdentity`, `allowed`, `may` to show more or less by role, `decodeBody`, `pageLimit`, `respond`, `noContent`), so a handler only holds what is particular to its endpoint.
   - Audit events name a person acting with `authz.Subject.Actor()` or `db.IdentityActor(id)`.
-  - Queries use the helpers in `core/internal/db`: `QueryOne` for a row that may not exist (it answers `apperr.ErrNotFound`), `SearchPattern` for a search box, `SendBatch` with `QueueAudit` for many changes at once (one round trip per 1,000), and `WriteRows` to stream something large such as a recording.
+  - Queries use the helpers in `core/internal/db`: `QueryOne` for a row that may not exist (it answers `apperr.ErrNotFound`), `SearchPattern` for a search box (`ContainsPattern` against `lower(column)` when no validation is needed), `SendBatch` with `QueueAudit` for many changes at once (one round trip per 1,000), and `WriteRows` to stream something large such as a recording.
   - "Does this person hold this access right now?" is `catalog.HeldSQL` (or `HeldWindowSQL` for how long), and who does is `catalog.Holders`; Grantra's own applications (vault, SSH, remote access) come from `catalog.EnsureApplication`.
   - `db.IsUniqueViolation(err)` turns a duplicate name into an `apperr.Conflict`; uploaded CSV files are read with `core/internal/csvfile` (loose column names, mappings, row by row); secrets for programs (API keys, service tokens) come from `core/internal/apikey`.
   - Endpoints that scripts call take a service token through `sessionOrToken` and check the caller with `caller` (`core/internal/console/tokens.go`).
   - Compare a uuid column with a uuid (`col = $1::uuid`, or `nullif($1, '')::uuid` for an optional filter), never `col::text = $1`: the cast keeps Postgres from using the column's index.
-  - Web console calls go through `api` and `send` in `web/src/lib/api.ts`.
+  - Privileged targets (vault accounts, SSH servers, remote access targets) are listed with `List(ctx, tx, identity, onlyHeld)`, which marks what the person holds in the same query.
+  - Web console calls go through `api` and `send` in `web/src/lib/api.ts`. Filter boxes use `FilterBox` and match with `hasWords` (`web/src/lib/utils.ts`); gateway session lists and searches of what was typed use `SessionList` and `RecordedSearch` (`web/src/components/Sessions.tsx`); someone's access is shown with `AccessTable`.
 - Sign off your commits (`git commit -s`) to certify the [Developer Certificate of Origin](https://developercertificate.org/).
 
 ## Code of conduct

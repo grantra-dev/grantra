@@ -1,12 +1,13 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
 import { useState } from "react";
 import { AuditTable } from "@/components/AuditTable";
+import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { auditPageSize, listAuditEvents } from "@/lib/api";
 import { searchText } from "@/lib/audit";
+import { hasWords } from "@/lib/utils";
 
 export function AuditLog() {
   const [filter, setFilter] = useState("");
@@ -18,8 +19,8 @@ export function AuditLog() {
       getNextPageParam: (last) => (last.length === auditPageSize ? last.at(-1)?.id : undefined),
     });
   const events = data?.pages.flat() ?? [];
-  const needle = filter.trim().toLowerCase();
-  const rows = needle ? events.filter((e) => searchText(e).includes(needle)) : events;
+  const needle = filter.trim();
+  const rows = needle ? events.filter((e) => hasWords(needle, searchText(e))) : events;
 
   return (
     <>
@@ -29,20 +30,11 @@ export function AuditLog() {
       />
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
-          <label className="relative block w-full max-w-xs">
-            <span className="sr-only">Filter by person, action or target</span>
-            <Search
-              className="pointer-events-none absolute top-2.5 left-3 size-4 text-slate-400"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by person, action or target"
-              className="h-9 w-full rounded-md border border-slate-300 pr-3 pl-9 text-sm focus:outline-2 focus:outline-brand-600"
-            />
-          </label>
+          <FilterBox
+            label="Filter by person, action or target"
+            value={filter}
+            onChange={setFilter}
+          />
           {data && (
             <span className="text-sm text-slate-500">
               {needle

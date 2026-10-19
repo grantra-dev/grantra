@@ -14,7 +14,8 @@ import {
   type AccessRequest,
   type Me,
 } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { focusRing, useFocusParam } from "@/lib/focus";
+import { cn, formatDate } from "@/lib/utils";
 
 const statusBadges = {
   pending: { variant: "amber", label: "Pending" },
@@ -31,6 +32,8 @@ export function MyRequests({ me }: { me: Me }) {
     queryKey: ["my-requests"],
     queryFn: listMyRequests,
   });
+  // A decision email links to its request.
+  const asked = useFocusParam("request", !!data);
 
   return (
     <>
@@ -56,7 +59,7 @@ export function MyRequests({ me }: { me: Me }) {
       ) : (
         <ul className="flex flex-col gap-3">
           {data.map((r) => (
-            <RequestCard key={r.id} r={r} me={me} />
+            <RequestCard key={r.id} r={r} me={me} focused={r.id === asked} />
           ))}
         </ul>
       )}
@@ -64,17 +67,21 @@ export function MyRequests({ me }: { me: Me }) {
   );
 }
 
-function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
+function RequestCard({ r, me, focused }: { r: AccessRequest; me: Me; focused: boolean }) {
   const queryClient = useQueryClient();
   const cancel = useMutation({
     mutationFn: () => cancelRequest(r.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-requests"] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["my-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["home"] }),
+      ]),
   });
   const badge = statusBadges[r.status];
 
   return (
-    <li>
-      <Card className="p-4">
+    <li data-focus={r.id}>
+      <Card className={cn("p-4", focused && focusRing)}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -104,7 +111,7 @@ function RequestCard({ r, me }: { r: AccessRequest; me: Me }) {
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
         {r.reason && <p className="mt-1 text-sm text-slate-500">{closingReason(r.reason)}</p>}
-        <RequestSteps steps={r.steps} />
+        <RequestSteps steps={r.steps} createdAt={r.created_at} />
         {cancel.error && (
           <Alert variant="error" className="mt-3">
             {cancel.error.message}

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/field";
+import { Manage } from "@/components/Manage";
 import {
   Table,
   TableBody,
@@ -72,9 +73,11 @@ function Policies() {
           </p>
         </div>
         {!adding && (
-          <Button variant="outline" onClick={() => setAdding(true)}>
-            New policy
-          </Button>
+          <Manage>
+            <Button variant="outline" onClick={() => setAdding(true)}>
+              New policy
+            </Button>
+          </Manage>
         )}
       </div>
       {adding && <NewPolicy onDone={() => setAdding(false)} />}
@@ -110,20 +113,22 @@ function Policies() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={remove.isPending}
-                    onClick={() => {
-                      if (
-                        window.confirm(`Delete the policy ${p.name}? Its violations go with it.`)
-                      ) {
-                        remove.mutate(p);
-                      }
-                    }}
-                  >
-                    Delete
-                  </Button>
+                  <Manage>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={remove.isPending}
+                      onClick={() => {
+                        if (
+                          window.confirm(`Delete the policy ${p.name}? Its violations go with it.`)
+                        ) {
+                          remove.mutate(p);
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </Manage>
                 </TableCell>
               </TableRow>
             ))}
@@ -324,9 +329,11 @@ function Violations() {
             <option value="excepted">Accepted risks</option>
             <option value="resolved">Resolved</option>
           </Select>
-          <Button variant="outline" disabled={scan.isPending} onClick={() => scan.mutate()}>
-            {scan.isPending ? "Checking…" : "Check now"}
-          </Button>
+          <Manage>
+            <Button variant="outline" disabled={scan.isPending} onClick={() => scan.mutate()}>
+              {scan.isPending ? "Checking…" : "Check now"}
+            </Button>
+          </Manage>
         </div>
       </div>
       {scan.error && <Alert variant="error">{scan.error.message}</Alert>}
@@ -365,7 +372,11 @@ function Violations() {
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{formatDate(v.detected_at)}</TableCell>
                 <TableCell>
-                  {v.status === "open" && <AcceptRisk violation={v} />}
+                  {v.status === "open" && (
+                    <Manage>
+                      <AcceptRisk violation={v} />
+                    </Manage>
+                  )}
                   {v.status === "excepted" && (
                     <div className="text-sm">
                       <div>{v.exception_reason}</div>

@@ -40,6 +40,12 @@ func SearchPattern(q string) (string, error) {
 	return "%" + likeEscaper.Replace(q) + "%", nil
 }
 
+// ContainsPattern is a LIKE pattern finding q, lowercased and taken
+// literally, anywhere in a text: compare it with lower(column).
+func ContainsPattern(q string) string {
+	return "%" + likeEscaper.Replace(strings.ToLower(q)) + "%"
+}
+
 // WriteRows writes to w the bytes in the one column each row of a query
 // returns, row by row, so something large (a session recording) never has
 // to fit in memory. start is called before the first byte, to set headers.

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
+import { RecordedSearch, SessionBadge, SessionList } from "@/components/Sessions";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
@@ -10,20 +11,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { PlatformRole, type Me } from "@/lib/api";
 import {
   connectCommand,
   createSSHTarget,
   deleteSSHTarget,
-  endReasonText,
   getSSH,
   issueSSHCertificate,
   listSSHSessions,
@@ -33,10 +25,10 @@ import {
   updateSSHTarget,
   type NewSSHTarget,
   type SSHCertificate,
-  type SSHSession,
   type SSHTarget,
 } from "@/lib/ssh";
-import { formatTime } from "@/lib/utils";
+import { focusRing, useFocusParam } from "@/lib/focus";
+import { cn, formatTime } from "@/lib/utils";
 
 type Tab = "servers" | "sessions" | "commands";
 
@@ -82,6 +74,8 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
   });
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  // The search box links here with ?target=<id>.
+  const asked = useFocusParam("target", !!data);
   const gateway = info.data?.gateway_address ?? "";
   return (
     <section className="flex flex-col gap-3">
@@ -118,6 +112,7 @@ function Targets({ admin, reader }: { admin: boolean; reader: boolean }) {
               t={t}
               admin={admin}
               gateway={gateway}
+              focused={asked === t.id}
               open={open === t.id}
               onToggle={() => setOpen(open === t.id ? null : t.id)}
             />
@@ -135,18 +130,20 @@ function TargetRow({
   t,
   admin,
   gateway,
+  focused,
   open,
   onToggle,
 }: {
   t: SSHTarget;
   admin: boolean;
   gateway: string;
+  focused: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
   const [connecting, setConnecting] = useState(false);
   return (
-    <li className="p-4">
+    <li data-focus={t.id} className={cn("p-4", focused && focusRing)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -501,155 +498,66 @@ function TrustCA({ people, gateway }: { people: string; gateway: string }) {
 }
 
 function Sessions({ admin }: { admin: boolean }) {
-  const client = useQueryClient();
-  const [active, setActive] = useState(false);
-  const { data, error, isPending } = useQuery({
-    queryKey: ["ssh-sessions", active],
-    queryFn: () => listSSHSessions({ active }),
-  });
-  const end = useMutation({
-    mutationFn: terminateSSHSession,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["ssh-sessions"] }),
-  });
   return (
-    <section className="flex flex-col gap-3">
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-        Only running sessions
-      </label>
-      {end.error && <Alert variant="error">{end.error.message}</Alert>}
-      <Loaded loading={isPending} error={error} empty={data?.length === 0 && "No sessions yet."}>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Who</TableHead>
-              <TableHead>Server</TableHead>
-              <TableHead>Started</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data?.map((s) => (
-              <TableRow key={s.id}>
-                <TableCell>{s.identity_name}</TableCell>
-                <TableCell>
-                  {s.target_name} as {s.login}
-                  {s.kind === "exec" && (
-                    <div className="font-mono text-xs text-slate-500">{s.command}</div>
-                  )}
-                </TableCell>
-                <TableCell>{formatTime(s.started_at)}</TableCell>
-                <TableCell>
-                  <SessionStatus s={s} />
-                </TableCell>
-                <TableCell className="flex justify-end gap-2">
-                  <Link
-                    to={`/servers/sessions/${s.id}`}
-                    className="text-sm text-brand-700 underline"
-                  >
-                    Watch
-                  </Link>
-                  {admin && !s.ended_at && !s.terminate_requested && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => end.mutate(s.id)}
-                      disabled={end.isPending}
-                    >
-                      End
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Loaded>
-    </section>
-  );
-}
-
-export function SessionStatus({ s }: { s: SSHSession }) {
-  if (!s.ended_at) {
-    return <Badge variant="amber">{s.terminate_requested ? "Ending…" : "Running"}</Badge>;
-  }
-  const reason = s.end_reason ?? "closed";
-  return (
-    <Badge variant={reason === "closed" ? "default" : "red"} title={s.error}>
-      {endReasonText[reason]}
-    </Badge>
+    <SessionList
+      name="ssh-sessions"
+      list={listSSHSessions}
+      terminate={terminateSSHSession}
+      admin={admin}
+      columns={[
+        [
+          "Server",
+          (s) => (
+            <>
+              {s.target_name} as {s.login}
+              {s.kind === "exec" && (
+                <div className="font-mono text-xs text-slate-500">{s.command}</div>
+              )}
+            </>
+          ),
+        ],
+        ["Started", (s) => formatTime(s.started_at)],
+      ]}
+      status={(s) => <SessionBadge s={s} />}
+      link={(s) => (
+        <Link to={`/servers/sessions/${s.id}`} className="text-sm text-brand-700 underline">
+          Watch
+        </Link>
+      )}
+    />
   );
 }
 
 function Commands() {
-  const [q, setQ] = useState("");
-  const [asked, setAsked] = useState("");
-  const { data, error, isFetching } = useQuery({
-    queryKey: ["ssh-commands", asked],
-    queryFn: () => searchSSHCommands(asked),
-    enabled: asked !== "",
-  });
   return (
-    <section className="flex flex-col gap-3">
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setAsked(q.trim());
-        }}
-      >
-        <Input
-          aria-label="Command"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="DROP TABLE"
-        />
-        <Button type="submit" disabled={!q.trim()}>
-          Search
-        </Button>
-      </form>
-      <p className="text-xs text-slate-500">
-        Commands typed through the gateway, best effort: text recalled from shell history or
-        completed with Tab may differ. The recording is the record.
-      </p>
-      {asked && (
-        <Loaded
-          loading={isFetching}
-          error={error}
-          empty={data?.length === 0 && `Nobody typed “${asked}”.`}
-        >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>When</TableHead>
-                <TableHead>Who</TableHead>
-                <TableHead>Server</TableHead>
-                <TableHead>Command</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{formatTime(c.at)}</TableCell>
-                  <TableCell>{c.identity_name}</TableCell>
-                  <TableCell>
-                    {c.target_name} as {c.login}
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      to={`/servers/sessions/${c.session_id}?t=${Math.floor(c.offset_seconds)}`}
-                      className="font-mono text-xs text-brand-700 underline"
-                    >
-                      {c.command}
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Loaded>
-      )}
-    </section>
+    <RecordedSearch
+      name="ssh-commands"
+      search={searchSSHCommands}
+      label="Command"
+      placeholder="DROP TABLE"
+      note="Commands typed through the gateway, best effort: text recalled from shell history or completed with Tab may differ. The recording is the record."
+      empty={(asked) => `Nobody typed “${asked}”.`}
+      columns={[
+        [
+          "Server",
+          (c) => (
+            <>
+              {c.target_name} as {c.login}
+            </>
+          ),
+        ],
+        [
+          "Command",
+          (c) => (
+            <Link
+              to={`/servers/sessions/${c.session_id}?t=${Math.floor(c.offset_seconds)}`}
+              className="font-mono text-xs text-brand-700 underline"
+            >
+              {c.command}
+            </Link>
+          ),
+        ],
+      ]}
+    />
   );
 }

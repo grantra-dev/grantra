@@ -7,7 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSSHSession, recordingURL } from "@/lib/ssh";
 import { formatTime } from "@/lib/utils";
-import { SessionStatus } from "@/pages/Servers";
+import { SessionBadge } from "@/components/Sessions";
 import type { Player } from "asciinema-player";
 import "asciinema-player/dist/bundle/asciinema-player.css";
 
@@ -69,7 +69,7 @@ export function SessionPlayback() {
               <strong>{data.identity_name}</strong> on {data.target_name} as {data.login}, from{" "}
               {data.client_address} · {formatTime(data.started_at)}
               {data.ended_at && <> to {formatTime(data.ended_at)}</>}
-              <SessionStatus s={data} />
+              <SessionBadge s={data} />
             </div>
             {data.recording_truncated && (
               <Alert variant="warning">

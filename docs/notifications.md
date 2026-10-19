@@ -1,8 +1,11 @@
 # Notifications
 
 Grantra emails people when they need to act or when something they asked
-for is decided. Email is plain text, in English, and links to the console
-page where the person acts.
+for is decided. Email is plain text, in English, and links to the exact task
+in the console: approval emails to `/approvals?request=<id>`, decisions to
+`/requests?request=<id>`, review emails to `/reviews?campaign=<id>`. The page
+highlights that request or shows only that campaign, and says so when
+someone already decided it.
 
 | Kind | Who gets it | When |
 |---|---|---|

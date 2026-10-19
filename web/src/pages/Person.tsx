@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { Expiry, IdentityStatusBadge, Origin } from "@/components/AccessBadges";
+import { AccessTable, IdentityStatusBadge } from "@/components/AccessBadges";
 import { AuditTable } from "@/components/AuditTable";
 import { Eligibilities } from "@/components/Eligibilities";
 import { Loaded } from "@/components/Loaded";
@@ -293,7 +293,6 @@ function RoleRow({
 }
 
 function AccessTab({ id }: { id: string }) {
-  const [now] = useState(() => Date.now());
   const { data, error, isPending } = useQuery({
     queryKey: ["identity-access", id],
     queryFn: () => getIdentityAccess(id),
@@ -304,35 +303,7 @@ function AccessTab({ id }: { id: string }) {
       error={error}
       empty={data?.length === 0 ? "No access through Grantra." : undefined}
     >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Access</TableHead>
-            <TableHead>Why they have it</TableHead>
-            <TableHead>Since</TableHead>
-            <TableHead>Until</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data?.map((a) => (
-            <TableRow key={a.id}>
-              <TableCell>
-                <div className="font-medium">{a.name}</div>
-                <div className="text-slate-500">
-                  {a.type === "role" ? "Role" : a.application || "Entitlement"}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Origin a={a} />
-              </TableCell>
-              <TableCell className="whitespace-nowrap">{formatDate(a.granted_at)}</TableCell>
-              <TableCell className="whitespace-nowrap">
-                <Expiry at={a.expires_at} now={now} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <AccessTable rows={data ?? []} who="they" />
     </Loaded>
   );
 }

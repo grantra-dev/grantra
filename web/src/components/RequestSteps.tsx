@@ -19,7 +19,15 @@ const stepLabels = {
   skipped: "skipped",
 };
 
-function StepLine({ s }: { s: ApprovalStep }) {
+const day = 24 * 60 * 60 * 1000;
+
+/** Whole days from iso until now. */
+const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / day);
+
+function StepLine({ s, since }: { s: ApprovalStep; since?: string }) {
+  // A step that has waited more than a day says so: a request stuck with
+  // someone should be visible, not a mystery.
+  const waited = since ? daysSince(since) : 0;
   const who =
     s.kind === "admin" || s.kind === "risk"
       ? kindLabels[s.kind]
@@ -33,6 +41,9 @@ function StepLine({ s }: { s: ApprovalStep }) {
           {s.kind === "risk" && s.status === "approved" ? "accepted" : stepLabels[s.status]}
           {s.exception_days && ` for ${s.exception_days} days`}
           {s.decided_at && ` on ${formatDate(s.decided_at)}`}
+          {s.status === "pending" &&
+            waited >= 1 &&
+            `, waiting ${waited} ${waited === 1 ? "day" : "days"}`}
           {s.status === "pending" && s.due_at && `, by ${formatDate(s.due_at)} or it expires`}
         </span>
         {s.comment && <span className="text-slate-600"> · “{s.comment}”</span>}
@@ -41,12 +52,27 @@ function StepLine({ s }: { s: ApprovalStep }) {
   );
 }
 
-/** The approval chain of a request, in order. */
-export function RequestSteps({ steps }: { steps: ApprovalStep[] }) {
+/**
+ * The approval chain of a request, in order. createdAt, when the request
+ * was made, tells how long the step deciding now has waited.
+ */
+export function RequestSteps({ steps, createdAt }: { steps: ApprovalStep[]; createdAt?: string }) {
   return (
     <ol className="mt-3 flex flex-col gap-1.5 border-t border-slate-100 pt-3">
-      {steps.map((s) => (
-        <StepLine key={s.position} s={s} />
+      {steps.map((s, i) => (
+        <StepLine
+          key={s.position}
+          s={s}
+          since={
+            s.status === "pending" && createdAt
+              ? (steps
+                  .slice(0, i)
+                  .map((p) => p.decided_at)
+                  .filter(Boolean)
+                  .at(-1) ?? createdAt)
+              : undefined
+          }
+        />
       ))}
     </ol>
   );

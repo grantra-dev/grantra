@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/field";
+import { Manage } from "@/components/Manage";
 import {
   Table,
   TableBody,
@@ -42,9 +43,11 @@ export function HrSources() {
           movers and leavers. Check a file first: nothing changes until you apply it.
         </p>
         {!adding && (
-          <Button variant="outline" className="shrink-0" onClick={() => setAdding(true)}>
-            New HR source
-          </Button>
+          <Manage>
+            <Button variant="outline" className="shrink-0" onClick={() => setAdding(true)}>
+              New HR source
+            </Button>
+          </Manage>
         )}
       </div>
       {adding && <SourceForm onDone={() => setAdding(false)} />}
@@ -216,42 +219,46 @@ function Source({ source }: { source: IdentitySource }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <label className="text-sm">
-          <span className="sr-only">HR export for {source.name}</span>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            aria-label={`HR export for ${source.name}`}
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setResult(null);
+        <Manage>
+          <label className="text-sm">
+            <span className="sr-only">HR export for {source.name}</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              aria-label={`HR export for ${source.name}`}
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setResult(null);
+              }}
+              className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
+            />
+          </label>
+          <CsvHelp kind="hr" />
+          <Button
+            variant="outline"
+            disabled={!file || sync.isPending}
+            onClick={() => sync.mutate({ dryRun: true })}
+          >
+            Check file
+          </Button>
+          <Button
+            disabled={!file || !checked || sync.isPending}
+            onClick={() => {
+              if (window.confirm(`Apply this file to ${source.name}?`))
+                sync.mutate({ dryRun: false });
             }}
-            className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
-          />
-        </label>
-        <CsvHelp kind="hr" />
-        <Button
-          variant="outline"
-          disabled={!file || sync.isPending}
-          onClick={() => sync.mutate({ dryRun: true })}
-        >
-          Check file
-        </Button>
-        <Button
-          disabled={!file || !checked || sync.isPending}
-          onClick={() => {
-            if (window.confirm(`Apply this file to ${source.name}?`))
-              sync.mutate({ dryRun: false });
-          }}
-        >
-          Apply
-        </Button>
+          >
+            Apply
+          </Button>
+        </Manage>
         <Button variant="ghost" onClick={() => setShowRuns((v) => !v)}>
           {showRuns ? "Hide history" : "History"}
         </Button>
-        <Button variant="ghost" onClick={() => setEditing(true)}>
-          Edit
-        </Button>
+        <Manage>
+          <Button variant="ghost" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        </Manage>
       </div>
       {sync.error && (
         <Alert variant="error" className="mt-3">

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/field";
+import { Manage } from "@/components/Manage";
 import {
   Table,
   TableBody,
@@ -25,6 +26,7 @@ import {
   type TokenScope,
 } from "@/lib/admin";
 import { formatDate, formatTime } from "@/lib/utils";
+import { useCanManage } from "@/lib/manage";
 
 /** What a token may be pinned to: HR sources, and applications that read files. */
 function useTargets() {
@@ -50,6 +52,7 @@ export function ServiceTokens() {
     mutationFn: revokeServiceToken,
     onSuccess: () => void client.invalidateQueries({ queryKey: ["service-tokens"] }),
   });
+  const canManage = useCanManage();
 
   const describe = (scope: string) => {
     const [action, target] = scope.split(":") as [TokenScope, string | undefined];
@@ -65,7 +68,9 @@ export function ServiceTokens() {
         signing in. A token can only do what you allow, stops working on its expiry date, and
         everything it does is in the audit log under its name.
       </p>
-      <NewToken onCreated={setCreated} />
+      <Manage>
+        <NewToken onCreated={setCreated} />
+      </Manage>
       {created && <CreatedToken created={created} />}
       <Loaded loading={isPending} error={error} empty={data?.length === 0 && "No token yet."}>
         <Table>
@@ -112,17 +117,21 @@ export function ServiceTokens() {
                     {t.revoked_at || expired ? (
                       <Badge>{t.revoked_at ? "Revoked" : "Expired"}</Badge>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={revoke.isPending}
-                        onClick={() => {
-                          if (window.confirm(`Revoke ${t.name}? Jobs using it get 401 right away.`))
-                            revoke.mutate(t.id);
-                        }}
-                      >
-                        Revoke
-                      </Button>
+                      canManage && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={revoke.isPending}
+                          onClick={() => {
+                            if (
+                              window.confirm(`Revoke ${t.name}? Jobs using it get 401 right away.`)
+                            )
+                              revoke.mutate(t.id);
+                          }}
+                        >
+                          Revoke
+                        </Button>
+                      )
                     )}
                   </TableCell>
                 </TableRow>

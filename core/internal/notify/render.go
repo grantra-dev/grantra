@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"maps"
+	"net/url"
 	"strings"
 	"text/template"
 	"time"
@@ -14,6 +15,7 @@ import (
 var templateFiles embed.FS
 
 // pages are where each kind of notification sends people in the console.
+// pageFor narrows it to the exact request or campaign when it can.
 var pages = map[Kind]string{
 	ApprovalNeeded:   "/approvals",
 	RequestExpiring:  "/approvals",
@@ -24,6 +26,24 @@ var pages = map[Kind]string{
 	BreakGlassUsed:   "/vault?tab=break-glass",
 	BreakGlassDue:    "/vault?tab=break-glass",
 	TokenCreatorLeft: "/settings/api-tokens",
+}
+
+// pageFor is the console page a notification of kind, with data, links to:
+// the request or campaign it is about when the data names one, so nobody has
+// to look for it in a list.
+func pageFor(kind Kind, data map[string]any) string {
+	page := pages[kind]
+	param := map[Kind][2]string{
+		ApprovalNeeded:  {"request", "request_id"},
+		RequestExpiring: {"request", "request_id"},
+		RequestDecided:  {"request", "request_id"},
+		ReviewAssigned:  {"campaign", "campaign_id"},
+		CampaignDueSoon: {"campaign", "campaign_id"},
+	}[kind]
+	if id, ok := data[param[1]].(string); ok && id != "" {
+		page += "?" + url.Values{param[0]: {id}}.Encode()
+	}
+	return page
 }
 
 var templates = func() map[Kind]*template.Template {

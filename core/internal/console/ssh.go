@@ -68,24 +68,9 @@ func (a *API) sshCAPublicKey(purpose string) http.HandlerFunc {
 func (a *API) listSSHTargets(w http.ResponseWriter, r *http.Request) {
 	var out []sshaccess.Target
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		reader := a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadVault, Resource: authz.VaultResource()}).Allowed
-		held, err := sshaccess.List(r.Context(), tx, me.ID)
-		if err != nil {
-			return err
-		}
-		if !reader {
-			out = held
-		} else if out, err = sshaccess.List(r.Context(), tx, ""); err != nil {
-			return err
-		}
-		mine := map[string]bool{}
-		for _, t := range held {
-			mine[t.ID] = true
-		}
-		for i := range out {
-			out[i].Held = mine[out[i].ID]
-		}
-		return nil
+		var err error
+		out, err = sshaccess.List(r.Context(), tx, me.ID, !a.may(me, authz.ReadVault, authz.VaultResource()))
+		return err
 	})
 	a.respond(w, r, http.StatusOK, map[string]any{"targets": nonNil(out)}, err)
 }

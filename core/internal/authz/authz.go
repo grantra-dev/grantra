@@ -91,6 +91,8 @@ const (
 	ActivateAccess      Action = "access.activate"
 	ReadServiceTokens   Action = "service_token.read"
 	ManageServiceTokens Action = "service_token.manage"
+	ReadModules         Action = "module.read"
+	ManageModules       Action = "module.manage"
 )
 
 var actionGroup = map[Action]string{
@@ -132,6 +134,8 @@ var actionGroup = map[Action]string{
 	ActivateAccess:      "write",
 	ReadServiceTokens:   "read",
 	ManageServiceTokens: "write",
+	ReadModules:         "read",
+	ManageModules:       "write",
 }
 
 // Writes reports whether the action changes something.
@@ -203,6 +207,9 @@ func CatalogResource() Resource { return Resource{uid: cedar.NewEntityUID("Catal
 func ServiceTokensResource() Resource {
 	return Resource{uid: cedar.NewEntityUID("ServiceTokens", "tenant")}
 }
+
+// ModulesResource is the parts of Grantra the tenant shows in the console.
+func ModulesResource() Resource { return Resource{uid: cedar.NewEntityUID("Modules", "tenant")} }
 
 // RequestsResource is every access request of the tenant.
 func RequestsResource() Resource { return Resource{uid: cedar.NewEntityUID("Requests", "tenant")} }
