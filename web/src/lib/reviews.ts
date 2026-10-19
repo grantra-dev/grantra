@@ -8,6 +8,8 @@ export interface ReviewFilter {
   text?: string;
   risk?: string;
   origin?: string;
+  /** What Grantra suggests: "keep", "revoke", or "none" for nothing to say. */
+  suggestion?: string;
 }
 
 export type ReviewSort = "person" | "access" | "risk" | "oldest";
@@ -20,6 +22,7 @@ export function filterReviewItems(items: ReviewItem[], f: ReviewFilter): ReviewI
     if (f.campaign && it.campaign_id !== f.campaign) return false;
     if (f.risk && (it.risk ?? "") !== f.risk) return false;
     if (f.origin && it.origin !== f.origin) return false;
+    if (f.suggestion && (it.suggestion?.action ?? "none") !== f.suggestion) return false;
     return hasWords(f.text ?? "", it.identity_name, it.target_name, it.application);
   });
 }

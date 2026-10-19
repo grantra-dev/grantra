@@ -63,6 +63,7 @@ curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
 | Username, email, name | `sAMAccountName`, `mail`, `displayName` | `uid`, `mail`, `cn` |
 | Employee id (for correlation) | `employeeID` | `employeeNumber` |
 | Disabled when | `userAccountControl` has the disable flag | `pwdAccountLockedTime` is `000001010000Z` (locked until an admin unlocks it) |
+| Last sign-in (for [unused access](access-insights.md)) | `lastLogonTimestamp` (replicated, so up to two weeks behind) | `pwdLastSuccess` (needs the `ppolicy` overlay with `pwdLastSuccess` tracking) |
 
 Groups become entitlements, named by their `cn`. Accounts hold the groups that list them as `member`; groups nested in other groups are not expanded, so a person holds what they were put in directly, which is also what Grantra grants. Members that are not users read by the user filter (computers, nested groups, people outside the filter) are left out. Accounts also carry their `dn`, `title`, `department` and `userPrincipalName` (`upn`).
 
@@ -120,6 +121,7 @@ One row per account, with a header row. Column names are matched loosely (`Accou
 | `employee_id` | The person's HR employee id, the surest way to link the account to them |
 | `status` | `active` (the default; also `enabled`, `yes`, `1`) or `disabled` (also `inactive`, `locked`, `suspended`, `no`, `0`) |
 | `entitlements` | The roles or groups the account holds, separated by `;` (`config.separator` changes it). Entitlements are created from the names found |
+| `last_login` | When the account last signed in (`2026-10-19`, `2026-10-19 08:30:00` or RFC 3339), so [unused access](access-insights.md) can tell. An import never moves it back in time |
 
 Any other column is kept as an attribute of the account. An export with one row per account **and** role (the result of a "users join roles" query) works as it is: rows of the same account are merged, and a value that differs between them (two emails for one account) is an error. See [`deploy/samples/app-accounts.csv`](../deploy/samples/app-accounts.csv). [CSV files](help/csv-files.md) has every rule of the format, a template and what each error means.
 

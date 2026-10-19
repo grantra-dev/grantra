@@ -57,6 +57,14 @@ func TestAccessReviews(t *testing.T) {
 	if len(mine.Items) != 1 || mine.Items[0].IdentityID != ana {
 		t.Fatalf("boss's items = %+v", mine.Items)
 	}
+	// Reviewers get Grantra's suggestion; a list for reading does not.
+	if s := mine.Items[0].Suggestion; s == nil || s.PeerGroup != "team" || s.Peers != 0 || s.Action != "" {
+		t.Errorf("suggestion = %+v, want one that sees nobody to compare with", s)
+	}
+	all := decode[struct{ Items []reviews.Item }](t, e.do(auditor, http.MethodGet, "/api/v1/review-items?scope=all", ""))
+	if len(all.Items) != 1 || all.Items[0].Suggestion != nil {
+		t.Errorf("auditor's items = %+v", all.Items)
+	}
 	path := "/api/v1/review-items/" + mine.Items[0].ID + "/decision"
 	if rec := e.do(ana, http.MethodPost, path, `{"decision": "keep"}`); rec.Code != http.StatusForbidden {
 		t.Errorf("ana reviews herself = %d", rec.Code)

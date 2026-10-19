@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
+import { RiskBadge } from "@/components/RiskBadge";
 import { ShowMore } from "@/components/ShowMore";
 import { Manage } from "@/components/Manage";
 import { Alert } from "@/components/ui/alert";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import type { Me } from "@/lib/api";
 import { usePages } from "@/lib/hooks";
+import { getReach } from "@/lib/insights";
 import {
   closeThreatAlert,
   getThreatAlert,
@@ -168,6 +170,7 @@ function AlertDetail({ id, me, onClose }: { id: string; me: Me; onClose: () => v
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
             <Facts alert={data} />
+            {data.identity_id && <Reachable identityId={data.identity_id} />}
             {data.responses && data.responses.length > 0 && (
               <Responses responses={data.responses} />
             )}
@@ -231,6 +234,45 @@ function Facts({ alert: a }: { alert: ThreatAlert }) {
         </>
       )}
     </dl>
+  );
+}
+
+/** The most reach shown before "and more". */
+const reachShown = 10;
+
+/** What whoever has this person's account reaches: why an alert matters. */
+function Reachable({ identityId }: { identityId: string }) {
+  const { data } = useQuery({
+    queryKey: ["reach", identityId],
+    queryFn: () => getReach(identityId),
+  });
+  if (!data) return null;
+  return (
+    <section>
+      <h3 className="mb-2 text-sm font-semibold">What their account reaches</h3>
+      {data.length === 0 ? (
+        <p className="text-sm text-slate-500">No high or critical risk access.</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-sm">
+          {data.slice(0, reachShown).map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-2">
+              <Link
+                to={`/security/attack-paths?target=${t.id}`}
+                className="font-medium text-brand-600 hover:underline"
+              >
+                {t.name}
+              </Link>
+              <span className="text-slate-500">{t.application}</span>
+              <RiskBadge risk={t.risk} />
+              {t.credential > 0 && <Badge variant="amber">Through a shared account</Badge>}
+            </li>
+          ))}
+          {data.length > reachShown && (
+            <li className="text-slate-500">and {data.length - reachShown} more</li>
+          )}
+        </ul>
+      )}
+    </section>
   );
 }
 

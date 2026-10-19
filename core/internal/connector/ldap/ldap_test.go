@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
 )
@@ -57,7 +58,8 @@ func adDir(t *testing.T) *fakeDir {
 		}
 		d.add("CN="+cn+",OU=People,"+base, a)
 	}
-	user(1, "Ana García", "agarcia", "512", map[string][]string{"mail": {"ana@example.com"}, "employeeID": {"1001"}, "title": {"CEO"}, "department": {"Executive"}})
+	user(1, "Ana García", "agarcia", "512", map[string][]string{"mail": {"ana@example.com"}, "employeeID": {"1001"}, "title": {"CEO"}, "department": {"Executive"},
+		"lastLogonTimestamp": {"134364474000000000"}})
 	user(2, "Luis Pérez", "lperez", "66048", map[string][]string{"mail": {"luis@example.com"}})
 	user(3, "Marta Ruiz", "mruiz", "514", nil) // disabled
 	d.add("CN=LAPTOP1,OU=Computers,"+base, map[string][]string{"objectClass": {"computer", "user"}, "objectCategory": {"computer"}, "objectGUID": {guid(9)}})
@@ -110,6 +112,9 @@ func TestReadActiveDirectory(t *testing.T) {
 	}
 	if ana.Attributes["dn"] != "CN=Ana García,OU=People,"+base || ana.Attributes["upn"] != "agarcia@corp.example.com" || ana.Attributes["title"] != "CEO" || ana.Attributes["department"] != "Executive" {
 		t.Errorf("ana attributes = %v", ana.Attributes)
+	}
+	if want := time.Date(2026, 10, 14, 10, 30, 0, 0, time.UTC); !ana.LastLogin.Equal(want) || !got["lperez"].LastLogin.IsZero() {
+		t.Errorf("last logins: ana %v (want %v), luis %v (want none)", ana.LastLogin, want, got["lperez"].LastLogin)
 	}
 	if !got["lperez"].Active || got["mruiz"].Active {
 		t.Errorf("active: luis %t (want true), marta %t (want false)", got["lperez"].Active, got["mruiz"].Active)
@@ -197,7 +202,7 @@ func TestWriteActiveDirectory(t *testing.T) {
 func TestOpenLDAP(t *testing.T) {
 	const base = "dc=example,dc=org"
 	d := &fakeDir{bindDN: "cn=admin," + base, password: "s3cret"}
-	d.add("uid=ana,ou=people,"+base, map[string][]string{"objectClass": {"inetOrgPerson"}, "entryUUID": {"u-ana"}, "uid": {"ana"}, "cn": {"Ana García"}, "mail": {"ana@example.org"}, "employeeNumber": {"1001"}})
+	d.add("uid=ana,ou=people,"+base, map[string][]string{"objectClass": {"inetOrgPerson"}, "entryUUID": {"u-ana"}, "uid": {"ana"}, "cn": {"Ana García"}, "mail": {"ana@example.org"}, "employeeNumber": {"1001"}, "pwdLastSuccess": {"20261018093000Z"}})
 	d.add("uid=luis,ou=people,"+base, map[string][]string{"objectClass": {"inetOrgPerson"}, "entryUUID": {"u-luis"}, "uid": {"luis"}, "cn": {"Luis"}, "pwdAccountLockedTime": {lockedForever}})
 	d.add("uid=sara,ou=people,"+base, map[string][]string{"objectClass": {"inetOrgPerson"}, "entryUUID": {"u-sara"}, "uid": {"sara"}, "cn": {"Sara"}, "pwdAccountLockedTime": {"20261014101500Z"}})
 	d.add("cn=devs,ou=groups,"+base, map[string][]string{"objectClass": {"groupOfNames"}, "entryUUID": {"g-devs"}, "cn": {"devs"}, "member": {"uid=ana,ou=people," + base}})
@@ -215,6 +220,9 @@ func TestOpenLDAP(t *testing.T) {
 	}
 	if a := got["u-ana"]; a.Username != "ana" || a.Email != "ana@example.org" || a.ExternalID != "1001" || !a.Active || !slices.Equal(a.Entitlements, []string{"g-devs"}) {
 		t.Errorf("ana = %+v", a)
+	}
+	if a := got["u-ana"]; !a.LastLogin.Equal(time.Date(2026, 10, 18, 9, 30, 0, 0, time.UTC)) || !got["u-luis"].LastLogin.IsZero() {
+		t.Errorf("last logins from pwdLastSuccess: ana %v, luis %v", a.LastLogin, got["u-luis"].LastLogin)
 	}
 	if got["u-luis"].Active || !got["u-sara"].Active {
 		t.Errorf("luis is locked for good (inactive), sara only after failed logins (active): %t %t", got["u-luis"].Active, got["u-sara"].Active)

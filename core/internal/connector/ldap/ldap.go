@@ -265,9 +265,9 @@ func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
 		userAttrs := []string{a.ID, a.Username, a.Email, a.DisplayName, a.ExternalID, "title", "department", "userPrincipalName"}
 		switch c.directory {
 		case ActiveDirectory:
-			userAttrs = append(userAttrs, "userAccountControl")
+			userAttrs = append(userAttrs, "userAccountControl", "lastLogonTimestamp")
 		case OpenLDAP:
-			userAttrs = append(userAttrs, "pwdAccountLockedTime")
+			userAttrs = append(userAttrs, "pwdAccountLockedTime", "pwdLastSuccess")
 		}
 		users, err := c.search(conn, c.userBase, c.userFilter, userAttrs)
 		if err != nil {
@@ -292,6 +292,7 @@ func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
 				ExternalID:  e.GetEqualFoldAttributeValue(a.ExternalID),
 				Active:      c.active(e),
 				Attributes:  map[string]string{"dn": e.DN},
+				LastLogin:   c.lastLogin(e),
 			}
 			for k, attr := range map[string]string{"title": "title", "department": "department", "upn": "userPrincipalName"} {
 				if v := e.GetEqualFoldAttributeValue(attr); v != "" {
@@ -425,6 +426,35 @@ func (c *Client) active(e *ldap.Entry) bool {
 		return e.GetEqualFoldAttributeValue("pwdAccountLockedTime") != lockedForever
 	}
 	return true
+}
+
+// lastLogin is when the user last signed in, zero when the directory does
+// not say: Active Directory's lastLogonTimestamp (replicated, so up to two
+// weeks behind, which is plenty to tell unused access), or OpenLDAP's
+// pwdLastSuccess when the password policy overlay keeps it.
+func (c *Client) lastLogin(e *ldap.Entry) time.Time {
+	switch c.directory {
+	case ActiveDirectory:
+		ft, err := strconv.ParseInt(e.GetEqualFoldAttributeValue("lastLogonTimestamp"), 10, 64)
+		if err != nil || ft <= 0 {
+			return time.Time{}
+		}
+		return fileTime(ft)
+	case OpenLDAP:
+		t, err := time.Parse("20060102150405Z", e.GetEqualFoldAttributeValue("pwdLastSuccess"))
+		if err != nil {
+			return time.Time{}
+		}
+		return t
+	}
+	return time.Time{}
+}
+
+// fileTime turns a Windows FILETIME (100-nanosecond steps since 1601) into
+// a time.
+func fileTime(ft int64) time.Time {
+	const toUnix = 116444736000000000 // FILETIME of 1970-01-01
+	return time.Unix(0, (ft-toUnix)*100).UTC()
 }
 
 // guid reports whether the id attribute is Active Directory's binary

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
 )
@@ -79,6 +80,24 @@ func TestParseRowPerMembership(t *testing.T) {
 	}
 }
 
+// The last sign-in shows unused access; rows of one account keep the latest.
+func TestParseLastLogin(t *testing.T) {
+	snap := parse(t, `{"columns": {"last_login": "Last logon"}}`, "username,Last logon\n"+
+		"ana,2026-10-01\n"+
+		"ana,2026-10-19T08:30:00Z\n"+
+		"ana,2026-09-01 10:00:00\n"+
+		"luis,\n")
+	if got := snap.Accounts[0].LastLogin; !got.Equal(time.Date(2026, 10, 19, 8, 30, 0, 0, time.UTC)) {
+		t.Errorf("ana's last login = %v", got)
+	}
+	if got := snap.Accounts[1].LastLogin; !got.IsZero() {
+		t.Errorf("luis's last login = %v, want none", got)
+	}
+	if _, ok := snap.Accounts[0].Attributes["last_login"]; ok {
+		t.Errorf("the last login is kept as an attribute too: %v", snap.Accounts[0].Attributes)
+	}
+}
+
 func TestParseSeparator(t *testing.T) {
 	snap := parse(t, `{"separator": "|"}`, "username,entitlements\nana,A|B; C\n")
 	if got := snap.Accounts[0].Entitlements; !slices.Equal(got, []string{"A", "B; C"}) {
@@ -95,6 +114,7 @@ func TestParseProblems(t *testing.T) {
 		"status conflict": {`{}`, "username,status\nana,active\nana,disabled\n", `line 3: account "ana": status is "disabled" here but "active" on line 2`},
 		"attr conflict":   {`{}`, "username,branch\nana,Madrid\nana,Lima\n", `branch is "Lima" here but "Madrid"`},
 		"ragged":          {`{}`, "username\nana,extra\n", "line 2:"},
+		"bad last login":  {`{}`, "username,last_login\nana,yesterday\n", `line 2: last_login "yesterday" is not a date`},
 		"empty":           {`{}`, "", "the file is empty"},
 		"unknown field":   {`{"columns": {"salary": "Pay"}}`, "username\nana\n", `unknown field "salary"`},
 		"unknown option":  {`{"delimiter": ","}`, "username\nana\n", "unknown field"},

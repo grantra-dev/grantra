@@ -29,6 +29,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/insights"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 )
 
@@ -250,6 +251,9 @@ type Item struct {
 	DecidedBy    string     `json:"decided_by,omitempty"`
 	DecidedAt    *time.Time `json:"decided_at,omitempty"`
 	Comment      string     `json:"comment,omitempty"`
+	// Suggestion is what Grantra makes of the access, on pending items
+	// listed for a reviewer.
+	Suggestion *insights.Suggestion `json:"suggestion,omitempty"`
 
 	campaignStatus string
 	assignmentID   string
@@ -387,6 +391,35 @@ func Items(ctx context.Context, tx pgx.Tx, f ItemFilter) ([]Item, error) {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, scanItem)
+}
+
+// Suggest adds Grantra's suggestion to the pending items: whether the
+// access is used, and how common it is among the person's peers.
+func Suggest(ctx context.Context, tx pgx.Tx, items []Item) error {
+	var (
+		access []insights.Access
+		at     []int
+	)
+	for i, it := range items {
+		if it.Decision != Pending {
+			continue
+		}
+		a := insights.Access{IdentityID: it.IdentityID, EligibilityID: it.eligibilityID, GrantedAt: it.GrantedAt}
+		if it.Type == "role" {
+			a.RoleID = it.TargetID
+		} else {
+			a.EntitlementID = it.TargetID
+		}
+		access, at = append(access, a), append(at, i)
+	}
+	out, err := insights.Suggest(ctx, tx, access)
+	if err != nil {
+		return err
+	}
+	for j, i := range at {
+		items[i].Suggestion = &out[j]
+	}
+	return nil
 }
 
 // Decide keeps or revokes the access of an item. The caller has checked

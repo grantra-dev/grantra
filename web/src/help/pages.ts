@@ -9,6 +9,7 @@ import csvFiles from "../../../docs/help/csv-files.md?raw";
 import gettingStarted from "../../../docs/help/getting-started.md?raw";
 import peopleAndAudit from "../../../docs/help/people-and-audit.md?raw";
 import privilegedAccess from "../../../docs/help/privileged-access.md?raw";
+import insights from "../../../docs/help/insights.md?raw";
 import threats from "../../../docs/help/threats.md?raw";
 import { PlatformRole, type Me } from "@/lib/api";
 import { approves, hasRole } from "@/lib/roles";
@@ -62,7 +63,13 @@ export const helpPages: HelpPage[] = [
     "HR sources, applications, policies and API tokens.",
     (me) => hasRole(me, PlatformRole.Admin),
   ),
-  page("threats", threats, "Suspicious sign-ins and access, and how to respond.", (me) =>
+  page(
+    "threats",
+    threats,
+    "Suspicious sign-ins and access, attack paths, and how to respond.",
+    (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
+  ),
+  page("insights", insights, "Unused access and role suggestions.", (me) =>
     hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
   ),
   page(

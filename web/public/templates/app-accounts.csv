@@ -1,5 +1,5 @@
-account_id,username,email,display_name,employee_id,status,entitlements
-u-001,ana.garcia,ana.garcia@example.com,Ana García,1001,active,Admin;Approver
-u-002,luis.perez,luis.perez@example.com,Luis Pérez,1002,active,Accounts payable
-u-003,marta.ruiz,marta.ruiz@example.com,Marta Ruiz,1003,disabled,
-u-900,batch_job,,Nightly batch,,active,Admin
+account_id,username,email,display_name,employee_id,status,entitlements,last_login
+u-001,ana.garcia,ana.garcia@example.com,Ana García,1001,active,Admin;Approver,2026-10-17
+u-002,luis.perez,luis.perez@example.com,Luis Pérez,1002,active,Accounts payable,2026-10-15
+u-003,marta.ruiz,marta.ruiz@example.com,Marta Ruiz,1003,disabled,,2026-03-02
+u-900,batch_job,,Nightly batch,,active,Admin,2026-10-19

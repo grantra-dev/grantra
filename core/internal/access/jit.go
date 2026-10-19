@@ -303,6 +303,9 @@ func Activate(ctx context.Context, tx pgx.Tx, tenantID, actor string, el Eligibi
 	if err != nil {
 		return Activation{}, fmt.Errorf("activate: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `UPDATE access_eligibilities SET last_activated_at = now() WHERE id = $1`, el.ID); err != nil {
+		return Activation{}, err
+	}
 	details := t.details(map[string]any{"assignment_id": a.AssignmentID, "origin": OriginActivation, "eligibility_id": el.ID,
 		"hours": hours, "justification": justification, "expires_at": a.ExpiresAt.UTC()})
 	if requestID != "" {

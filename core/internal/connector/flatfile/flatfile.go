@@ -16,6 +16,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/csvfile"
@@ -35,10 +36,11 @@ const (
 	FieldEmployeeID   = "employee_id"
 	FieldStatus       = "status"
 	FieldEntitlements = "entitlements"
+	FieldLastLogin    = "last_login"
 )
 
 // Fields lists every column Grantra reads, for mappings.
-var Fields = []string{FieldAccountID, FieldUsername, FieldEmail, FieldDisplayName, FieldEmployeeID, FieldStatus, FieldEntitlements}
+var Fields = []string{FieldAccountID, FieldUsername, FieldEmail, FieldDisplayName, FieldEmployeeID, FieldStatus, FieldEntitlements, FieldLastLogin}
 
 // Config is how an application's files are read.
 type Config struct {
@@ -160,6 +162,12 @@ func Parse(raw json.RawMessage, r io.Reader) (connector.Snapshot, error) {
 			bad(line, "unknown status %q (use active or disabled)", f.Get(FieldStatus))
 			continue
 		}
+		if v := f.Get(FieldLastLogin); v != "" {
+			if a.LastLogin, err = parseTime(v); err != nil {
+				bad(line, "%s %q is not a date (use 2026-10-19 or 2026-10-19T08:30:00Z)", f.Column(FieldLastLogin), v)
+				continue
+			}
+		}
 		f.Extra(func(name, v string) { a.Attributes[name] = v })
 		var mine []string
 		for _, e := range strings.Split(f.Get(FieldEntitlements), cfg.Separator) {
@@ -230,6 +238,11 @@ func merge(first *connector.Account, later connector.Account, f *csvfile.File, g
 	case later.Active != first.Active:
 		return f.Column(FieldStatus), status(later.Active), status(first.Active)
 	}
+	// Rows of one account may come from several systems: the latest
+	// sign-in counts.
+	if later.LastLogin.After(first.LastLogin) {
+		first.LastLogin = later.LastLogin
+	}
 	for k, v := range later.Attributes {
 		switch old, ok := first.Attributes[k]; {
 		case !ok:
@@ -239,6 +252,19 @@ func merge(first *connector.Account, later connector.Account, f *csvfile.File, g
 		}
 	}
 	return "", "", ""
+}
+
+// timeLayouts are the ways a last_login cell may write its date.
+var timeLayouts = []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"}
+
+// parseTime reads a date and time, taken as UTC when it gives no zone.
+func parseTime(v string) (time.Time, error) {
+	for _, l := range timeLayouts {
+		if t, err := time.Parse(l, v); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("not a date: %q", v)
 }
 
 func status(active bool) string {

@@ -317,9 +317,9 @@ func TestImportFile(t *testing.T) {
 		}
 		return run
 	}
-	file := "Login,email,employee_id,status,entitlements\n" +
-		"ana,ana@example.com,E1,active,Admin;Billing\n" +
-		"ghost,,,disabled,Billing\n"
+	file := "Login,email,employee_id,status,entitlements,last_login\n" +
+		"ana,ana@example.com,E1,active,Admin;Billing,2026-10-01\n" +
+		"ghost,,,disabled,Billing,\n"
 
 	run := imp(file, true)
 	if run.Status != RunPlanned || run.Counts["accounts_new"] != 2 || run.Counts["memberships_added"] != 3 || run.Counts["orphans"] != 1 {
@@ -354,6 +354,17 @@ func TestImportFile(t *testing.T) {
 		t.Fatalf("second import = %s %v %s", run.Status, run.Counts, run.Error)
 	}
 
+	// A file that says nothing of sign-ins, or an older one, keeps the
+	// latest sign-in known.
+	imp("Login,entitlements,last_login\nana,Billing,2026-09-01\n", false)
+	var last time.Time
+	e.tx(func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT last_login_at FROM accounts WHERE application_id = $1 AND native_id = 'ana'`, e.app).Scan(&last)
+	})
+	if !last.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("ana's last login = %v", last)
+	}
+
 	// A broken file is a failed run that changes nothing.
 	run = imp("Login,status\nana,on leave\n", false)
 	if run.Status != RunFailed || !strings.Contains(run.Error, `unknown status "on leave"`) {
@@ -369,8 +380,8 @@ func TestImportFile(t *testing.T) {
 		}
 		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action = 'application.aggregated' AND target_id = $1`, e.app).Scan(&audits)
 	})
-	if runs != 4 || audits != 4 {
-		t.Errorf("runs = %d, audit events = %d, want 4 each", runs, audits)
+	if runs != 5 || audits != 5 {
+		t.Errorf("runs = %d, audit events = %d, want 5 each", runs, audits)
 	}
 
 	// The connector cannot be read without a file, and the background

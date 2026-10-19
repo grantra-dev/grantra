@@ -28,6 +28,24 @@ Open an alert, look at the evidence and choose:
 
 Then **Resolve** the alert when it is dealt with, or **Dismiss** it with a note when it was not a threat (they really are travelling). Everything is in the audit log.
 
+## What an account reaches
+
+An alert about a person also lists **what their account reaches**: the high and critical risk access whoever took it over would get. That is how urgent the alert is. Each one opens its attack paths.
+
+## Attack paths
+
+**Security → Attack paths** lists every high and critical risk entitlement someone can reach, and counts the ways there:
+
+| Column | Means |
+|---|---|
+| **People** | Everyone who reaches it, any way |
+| **For good** | They hold it with no end date: no just-in-time, no expiry |
+| **Through a shared account** | They may use the password of an account that holds it: a vault account they may check out, or a gateway target that logs in with one. Their own access never says so, which is why these are missed |
+| **Not given by Grantra** | Their account holds it in the application, and nobody gave it in Grantra |
+| **Accounts nobody owns** | Active accounts holding it that belong to nobody, or to someone who left |
+
+Open one to see each way as a sentence: *Dan requested vault account backup, which logs in as svc-backup, which holds Domain Admins*. Grantra also says what to do: make it just in time, take the access off the shared account, give it through Grantra, or deal with the accounts nobody owns. Fewer people for good, and none of the last three, is what to aim for.
+
 ## Detections
 
 The **Detections** tab lists what Grantra looks for. Each one can be turned off, given another severity and tuned, like how many wrong passwords count as guessing.

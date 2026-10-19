@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
+import { SuggestionNote } from "@/components/SuggestionNote";
 import { Tabs } from "@/components/Tabs";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -142,7 +143,7 @@ function ToReview() {
   const shown = sortReviewItems(filterReviewItems(data, { ...filter, campaign }), sort);
   const chosen = shown.filter((it) => selected.has(it.id));
   const campaignName = data.find((it) => it.campaign_id === campaign)?.campaign_name;
-  const filtered = !!(filter.text?.trim() || filter.risk || filter.origin);
+  const filtered = !!(filter.text?.trim() || filter.risk || filter.origin || filter.suggestion);
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -225,6 +226,19 @@ function ToReview() {
                     {label}
                   </option>
                 ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="review-suggestion">Grantra suggests</Label>
+              <Select
+                id="review-suggestion"
+                value={filter.suggestion ?? ""}
+                onChange={(e) => setFilter({ ...filter, suggestion: e.target.value })}
+              >
+                <option value="">Anything</option>
+                <option value="revoke">Revoke</option>
+                <option value="keep">Keep</option>
+                <option value="none">Nothing</option>
               </Select>
             </div>
             <div>
@@ -343,6 +357,7 @@ function ToReview() {
                           <div className="text-slate-500">
                             {it.type === "role" ? "Role" : it.application}
                           </div>
+                          <SuggestionNote suggestion={it.suggestion} />
                         </TableCell>
                         <TableCell>
                           {originLabels[it.origin]}
