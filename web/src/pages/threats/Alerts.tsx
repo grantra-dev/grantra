@@ -1,7 +1,8 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
+import { ShowMore } from "@/components/ShowMore";
 import { Manage } from "@/components/Manage";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Me } from "@/lib/api";
+import { usePages } from "@/lib/hooks";
 import {
   closeThreatAlert,
   getThreatAlert,
@@ -27,14 +29,11 @@ import {
   type ResponseAction,
   type ThreatAlert,
   type ThreatResponse,
-  capitalize,
-  evidenceLabel,
   evidenceValue,
+  alertsPageSize,
 } from "@/lib/threats";
-import { cn, formatTime } from "@/lib/utils";
+import { capitalize, cn, formatTime, humanize } from "@/lib/utils";
 import { SeverityBadge } from "./shared";
-
-const pageSize = 50;
 
 /** The alerts, newest seen first; ?alert=<id> opens one. */
 export function Alerts({ me }: { me: Me }) {
@@ -42,14 +41,12 @@ export function Alerts({ me }: { me: Me }) {
   const selected = params.get("alert");
   const [status, setStatus] = useState("open");
   const [severity, setSeverity] = useState("");
-  const alerts = useInfiniteQuery({
-    queryKey: ["threat-alerts", status, severity],
-    queryFn: ({ pageParam }) =>
-      listThreatAlerts({ status: status || undefined, severity, before: pageParam || undefined }),
-    initialPageParam: "",
-    getNextPageParam: (last) => (last.length < pageSize ? undefined : last[last.length - 1]!.id),
-  });
-  const rows = alerts.data?.pages.flat() ?? [];
+  const alerts = usePages(
+    ["threat-alerts", status, severity],
+    (before?: string) => listThreatAlerts({ status, severity, before }),
+    alertsPageSize,
+  );
+  const { rows } = alerts;
   const open = (id: string | null) => setParams(id ? { alert: id } : {});
   return (
     <div className="flex flex-col gap-4">
@@ -131,18 +128,7 @@ export function Alerts({ me }: { me: Me }) {
             ))}
           </TableBody>
         </Table>
-        {alerts.hasNextPage && (
-          <div className="p-3 text-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={alerts.isFetchingNextPage}
-              onClick={() => void alerts.fetchNextPage()}
-            >
-              Show more
-            </Button>
-          </div>
-        )}
+        <ShowMore query={alerts} />
       </Loaded>
     </div>
   );
@@ -230,7 +216,7 @@ function Facts({ alert: a }: { alert: ThreatAlert }) {
       </dd>
       {evidence.map(([k, v]) => (
         <div key={k} className="contents">
-          <dt className="text-slate-500">{evidenceLabel(k)}</dt>
+          <dt className="text-slate-500">{humanize(k)}</dt>
           <dd className="break-words">{evidenceValue(v)}</dd>
         </div>
       ))}

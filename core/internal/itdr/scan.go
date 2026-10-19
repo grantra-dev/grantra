@@ -15,7 +15,9 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/login"
+	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // batchSize is how many sign-ins one transaction of a scan looks at.
@@ -68,9 +70,15 @@ func (sc Scanner) now() time.Time {
 // threat detection off, it does nothing.
 func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
 	var res ScanResult
-	var on bool
+	var (
+		on       bool
+		settings map[string]Setting
+	)
 	if err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
-		on, err = On(ctx, tx)
+		if on, err = On(ctx, tx); err != nil || !on {
+			return err
+		}
+		settings, err = settingsByID(ctx, tx)
 		return err
 	}); err != nil || !on {
 		return res, err
@@ -92,7 +100,7 @@ func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
 		)
 		err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
 			var evaluated int
-			found, evaluated, err = sc.evaluate(ctx, tx)
+			found, evaluated, err = sc.evaluate(ctx, tx, settings)
 			res.Evaluated += evaluated
 			done = evaluated < batchSize
 			if err != nil {
@@ -109,7 +117,7 @@ func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
 		}
 	}
 	err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) error {
-		found, err := sc.checkAccess(ctx, tx)
+		found, err := sc.checkAccess(ctx, tx, settings)
 		if err != nil {
 			return err
 		}
@@ -131,23 +139,19 @@ func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
 			res.Escalated++
 		}
 	}
-	res.Responses, res.ResponseErrors = sc.respond(ctx, all)
+	res.Responses, res.ResponseErrors = sc.respond(ctx, all, settings)
 	return res, readErr
 }
 
 // respond runs the automatic response of each alert's detection, once
 // per alert and per kind of response: an alert that grows more severe
 // after it was responded to is not responded to again.
-func (sc Scanner) respond(ctx context.Context, alerts []raised) (ran, failed int) {
+func (sc Scanner) respond(ctx context.Context, alerts []raised, settings map[string]Setting) (ran, failed int) {
 	if len(alerts) == 0 {
 		return 0, 0
 	}
-	var settings map[string]Setting
 	done := map[string]bool{}
-	err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
-		if settings, err = settingsByID(ctx, tx); err != nil {
-			return err
-		}
+	err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) error {
 		ids := make([]string, 0, len(alerts))
 		for _, a := range alerts {
 			ids = append(ids, a.id)
@@ -199,13 +203,9 @@ func pending(ctx context.Context, tx pgx.Tx) ([]int64, error) {
 }
 
 // evaluate looks at one batch of sign-ins.
-func (sc Scanner) evaluate(ctx context.Context, tx pgx.Tx) ([]raised, int, error) {
+func (sc Scanner) evaluate(ctx context.Context, tx pgx.Tx, settings map[string]Setting) ([]raised, int, error) {
 	ids, err := pending(ctx, tx)
 	if err != nil || len(ids) == 0 {
-		return nil, 0, err
-	}
-	settings, err := settingsByID(ctx, tx)
-	if err != nil {
 		return nil, 0, err
 	}
 	var findings []finding
@@ -223,20 +223,6 @@ func (sc Scanner) evaluate(ctx context.Context, tx pgx.Tx) ([]raised, int, error
 	}
 	out, err := raiseAll(ctx, tx, sc.TenantID, settings, findings)
 	return out, len(ids), err
-}
-
-func raiseAll(ctx context.Context, tx pgx.Tx, tenantID string, settings map[string]Setting, findings []finding) ([]raised, error) {
-	var out []raised
-	for _, f := range findings {
-		r, err := raise(ctx, tx, tenantID, settings[f.detection], f)
-		if err != nil {
-			return nil, err
-		}
-		if r != nil {
-			out = append(out, *r)
-		}
-	}
-	return out, nil
 }
 
 func secs(d time.Duration) float64 { return d.Seconds() }
@@ -358,12 +344,12 @@ func detectSuccesses(ctx context.Context, tx pgx.Tx, ids []int64, settings map[s
 		}
 		if failures >= brute.param("failures") {
 			add(BruteForce, fmt.Sprintf("%s signed in right after %s in %d minutes", name,
-				plural(failures, "wrong password", "wrong passwords"), brute.param("window_minutes")), true,
+				textutil.Plural(failures, "wrong password", "wrong passwords"), brute.param("window_minutes")), true,
 				map[string]any{"failures": failures, "signed_in": true})
 		}
 		if mfa >= fatigue.param("failures") {
 			add(MFAFatigue, fmt.Sprintf("%s signed in after %s in %d minutes", name,
-				plural(mfa, "refused second factor", "refused second factors"), fatigue.param("window_minutes")), true,
+				textutil.Plural(mfa, "refused second factor", "refused second factors"), fatigue.param("window_minutes")), true,
 				map[string]any{"failures": mfa, "signed_in": true})
 		}
 	}
@@ -411,16 +397,16 @@ func detectFailures(ctx context.Context, tx pgx.Tx, ids []int64, settings map[st
 		if err := rows.Scan(&id, &identity, &name, &outcome, &at, &source, &app, &n, &ips); err != nil {
 			return nil, err
 		}
-		s, detection, what := brute, BruteForce, plural(n, "wrong password", "wrong passwords")
+		s, detection, what := brute, BruteForce, textutil.Plural(n, "wrong password", "wrong passwords")
 		if outcome == MFAFailure {
-			s, detection, what = fatigue, MFAFatigue, plural(n, "refused or wrong second factor", "refused or wrong second factors")
+			s, detection, what = fatigue, MFAFatigue, textutil.Plural(n, "refused or wrong second factor", "refused or wrong second factors")
 		}
 		if !s.Enabled || n < s.param("failures") {
 			continue
 		}
 		out = append(out, finding{detection: detection, identityID: identity, subject: identity,
 			summary:  fmt.Sprintf("%s for %s in %d minutes, on %s", what, name, s.param("window_minutes"), where(source, app)),
-			evidence: map[string]any{"event_id": id, "failures": n, "ips": nonNil(ips), "source": source, "at": at}, at: at})
+			evidence: map[string]any{"event_id": id, "failures": n, "ips": httpjson.NonNil(ips), "source": source, "at": at}, at: at})
 	}
 	return out, rows.Err()
 }
@@ -464,18 +450,14 @@ func detectSprays(ctx context.Context, tx pgx.Tx, ids []int64, settings map[stri
 		}
 		out = append(out, finding{detection: PasswordSpray, subject: "ip:" + ip,
 			summary:  fmt.Sprintf("The address %s tried passwords for %d people in %d minutes", ip, n, s.param("window_minutes")),
-			evidence: map[string]any{"event_id": id, "ip": ip, "people": n, "usernames": nonNil(users), "source": source, "at": at}, at: at})
+			evidence: map[string]any{"event_id": id, "ip": ip, "people": n, "usernames": httpjson.NonNil(users), "source": source, "at": at}, at: at})
 	}
 	return out, rows.Err()
 }
 
 // checkAccess looks at access that appeared since the last scan: high and
 // critical access Grantra did not give, and new Grantra admins.
-func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx) ([]raised, error) {
-	settings, err := settingsByID(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
+func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[string]Setting) ([]raised, error) {
 	var findings []finding
 
 	// Access granted outside Grantra. The first scan only notes where
@@ -622,9 +604,9 @@ func span(d time.Duration) string {
 	case d < time.Minute:
 		return "under a minute"
 	case d < 2*time.Hour:
-		return plural(int(d.Minutes()), "minute", "minutes")
+		return textutil.Plural(int(d.Minutes()), "minute", "minutes")
 	default:
-		return plural(int(d.Hours()), "hour", "hours")
+		return textutil.Plural(int(d.Hours()), "hour", "hours")
 	}
 }
 

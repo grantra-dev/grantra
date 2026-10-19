@@ -15,7 +15,7 @@ import {
   type Me,
 } from "@/lib/api";
 import { focusRing, useFocusParam } from "@/lib/focus";
-import { cn, formatDate } from "@/lib/utils";
+import { capitalize, cn, formatDate } from "@/lib/utils";
 
 const statusBadges = {
   pending: { variant: "amber", label: "Pending" },
@@ -126,5 +126,5 @@ function RequestCard({ r, me, focused }: { r: AccessRequest; me: Me; focused: bo
 // say who was involved.
 function closingReason(reason: string) {
   if (reason.startsWith("withdrawn")) return "Withdrawn.";
-  return reason[0]!.toUpperCase() + reason.slice(1) + ".";
+  return capitalize(reason) + ".";
 }

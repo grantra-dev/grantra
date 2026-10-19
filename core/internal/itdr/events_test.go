@@ -49,10 +49,4 @@ func TestHelpers(t *testing.T) {
 	if got := thousands(1234567); got != "1,234,567" {
 		t.Errorf("thousands = %s", got)
 	}
-	if raiseSeverity("medium") != "high" || raiseSeverity("critical") != "critical" {
-		t.Error("raiseSeverity")
-	}
-	if clip("añ", 2) != "a" {
-		t.Errorf("clip cut a character in half: %q", clip("añ", 2))
-	}
 }

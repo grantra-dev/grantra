@@ -17,6 +17,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/login"
+	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // loginCursor is where reading Grantra Login's events got to: the time of
@@ -42,9 +43,9 @@ func signInFromEvent(ev grantralogin.Event) (SignIn, bool) {
 	s := SignIn{
 		ID:          ev.ID,
 		Time:        time.UnixMilli(ev.Time).UTC(),
-		User:        clip(ev.Details["username"], 320),
+		User:        textutil.Clip(ev.Details["username"], 320),
 		IP:          ev.IPAddress,
-		Application: clip(ev.ClientID, 200),
+		Application: textutil.Clip(ev.ClientID, 200),
 	}
 	switch ev.Type {
 	case "LOGIN":

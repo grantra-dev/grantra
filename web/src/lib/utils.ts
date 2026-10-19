@@ -26,3 +26,9 @@ export function hasWords(query: string, ...texts: (string | undefined)[]): boole
   const text = texts.filter(Boolean).join(" ").toLowerCase();
   return words.every((w) => text.includes(w));
 }
+
+/** "critical" reads as "Critical". */
+export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** An identifier such as "platform_role.granted" or "cost_center" in words: "Platform role granted". */
+export const humanize = (id: string) => capitalize(id.replace(/[._]/g, " ").trim());

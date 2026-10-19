@@ -15,8 +15,8 @@ import {
   type Detection,
   type ResponseAction,
   type Severity,
-  capitalize,
 } from "@/lib/threats";
+import { capitalize } from "@/lib/utils";
 import { SeverityBadge } from "./shared";
 
 /** What Grantra looks for, and how each detection is tuned. */

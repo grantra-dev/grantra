@@ -112,7 +112,7 @@ func (a *API) listGatewayTargets(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"targets": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"targets": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) createGatewayTarget(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +335,7 @@ func (a *API) listGatewaySessions(w http.ResponseWriter, r *http.Request) {
 		out, err = gateways.ListSessions(r.Context(), tx, f)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"sessions": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"sessions": httpjson.NonNil(out)}, err)
 }
 
 // getGatewaySession returns a session with its queries or requests, 500 at
@@ -360,7 +360,7 @@ func (a *API) getGatewaySession(w http.ResponseWriter, r *http.Request) {
 		if out.Log, err = gateways.SessionEvents(r.Context(), tx, out.ID, after, 500); err != nil {
 			return err
 		}
-		out.Log = nonNil(out.Log)
+		out.Log = httpjson.NonNil(out.Log)
 		// Like watching an SSH recording, reading a session's log is in
 		// the audit log.
 		if after == 0 {
@@ -390,5 +390,5 @@ func (a *API) searchGatewayEvents(w http.ResponseWriter, r *http.Request) {
 		out, err = gateways.SearchEvents(r.Context(), tx, r.URL.Query().Get("q"), r.URL.Query().Get("target"), limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"events": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"events": httpjson.NonNil(out)}, err)
 }

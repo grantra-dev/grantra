@@ -117,21 +117,26 @@ export interface ScanResult {
   deleted: number;
 }
 
-const query = (params: Record<string, string | undefined>) => {
+const query = (params: Record<string, string | number | undefined>) => {
   const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+  for (const [k, v] of Object.entries(params)) if (v) q.set(k, String(v));
   const s = q.toString();
   return s ? `?${s}` : "";
 };
 
 export const getThreats = () => api<ThreatsOverview>("/api/v1/threats");
 
+export const alertsPageSize = 50;
+
 export const listThreatAlerts = (f: {
   status?: string;
   severity?: string;
   identity?: string;
   before?: string;
-}) => api<{ alerts: ThreatAlert[] }>(`/api/v1/threats/alerts${query(f)}`).then((r) => r.alerts);
+}) =>
+  api<{ alerts: ThreatAlert[] }>(
+    `/api/v1/threats/alerts${query({ ...f, limit: alertsPageSize })}`,
+  ).then((r) => r.alerts);
 
 export const getThreatAlert = (id: string) =>
   api<ThreatAlert>(`/api/v1/threats/alerts/${encodeURIComponent(id)}`);
@@ -153,12 +158,17 @@ export const saveDetection = (
 export const scanThreats = () =>
   send<{ result: ScanResult; error?: string }>("POST", "/api/v1/threats/scan");
 
+export const signInsPageSize = 50;
+
 export const listSignIns = (f: {
   identity?: string;
   outcome?: string;
   ip?: string;
-  before?: string;
-}) => api<{ events: SignInEvent[] }>(`/api/v1/sign-in-events${query(f)}`).then((r) => r.events);
+  before?: number;
+}) =>
+  api<{ events: SignInEvent[] }>(
+    `/api/v1/sign-in-events${query({ ...f, limit: signInsPageSize })}`,
+  ).then((r) => r.events);
 
 export const respondToThreat = (
   identityId: string,
@@ -174,11 +184,6 @@ export const listThreatResponses = (identityId: string) =>
   api<{ responses: ThreatResponse[] }>(
     `/api/v1/identities/${encodeURIComponent(identityId)}/threat-responses`,
   ).then((r) => r.responses);
-
-export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-/** Turns an evidence key such as "previous_country" into "Previous country". */
-export const evidenceLabel = (key: string) => capitalize(key.replaceAll("_", " "));
 
 /** Shows one evidence value: dates as dates, lists joined. */
 export function evidenceValue(value: unknown): string {

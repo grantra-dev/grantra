@@ -225,4 +225,29 @@ describe("Threats", () => {
     const nav = await screen.findByRole("navigation", { name: "Main" });
     expect(within(nav).queryByText("Security")).not.toBeInTheDocument();
   });
+
+  it("loads sign-ins page by page, from after the last one shown", async () => {
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: from - i,
+        source: "okta",
+        occurred_at: "2026-10-19T08:00:00Z",
+        username: `user${from - i}`,
+        outcome: "failure" as const,
+      }));
+    const fetch = serve({
+      ...threatRoutes(ada),
+      "GET /api/v1/sign-in-events?limit=50": ok({ events: page(100, 50) }),
+      "GET /api/v1/sign-in-events?before=51&limit=50": ok({ events: page(50, 3) }),
+    });
+    renderAt("/security/threats?tab=sign-ins");
+    expect(await screen.findByText("user51")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(await screen.findByText("user48")).toBeInTheDocument();
+    // A short page is the last one.
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+    expect(
+      fetch.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/sign-in-events")),
+    ).toHaveLength(2);
+  });
 });

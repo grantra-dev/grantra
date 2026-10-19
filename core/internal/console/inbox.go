@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
@@ -108,6 +109,6 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		out.Total += len(out.BreakGlass)
 		return nil
 	})
-	out.Approvals, out.Reviews, out.BreakGlass, out.Threats = nonNil(out.Approvals), nonNil(out.Reviews), nonNil(out.BreakGlass), nonNil(out.Threats)
+	out.Approvals, out.Reviews, out.BreakGlass, out.Threats = httpjson.NonNil(out.Approvals), httpjson.NonNil(out.Reviews), httpjson.NonNil(out.BreakGlass), httpjson.NonNil(out.Threats)
 	a.respond(w, r, http.StatusOK, out, err)
 }

@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { capitalize, type Severity } from "@/lib/threats";
+import type { Severity } from "@/lib/threats";
+import { capitalize } from "@/lib/utils";
 
 const severityVariants = { low: "default", medium: "amber", high: "red", critical: "red" } as const;
 

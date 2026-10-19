@@ -18,3 +18,12 @@ func Write(w http.ResponseWriter, status int, v any) {
 func Error(w http.ResponseWriter, status int, msg string) {
 	Write(w, status, map[string]string{"error": msg})
 }
+
+// NonNil returns s, or an empty slice for nil, so lists encode as [] and
+// not null.
+func NonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}

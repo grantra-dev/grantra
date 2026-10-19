@@ -46,7 +46,7 @@ func (a *API) listVaultAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"enabled": a.Vault.Enabled(), "accounts": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"enabled": a.Vault.Enabled(), "accounts": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) createVaultAccount(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +183,7 @@ func (a *API) discoverVaultAccounts(w http.ResponseWriter, r *http.Request) {
 		out, err = vault.Discover(r.Context(), tx, limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"findings": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"findings": httpjson.NonNil(out)}, err)
 }
 
 // breakGlass opens a break-glass vault account without approval, for its
@@ -228,7 +228,7 @@ func (a *API) listBreakGlassUses(w http.ResponseWriter, r *http.Request) {
 		out, err = vault.BreakGlassUses(r.Context(), tx, status != "all")
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"uses": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"uses": httpjson.NonNil(out)}, err)
 }
 
 // reviewBreakGlass confirms a break-glass use was justified, or flags it.

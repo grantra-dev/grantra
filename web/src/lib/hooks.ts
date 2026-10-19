@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { getInbox } from "./console";
 
@@ -19,4 +19,24 @@ export function useDebounced<T>(value: T, ms = 300): T {
  */
 export function useInbox() {
   return useQuery({ queryKey: ["inbox"], queryFn: getInbox, staleTime: 30_000 });
+}
+
+/**
+ * A list the API gives page by page: each page asks for what comes after
+ * the last row of the one before, and a short page is the last one. While a
+ * new filter loads, the rows of the previous one stay on screen.
+ */
+export function usePages<T extends { id: string | number }>(
+  queryKey: QueryKey,
+  fetchPage: (after: NoInfer<T["id"]> | undefined) => Promise<T[]>,
+  pageSize: number,
+) {
+  const query = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => fetchPage(pageParam as T["id"] | undefined),
+    initialPageParam: undefined as T["id"] | undefined,
+    getNextPageParam: (last) => (last.length === pageSize ? last.at(-1)?.id : undefined),
+    placeholderData: keepPreviousData,
+  });
+  return { ...query, rows: query.data?.pages.flat() ?? [] };
 }

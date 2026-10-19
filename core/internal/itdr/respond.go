@@ -16,6 +16,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
@@ -307,7 +308,7 @@ func (rs Responder) Respond(ctx context.Context, actor, identityID string, in Re
 			}
 		}
 		if in.Action == Suspend {
-			out.Details["disabled_accounts"] = nonNil(disabled)
+			out.Details["disabled_accounts"] = httpjson.NonNil(disabled)
 		}
 	}
 	out.Error = strings.Join(problems, "; ")
@@ -380,11 +381,4 @@ func endSessions(ctx context.Context, tx pgx.Tx, tenantID, actor, identityID str
 		out["aws_sessions_left"] = aws
 	}
 	return out, nil
-}
-
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
 }

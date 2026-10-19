@@ -7,6 +7,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
@@ -16,7 +17,7 @@ func (a *API) listSoDPolicies(w http.ResponseWriter, r *http.Request) {
 		out, err = sod.List(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"policies": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"policies": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getSoDPolicy(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +74,7 @@ func (a *API) listSoDViolations(w http.ResponseWriter, r *http.Request) {
 		out, err = sod.Violations(r.Context(), tx, sod.Filter{Status: q.Get("status"), PolicyID: q.Get("policy_id"), After: q.Get("after"), Limit: limit})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"violations": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"violations": httpjson.NonNil(out)}, err)
 }
 
 // scanSoD looks for violations now.

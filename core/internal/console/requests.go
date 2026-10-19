@@ -29,7 +29,7 @@ func (a *API) listRequestable(w http.ResponseWriter, r *http.Request) {
 		}
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"items": nonNil(out), "team_size": teamSize}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"items": httpjson.NonNil(out), "team_size": teamSize}, err)
 }
 
 // createRequest asks for access, for yourself or for one of your reports:
@@ -86,7 +86,7 @@ func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
 		conflicts, err = sod.Conflicts(r.Context(), tx, target.ID, in.RoleID, in.EntitlementID)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"sod_conflicts": nonNil(conflicts)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"sod_conflicts": httpjson.NonNil(conflicts)}, err)
 }
 
 // listRequests lists requests: ?scope=mine (asked by or for you, the
@@ -113,7 +113,7 @@ func (a *API) listRequests(w http.ResponseWriter, r *http.Request) {
 		out, err = requests.List(r.Context(), tx, f)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"requests": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"requests": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getRequest(w http.ResponseWriter, r *http.Request) {

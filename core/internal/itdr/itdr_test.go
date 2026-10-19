@@ -431,6 +431,55 @@ func TestOutsideGrantraAndNewAdmins(t *testing.T) {
 	}
 }
 
+// TestRaiseAllInOneBatch pins that findings about the same subject in one
+// batch end up in one alert, reported once, and escalate it when a later
+// one is more severe.
+func TestRaiseAllInOneBatch(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	ana := e.identity("Ana")
+	at := time.Now()
+	f := finding{detection: BruteForce, identityID: ana, subject: ana, summary: "guessing", evidence: map[string]any{}, at: at}
+	worse := f
+	worse.raised, worse.summary = true, "guessing, then signed in"
+	var first, second []raised
+	e.tx(func(tx pgx.Tx) (err error) {
+		settings, err := settingsByID(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if first, err = raiseAll(ctx, tx, e.tenant, settings, []finding{f, f, f}); err != nil {
+			return err
+		}
+		second, err = raiseAll(ctx, tx, e.tenant, settings, []finding{f, worse})
+		return err
+	})
+	if len(first) != 1 || !first[0].created || first[0].severity != "medium" {
+		t.Fatalf("first batch = %+v, want one new medium alert", first)
+	}
+	if len(second) != 1 || second[0].created || second[0].severity != "high" || second[0].id != first[0].id {
+		t.Fatalf("second batch = %+v, want the same alert escalated to high", second)
+	}
+	a := e.only(BruteForce)
+	if a.Occurrences != 5 || a.Summary != "guessing, then signed in" {
+		t.Errorf("alert = %d occurrences, %q", a.Occurrences, a.Summary)
+	}
+	if got := e.count(`SELECT count(*) FROM audit_events WHERE action IN ('itdr.alert_raised', 'itdr.alert_escalated')`); got != 2 {
+		t.Errorf("audited %d alert changes, want 2", got)
+	}
+}
+
+func TestRaiseSeverity(t *testing.T) {
+	for in, want := range map[string]string{"low": "medium", "medium": "high", "high": "critical", "critical": "critical", "odd": "odd"} {
+		if got := raiseSeverity(in); got != want {
+			t.Errorf("raiseSeverity(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if rankSQL("x") != "array_position(ARRAY['low', 'medium', 'high', 'critical'], x)" {
+		t.Errorf("rankSQL = %s", rankSQL("x"))
+	}
+}
+
 func TestSettings(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

@@ -9,6 +9,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/connector/grantralogin"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
@@ -66,7 +67,7 @@ func (a *API) getThreats(w http.ResponseWriter, r *http.Request) {
 		})
 		return err
 	})
-	out.Sources = nonNil(out.Sources)
+	out.Sources = httpjson.NonNil(out.Sources)
 	a.respond(w, r, http.StatusOK, out, err)
 }
 
@@ -88,7 +89,7 @@ func (a *API) listThreatAlerts(w http.ResponseWriter, r *http.Request) {
 			IdentityID: identity, Detection: q.Get("detection"), Before: q.Get("before"), Limit: limit})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"alerts": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"alerts": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getThreatAlert(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +135,7 @@ func (a *API) listThreatDetections(w http.ResponseWriter, r *http.Request) {
 		out, err = itdr.Settings(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"detections": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"detections": httpjson.NonNil(out)}, err)
 }
 
 // setThreatDetection changes a detection: {"enabled": true, "severity":
@@ -190,7 +191,7 @@ func (a *API) listSignIns(w http.ResponseWriter, r *http.Request) {
 			IP: q.Get("ip"), Before: before, Limit: limit})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"events": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"events": httpjson.NonNil(out)}, err)
 }
 
 // receiveSignIns takes sign-ins from another identity provider, from a
@@ -247,5 +248,5 @@ func (a *API) listThreatResponses(w http.ResponseWriter, r *http.Request) {
 		out, err = itdr.IdentityResponses(r.Context(), tx, r.PathValue("id"))
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"responses": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"responses": httpjson.NonNil(out)}, err)
 }

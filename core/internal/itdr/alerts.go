@@ -2,6 +2,7 @@ package itdr
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -214,62 +215,89 @@ type raised struct {
 	created                                      bool
 }
 
-// raise opens an alert for f, or adds to the open one about the same
-// subject, keeping the higher severity and the latest evidence. It returns
-// the alert when it is new or got more severe, which is when people hear
-// about it and automatic responses run.
-func raise(ctx context.Context, tx pgx.Tx, tenantID string, s Setting, f finding) (*raised, error) {
-	sev := s.Severity
-	if f.raised {
-		sev = raiseSeverity(sev)
-	}
-	var (
-		r       = raised{detection: f.detection, identityID: f.identityID}
+// upsertAlert opens an alert, or adds to the open one about the same
+// subject, keeping the higher severity. It returns the alert, and the
+// severity it had before (” when it is new).
+var upsertAlert = `
+	WITH prev AS (SELECT severity FROM threat_alerts WHERE detection = $2 AND subject = $5 AND status = 'open')
+	INSERT INTO threat_alerts AS t (tenant_id, detection, severity, identity_id, subject, summary, evidence, first_seen_at, last_seen_at)
+	VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8, $8)
+	ON CONFLICT (tenant_id, detection, subject) WHERE status = 'open' DO UPDATE SET
+	  occurrences = t.occurrences + 1,
+	  last_seen_at = greatest(t.last_seen_at, EXCLUDED.last_seen_at),
+	  first_seen_at = least(t.first_seen_at, EXCLUDED.first_seen_at),
+	  severity = CASE WHEN ` + rankEXCLUDED + ` > ` + rankT + ` THEN EXCLUDED.severity ELSE t.severity END,
+	  summary = CASE WHEN ` + rankEXCLUDED + ` >= ` + rankT + ` THEN EXCLUDED.summary ELSE t.summary END,
+	  evidence = CASE WHEN ` + rankEXCLUDED + ` >= ` + rankT + ` THEN EXCLUDED.evidence ELSE t.evidence END
+	RETURNING t.id, t.severity, t.summary, coalesce((SELECT severity FROM prev), '')`
+
+var (
+	rankEXCLUDED = rankSQL("EXCLUDED.severity")
+	rankT        = rankSQL("t.severity")
+)
+
+// raiseAll turns findings into alerts, in batches, and audits the ones
+// that are new or more severe than before; it returns those.
+func raiseAll(ctx context.Context, tx pgx.Tx, tenantID string, settings map[string]Setting, findings []finding) ([]raised, error) {
+	type upsert struct {
+		f       finding
+		r       raised
 		prevSev string
-	)
-	err := tx.QueryRow(ctx, `
-		WITH prev AS (SELECT severity FROM threat_alerts WHERE detection = $2 AND subject = $5 AND status = 'open')
-		INSERT INTO threat_alerts AS t (tenant_id, detection, severity, identity_id, subject, summary, evidence, first_seen_at, last_seen_at)
-		VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8, $8)
-		ON CONFLICT (tenant_id, detection, subject) WHERE status = 'open' DO UPDATE SET
-		  occurrences = t.occurrences + 1,
-		  last_seen_at = greatest(t.last_seen_at, EXCLUDED.last_seen_at),
-		  first_seen_at = least(t.first_seen_at, EXCLUDED.first_seen_at),
-		  severity = CASE WHEN `+rankSQL("EXCLUDED.severity")+` > `+rankSQL("t.severity")+` THEN EXCLUDED.severity ELSE t.severity END,
-		  summary = CASE WHEN `+rankSQL("EXCLUDED.severity")+` >= `+rankSQL("t.severity")+` THEN EXCLUDED.summary ELSE t.summary END,
-		  evidence = CASE WHEN `+rankSQL("EXCLUDED.severity")+` >= `+rankSQL("t.severity")+` THEN EXCLUDED.evidence ELSE t.evidence END
-		RETURNING t.id, t.severity, t.summary, coalesce((SELECT severity FROM prev), '')`,
-		tenantID, f.detection, sev, db.Nullable(f.identityID), f.subject, f.summary, f.evidence, f.at).
-		Scan(&r.id, &r.severity, &r.summary, &prevSev)
+	}
+	items := make([]*upsert, len(findings))
+	for i, f := range findings {
+		items[i] = &upsert{f: f, r: raised{detection: f.detection, identityID: f.identityID}}
+	}
+	err := db.SendBatch(ctx, tx, items, func(b *pgx.Batch, u *upsert) {
+		sev := settings[u.f.detection].Severity
+		if u.f.raised {
+			sev = raiseSeverity(sev)
+		}
+		b.Queue(upsertAlert, tenantID, u.f.detection, sev, db.Nullable(u.f.identityID), u.f.subject, u.f.summary, u.f.evidence, u.f.at)
+	}, func(br pgx.BatchResults, u *upsert) error {
+		return br.QueryRow().Scan(&u.r.id, &u.r.severity, &u.r.summary, &u.prevSev)
+	})
 	if err != nil {
 		return nil, err
 	}
-	r.created = prevSev == ""
-	if !r.created && r.severity == prevSev {
-		return nil, nil
+	var changed []*upsert
+	for _, u := range items {
+		u.r.created = u.prevSev == ""
+		if u.r.created || u.r.severity != u.prevSev {
+			changed = append(changed, u)
+		}
 	}
-	action := "itdr.alert_raised"
-	if !r.created {
-		action = "itdr.alert_escalated"
+	action := func(u *upsert) string {
+		if u.r.created {
+			return "itdr.alert_raised"
+		}
+		return "itdr.alert_escalated"
 	}
-	if err := db.Audit(ctx, tx, tenantID, "system:itdr", action, "threat_alert", r.id, map[string]any{
-		"detection": f.detection, "severity": r.severity, "subject": f.subject, "summary": r.summary}); err != nil {
+	err = db.SendBatch(ctx, tx, changed, func(b *pgx.Batch, u *upsert) {
+		db.QueueAudit(b, tenantID, Actor, action(u), "threat_alert", u.r.id, map[string]any{
+			"detection": u.f.detection, "severity": u.r.severity, "subject": u.f.subject, "summary": u.r.summary})
+	}, func(br pgx.BatchResults, u *upsert) error {
+		return db.ReadAudit(br, action(u))
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &r, nil
+	out := make([]raised, len(changed))
+	for i, u := range changed {
+		out[i] = u.r
+	}
+	return out, nil
 }
 
 // rankSQL orders a severity column in SQL like severityRank.
 func rankSQL(col string) string {
-	return `array_position(ARRAY['low', 'medium', 'high', 'critical'], ` + col + `)`
+	return `array_position(ARRAY['` + strings.Join(severityScale, "', '") + `'], ` + col + `)`
 }
 
 // raiseSeverity is the severity one step above sev, up to critical.
 func raiseSeverity(sev string) string {
-	for name, rank := range severityRank {
-		if rank == severityRank[sev]+1 {
-			return name
-		}
+	if i := slices.Index(severityScale, sev); i >= 0 && i+1 < len(severityScale) {
+		return severityScale[i+1]
 	}
 	return sev
 }

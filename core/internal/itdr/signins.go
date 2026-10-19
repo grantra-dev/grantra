@@ -14,12 +14,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // Sign-in outcomes.
@@ -77,18 +77,6 @@ var (
 	countryPattern = regexp.MustCompile(`^[A-Z]{2}$`)
 )
 
-// clip shortens s to at most n bytes, on a character boundary.
-func clip(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
-}
-
 // check validates a sign-in from a script and tidies it: n is its place in
 // the batch, for the error.
 func (s *SignIn) check(n int, now time.Time) error {
@@ -110,7 +98,7 @@ func (s *SignIn) check(n int, now time.Time) error {
 	default:
 		return bad("outcome must be %s, %s or %s", Success, Failure, MFAFailure)
 	}
-	s.User = clip(s.User, 320)
+	s.User = textutil.Clip(s.User, 320)
 	if s.User == "" {
 		return bad("user is required: the email or username that tried to sign in")
 	}
@@ -128,8 +116,8 @@ func (s *SignIn) check(n int, now time.Time) error {
 	if s.Latitude != nil && (*s.Latitude < -90 || *s.Latitude > 90 || *s.Longitude < -180 || *s.Longitude > 180) {
 		return bad("latitude must be between -90 and 90 and longitude between -180 and 180")
 	}
-	s.Application = clip(s.Application, 200)
-	s.UserAgent = clip(s.UserAgent, 500)
+	s.Application = textutil.Clip(s.Application, 200)
+	s.UserAgent = textutil.Clip(s.UserAgent, 500)
 	return nil
 }
 

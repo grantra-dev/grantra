@@ -1,9 +1,8 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
+import { ShowMore } from "@/components/ShowMore";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/field";
 import {
@@ -14,11 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useDebounced } from "@/lib/hooks";
-import { listSignIns, type SignInEvent, type ThreatsOverview } from "@/lib/threats";
+import { useDebounced, usePages } from "@/lib/hooks";
+import {
+  signInsPageSize,
+  listSignIns,
+  type SignInEvent,
+  type ThreatsOverview,
+} from "@/lib/threats";
 import { formatTime } from "@/lib/utils";
-
-const pageSize = 50;
 
 /** Whether the address box holds a whole address yet; the API refuses part of one. */
 const wholeAddress = (s: string) =>
@@ -36,14 +38,12 @@ export function SignIns({ overview }: { overview?: ThreatsOverview }) {
   const [ip, setIp] = useState("");
   const debounced = useDebounced(ip.trim());
   const typedIp = wholeAddress(debounced) ? debounced : "";
-  const events = useInfiniteQuery({
-    queryKey: ["sign-ins", outcome, typedIp],
-    queryFn: ({ pageParam }) =>
-      listSignIns({ outcome, ip: typedIp, before: pageParam ? String(pageParam) : undefined }),
-    initialPageParam: 0,
-    getNextPageParam: (last) => (last.length < pageSize ? undefined : last[last.length - 1]!.id),
-  });
-  const rows = events.data?.pages.flat() ?? [];
+  const events = usePages(
+    ["sign-ins", outcome, typedIp],
+    (before?: number) => listSignIns({ outcome, ip: typedIp, before }),
+    signInsPageSize,
+  );
+  const { rows } = events;
   return (
     <div className="flex flex-col gap-4">
       {overview && <Sources overview={overview} />}
@@ -110,18 +110,7 @@ export function SignIns({ overview }: { overview?: ThreatsOverview }) {
             ))}
           </TableBody>
         </Table>
-        {events.hasNextPage && (
-          <div className="p-3 text-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={events.isFetchingNextPage}
-              onClick={() => void events.fetchNextPage()}
-            >
-              Show more
-            </Button>
-          </div>
-        )}
+        <ShowMore query={events} />
       </Loaded>
     </div>
   );

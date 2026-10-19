@@ -12,6 +12,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 )
 
@@ -23,7 +24,7 @@ func (a *API) identityEligibilities(w http.ResponseWriter, r *http.Request) {
 		out, err = access.Eligibilities(r.Context(), tx, target.ID)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"eligibilities": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"eligibilities": httpjson.NonNil(out)}, err)
 }
 
 // makeEligible lets someone activate a role or entitlement: admins do it
@@ -145,7 +146,7 @@ func (a *API) standingAccess(w http.ResponseWriter, r *http.Request) {
 		out, err = access.StandingAccess(r.Context(), tx, limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"standing": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"standing": httpjson.NonNil(out)}, err)
 }
 
 // convertToEligibility turns standing access into eligibility.

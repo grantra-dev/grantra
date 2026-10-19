@@ -10,6 +10,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 )
 
@@ -67,7 +68,7 @@ func (a *API) listModules(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"modules": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"modules": httpjson.NonNil(out)}, err)
 }
 
 // setModule turns a module on or off: {"enabled": false}.

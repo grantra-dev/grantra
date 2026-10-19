@@ -1,9 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
+import { ShowMore } from "@/components/ShowMore";
 import { PageHeader } from "@/components/PageHeader";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getGatewaySession, kindText } from "@/lib/gateway";
 import { formatTime } from "@/lib/utils";
@@ -76,17 +76,10 @@ export function GatewaySessionLog() {
                       ))}
                     </ol>
                   )}
-                  {hasNextPage && (
-                    <Button
-                      className="mt-3"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void fetchNextPage()}
-                      disabled={isFetchingNextPage}
-                    >
-                      Show more
-                    </Button>
-                  )}
+                  <ShowMore
+                    query={{ hasNextPage, isFetchingNextPage, fetchNextPage }}
+                    className="mt-3 border-0 p-0 text-left"
+                  />
                 </CardContent>
               </Card>
             )}

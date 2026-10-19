@@ -27,7 +27,7 @@ func (a *API) listSources(w http.ResponseWriter, r *http.Request) {
 		out, err = lifecycle.ListSources(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"sources": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"sources": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getSource(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +96,7 @@ func (a *API) listRuns(w http.ResponseWriter, r *http.Request) {
 		out, err = lifecycle.ListRuns(r.Context(), tx, r.PathValue("id"), limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"runs": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"runs": httpjson.NonNil(out)}, err)
 }
 
 // syncSource feeds a source with an HR export (the CSV file as the request
@@ -193,5 +193,5 @@ func (a *API) listLifecycleEvents(w http.ResponseWriter, r *http.Request) {
 		out, err = lifecycle.ListEvents(r.Context(), tx, identityID, before, limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"events": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"events": httpjson.NonNil(out)}, err)
 }

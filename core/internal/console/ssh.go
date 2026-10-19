@@ -72,7 +72,7 @@ func (a *API) listSSHTargets(w http.ResponseWriter, r *http.Request) {
 		out, err = sshaccess.List(r.Context(), tx, me.ID, !a.may(me, authz.ReadVault, authz.VaultResource()))
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"targets": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"targets": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) createSSHTarget(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +147,7 @@ func (a *API) listSSHSessions(w http.ResponseWriter, r *http.Request) {
 		out, err = sshaccess.ListSessions(r.Context(), tx, f)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"sessions": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"sessions": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getSSHSession(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func (a *API) getSSHSession(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.Commands, err = sshaccess.SessionCommands(r.Context(), tx, out.ID)
-		out.Commands = nonNil(out.Commands)
+		out.Commands = httpjson.NonNil(out.Commands)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
@@ -191,5 +191,5 @@ func (a *API) searchSSHCommands(w http.ResponseWriter, r *http.Request) {
 		out, err = sshaccess.SearchCommands(r.Context(), tx, r.URL.Query().Get("q"), r.URL.Query().Get("target"), limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"commands": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"commands": httpjson.NonNil(out)}, err)
 }

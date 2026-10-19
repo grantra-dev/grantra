@@ -1,10 +1,8 @@
 import type { AuditEvent } from "./api";
+import { humanize } from "./utils";
 
 /** "platform_role.granted" reads as "Platform role granted". */
-export function actionLabel(action: string) {
-  const words = action.replace(/[._]/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
+export const actionLabel = humanize;
 
 const systemActors: Record<string, string> = {
   aggregation: "account sync",

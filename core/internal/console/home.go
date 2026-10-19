@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 )
 
@@ -187,7 +188,7 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 			}
 			g.OpenViolations = &n
 		}
-		g.FailedRuns, g.Orphans = nonNil(g.FailedRuns), nonNil(g.Orphans)
+		g.FailedRuns, g.Orphans = httpjson.NonNil(g.FailedRuns), httpjson.NonNil(g.Orphans)
 		out.Governance = g
 		return nil
 	})

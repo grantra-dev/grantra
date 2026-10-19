@@ -3,7 +3,6 @@ package itdr
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -261,14 +260,16 @@ func SaveSetting(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, in 
 		"enabled": s.Enabled, "severity": s.Severity, "auto_response": s.AutoResponse, "values": s.Values})
 }
 
+// severityScale lists the severities from the least to the most serious.
+var severityScale = []string{"low", "medium", "high", "critical"}
+
 // severityRank orders severities; unknown ones are 0.
-var severityRank = map[string]int{"low": 1, "medium": 2, "high": 3, "critical": 4}
+var severityRank = func() map[string]int {
+	m := map[string]int{}
+	for i, s := range severityScale {
+		m[s] = i + 1
+	}
+	return m
+}()
 
 func minutes(n int) time.Duration { return time.Duration(n) * time.Minute }
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, one)
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
