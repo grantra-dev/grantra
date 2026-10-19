@@ -229,10 +229,3 @@ func parseBool(v string) (bool, error) {
 	}
 	return strconv.ParseBool(v)
 }
-
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
-}

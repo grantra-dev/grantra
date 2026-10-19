@@ -35,7 +35,7 @@ import {
   type Me,
   type PlatformRoleInfo,
 } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, humanize } from "@/lib/utils";
 import { NotFound } from "./NotFound";
 
 type Tab = "access" | "accounts" | "lifecycle" | "history";
@@ -371,9 +371,7 @@ const fieldLabels: Record<string, string> = {
 
 /** "cost_center" reads as "Cost center". */
 function fieldLabel(field: string) {
-  if (fieldLabels[field]) return fieldLabels[field];
-  const words = field.replace(/_/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return fieldLabels[field] ?? humanize(field);
 }
 
 const kindLabels = {

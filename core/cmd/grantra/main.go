@@ -39,6 +39,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
 	"github.com/grantra-dev/grantra/core/internal/gateways/proxy"
+	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
@@ -506,6 +507,19 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 				} else {
 					log.WarnContext(ctx, "provisioning did not fully succeed", "application", r.ApplicationID, "status", r.Status, "error", r.Error, "counts", r.Counts)
 				}
+			}
+			return err
+		}},
+		// Sign-ins are read from Grantra Login and looked at within a
+		// minute, and so is access that appeared outside Grantra.
+		{"detect identity threats", time.Minute, func(ctx context.Context) error {
+			res, err := itdr.Scanner{Pool: pool, TenantID: tenantID, Secrets: connector.EnvSecrets}.Scan(ctx)
+			if res.Raised+res.Escalated+res.Responses > 0 {
+				log.InfoContext(ctx, "identity threat scan", "sign_ins_read", res.Read, "evaluated", res.Evaluated,
+					"raised", res.Raised, "escalated", res.Escalated, "responses", res.Responses, "response_errors", res.ResponseErrors)
+			}
+			if res.ResponseErrors > 0 {
+				log.WarnContext(ctx, "automatic threat responses did not fully succeed; see each alert", "failed", res.ResponseErrors)
 			}
 			return err
 		}},

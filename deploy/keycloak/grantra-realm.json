@@ -5,6 +5,9 @@
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "bruteForceProtected": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 604800,
+  "enabledEventTypes": ["LOGIN", "LOGIN_ERROR"],
   "loginTheme": "grantra",
   "emailTheme": "grantra",
   "internationalizationEnabled": true,
@@ -64,7 +67,7 @@
       "username": "service-account-grantra-connector",
       "enabled": true,
       "serviceAccountClientId": "grantra-connector",
-      "clientRoles": { "realm-management": ["manage-users", "view-realm", "manage-clients", "manage-realm", "manage-identity-providers"] }
+      "clientRoles": { "realm-management": ["manage-users", "view-realm", "manage-clients", "manage-realm", "manage-identity-providers", "view-events", "manage-events"] }
     },
     {
       "username": "admin",

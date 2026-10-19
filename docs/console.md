@@ -7,7 +7,7 @@ the Cedar policies regardless of what the console shows.
 The menu groups sections by what people come to do, and a group only shows
 when the person has something in it: **For you** (my access, requests),
 **To do** (approvals, reviews), **Privileged access** (vault, servers, remote
-access), **Governance** (people, applications, roles, policies, audit log)
+access), **Security** (threats), **Governance** (people, applications, roles, policies, audit log)
 and **Settings** (HR sources, connectors, Grantra Login, API tokens,
 modules). Groups fold, and the console remembers it in the browser. On small
 screens the menu opens as a drawer. Each page belongs to a module
@@ -28,7 +28,8 @@ Across every page:
   do not manage, Request access already searching for it.
 - **Inbox** (the tray in the header and `/inbox`) lists everything waiting
   on you: requests to approve, campaigns with access to review, and, for
-  admins, break-glass uses to review. Menu items show the same counts. It
+  admins, break-glass uses to review and high or critical threat alerts
+  (never the ones about themselves). Menu items show the same counts. It
   comes from `GET /api/v1/me/inbox`, which uses the same conditions as the
   Approvals and Access reviews pages, so the numbers always match.
 - **Emails link to the task**: an approval email opens
@@ -51,6 +52,7 @@ Across every page:
 | Approvals | Managers, application owners, admins | Done: the requests waiting on you, soonest deadline first, with how long each step has waited, approve or reject (a comment is required to reject). Admins accept a separation of duties risk on the request itself, with a reason and how long it lasts |
 | Access reviews | Managers, application owners, admins, auditors | Done: reviewers keep or revoke what they are asked to review, one by one or in bulk (bulk revoke asks for confirmation). Find by person, access or application, filter by risk and by how the access was given, and sort by person, access, risk or age; bulk actions only reach what is shown. Admins launch campaigns (by manager or by owner, all access or some applications) and close them; admins and auditors follow each campaign's progress |
 | People | Admins, helpdesk, auditors | Done: search everyone by name or email and filter by status. Each person shows their details from HR, manager, access and accounts; admins and auditors also see their Grantra roles, their joiner, mover and leaver events and their audit history. Admins give (optionally until a date) and remove Grantra roles, never to themselves, and make people eligible for just-in-time access |
+| Security → Threats | Admins; auditors read only | Done: open threat alerts with their evidence, ending sessions, requiring a second factor, suspending and reinstating from the alert, resolving or dismissing it with a note; the latest sign-ins and where they come from; and every detection, to turn off, tune or let respond on its own. See [threat-detection.md](threat-detection.md) |
 | Governance → Applications, Roles and rules, Separation of duties, Standing access | Admins; auditors read only | Done. **Applications**: add applications and entitlements, see each one's connector settings (secret references only), read its accounts now (or, for an application with no API, set up and import account files, checked first), set provisioning (mode, change limit, removing memberships Grantra did not grant) and plan a dry run, browse accounts and orphans, see past runs, and make an entitlement just in time only. **Roles and rules**: business roles and birthright rules, read only. **Separation of duties**: add and delete policies, check for violations now, and accept a violation's risk for a set time with a reason. **Standing access**: high and critical risk access held with no end date, turned into eligibility in one click |
 | Settings → HR sources, Connectors, Grantra Login, API tokens, Modules | Admins; auditors read only | Done. **Connectors**: the applications already connected, and a gallery of what Grantra connects to (SCIM 2.0, LDAP and Active Directory, Grantra Login, CSV files; Entra ID, Google Workspace, AWS, GitHub, Okta, Salesforce, Workday and BambooHR marked as planned). Connecting takes three steps: pick or name the application, fill in its settings (secrets as `env:GRANTRA_SECRET_…` references), then a first read to prove it works. **Modules**: turn privileged access or Grantra Login off for the whole company. Their pages, search results and inbox tasks disappear; nobody's access changes, the gateways keep running and the API keeps answering, so it hides features rather than securing them. **HR sources**: add or edit a CSV source, with the column that holds each field (a sample file shows which it already has), check an export (a dry run that lists every joiner, mover and leaver, errors and warnings), then apply it; a sync stopped by the leaver limit can be forced after a confirmation; run history. **Grantra Login**: see [grantra-login.md](grantra-login.md). **API tokens**: create [service tokens](service-tokens.md) for scripts that send HR exports and account files, each shown once with a `curl` example, and revoke them |
 | Audit log | Admins, auditors | Done: every event newest first, with who did it and on what in words, the raw details on demand, and a filter over the loaded events |

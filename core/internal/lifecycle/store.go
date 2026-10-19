@@ -14,6 +14,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/servicetoken"
 )
 
@@ -270,7 +271,7 @@ func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Rea
 		}
 		plan = Plan(sourceID, cfg, records, current, opts.Now)
 	}
-	res.Changes, res.Unchanged = nonNil(plan.Changes), plan.Unchanged
+	res.Changes, res.Unchanged = httpjson.NonNil(plan.Changes), plan.Unchanged
 	res.Errors, res.Warnings, res.Counts = plan.Errors, plan.Warnings, plan.Counts()
 
 	switch {
@@ -565,11 +566,4 @@ func capIssues(in []Issue) []Issue {
 		return append(in[:maxStoredIssues:maxStoredIssues], Issue{Message: fmt.Sprintf("and %d more", len(in)-maxStoredIssues)})
 	}
 	return in
-}
-
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
 }

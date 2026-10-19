@@ -32,7 +32,7 @@ func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 		out, err = reviews.List(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"campaigns": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"campaigns": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func (a *API) listReviewItems(w http.ResponseWriter, r *http.Request) {
 		out, err = reviews.Items(r.Context(), tx, f)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"items": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"items": httpjson.NonNil(out)}, err)
 }
 
 // decideReviewItem keeps or revokes one access:

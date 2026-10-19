@@ -216,8 +216,8 @@ func (a *API) setIdentityProviderDomains(w http.ResponseWriter, r *http.Request)
 		a.loginFail(w, r, err)
 		return
 	}
-	err = a.loginAudit(r, me, "login.domains_routed", alias, map[string]any{"application_id": app.ID, "domains": nonNil(in.Domains)})
-	a.respond(w, r, http.StatusOK, map[string]any{"domains": nonNil(in.Domains)}, err)
+	err = a.loginAudit(r, me, "login.domains_routed", alias, map[string]any{"application_id": app.ID, "domains": httpjson.NonNil(in.Domains)})
+	a.respond(w, r, http.StatusOK, map[string]any{"domains": httpjson.NonNil(in.Domains)}, err)
 }
 
 func (a *API) deleteIdentityProvider(w http.ResponseWriter, r *http.Request) {

@@ -1,10 +1,4 @@
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -54,6 +48,8 @@ import { NotFound } from "../NotFound";
 import { Authorization } from "./Authorization";
 import { ColumnMapping } from "./ColumnMapping";
 import { Counts, RunStatus } from "./shared";
+import { usePages } from "@/lib/hooks";
+import { ShowMore } from "@/components/ShowMore";
 
 type Tab = "entitlements" | "accounts" | "runs" | "authorization";
 
@@ -694,15 +690,12 @@ function JustInTime({ ent }: { ent: Entitlement }) {
 
 function Accounts({ appId }: { appId: string }) {
   const [orphans, setOrphans] = useState(false);
-  const { data, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey: ["accounts", appId, orphans],
-      queryFn: ({ pageParam }) => listAccounts(appId, { orphans, after: pageParam }),
-      initialPageParam: "",
-      placeholderData: keepPreviousData,
-      getNextPageParam: (last) => (last.length === accountsPageSize ? last.at(-1)?.id : undefined),
-    });
-  const rows = data?.pages.flat() ?? [];
+  const list = usePages(
+    ["accounts", appId, orphans],
+    (after?: string) => listAccounts(appId, { orphans, after }),
+    accountsPageSize,
+  );
+  const { rows, error, isPending } = list;
   return (
     <div className="flex flex-col gap-3">
       <label className="flex items-center gap-2 text-sm">
@@ -759,17 +752,7 @@ function Accounts({ appId }: { appId: string }) {
             ))}
           </TableBody>
         </Table>
-        {hasNextPage && (
-          <div className="border-t border-slate-200 p-3 text-center">
-            <Button
-              variant="outline"
-              onClick={() => void fetchNextPage()}
-              disabled={isFetchingNextPage}
-            >
-              Show more
-            </Button>
-          </div>
-        )}
+        <ShowMore query={list} />
       </Loaded>
     </div>
   );

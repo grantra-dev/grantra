@@ -1,24 +1,22 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AuditTable } from "@/components/AuditTable";
 import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { auditPageSize, listAuditEvents } from "@/lib/api";
 import { searchText } from "@/lib/audit";
 import { hasWords } from "@/lib/utils";
+import { usePages } from "@/lib/hooks";
+import { ShowMore } from "@/components/ShowMore";
 
 export function AuditLog() {
   const [filter, setFilter] = useState("");
-  const { data, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey: ["audit-events"],
-      queryFn: ({ pageParam }) => listAuditEvents({ before: pageParam }),
-      initialPageParam: 0,
-      getNextPageParam: (last) => (last.length === auditPageSize ? last.at(-1)?.id : undefined),
-    });
-  const events = data?.pages.flat() ?? [];
+  const list = usePages(
+    ["audit-events"],
+    (before?: number) => listAuditEvents({ before }),
+    auditPageSize,
+  );
+  const { rows: events, error, isPending, hasNextPage } = list;
   const needle = filter.trim();
   const rows = needle ? events.filter((e) => hasWords(needle, searchText(e))) : events;
 
@@ -35,7 +33,7 @@ export function AuditLog() {
             value={filter}
             onChange={setFilter}
           />
-          {data && (
+          {list.data && (
             <span className="text-sm text-slate-500">
               {needle
                 ? `${rows.length} of ${events.length} loaded events`
@@ -61,17 +59,7 @@ export function AuditLog() {
             ) : (
               <AuditTable events={rows} />
             )}
-            {hasNextPage && (
-              <div className="border-t border-slate-200 p-3 text-center">
-                <Button
-                  variant="outline"
-                  onClick={() => void fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
-                  {isFetchingNextPage ? "Loading…" : "Load older events"}
-                </Button>
-              </div>
-            )}
+            <ShowMore query={list} label="Load older events" />
           </>
         )}
       </Card>

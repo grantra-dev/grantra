@@ -20,7 +20,7 @@ func (a *API) listServiceTokens(w http.ResponseWriter, r *http.Request) {
 		out, err = servicetoken.List(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"tokens": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"tokens": httpjson.NonNil(out)}, err)
 }
 
 // createServiceToken makes a token: {"name": "Nightly HR export", "scopes":

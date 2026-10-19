@@ -93,6 +93,10 @@ const (
 	ManageServiceTokens Action = "service_token.manage"
 	ReadModules         Action = "module.read"
 	ManageModules       Action = "module.manage"
+	ReadThreats         Action = "threat.read"
+	ManageThreats       Action = "threat.manage"
+	RespondToThreat     Action = "threat.respond"
+	CloseThreatAlert    Action = "threat_alert.close"
 )
 
 var actionGroup = map[Action]string{
@@ -136,6 +140,10 @@ var actionGroup = map[Action]string{
 	ManageServiceTokens: "write",
 	ReadModules:         "read",
 	ManageModules:       "write",
+	ReadThreats:         "read",
+	ManageThreats:       "write",
+	RespondToThreat:     "write",
+	CloseThreatAlert:    "write",
 }
 
 // Writes reports whether the action changes something.
@@ -210,6 +218,21 @@ func ServiceTokensResource() Resource {
 
 // ModulesResource is the parts of Grantra the tenant shows in the console.
 func ModulesResource() Resource { return Resource{uid: cedar.NewEntityUID("Modules", "tenant")} }
+
+// ThreatsResource is threat detection: sign-ins, alerts and how the
+// detections are set up.
+func ThreatsResource() Resource { return Resource{uid: cedar.NewEntityUID("Threats", "tenant")} }
+
+// ThreatAlertResource is one alert and who it is about ("" for an alert
+// about an address).
+func ThreatAlertResource(id, identity string) Resource {
+	attrs := cedar.RecordMap{}
+	if identity != "" {
+		attrs["identity"] = cedar.NewEntityUID("Identity", cedar.String(identity))
+	}
+	e := cedar.Entity{UID: cedar.NewEntityUID("ThreatAlert", cedar.String(id)), Attributes: cedar.NewRecord(attrs)}
+	return Resource{uid: e.UID, entity: &e}
+}
 
 // RequestsResource is every access request of the tenant.
 func RequestsResource() Resource { return Resource{uid: cedar.NewEntityUID("Requests", "tenant")} }

@@ -36,10 +36,14 @@ const (
 	// ScopeImportAccounts loads an application's account file, as POST
 	// /api/v1/applications/{id}/account-imports.
 	ScopeImportAccounts = "application.import_accounts"
+	// ScopeSendSignIns sends sign-ins from another identity provider for
+	// threat detection, as POST /api/v1/sign-in-events. It cannot be
+	// pinned to anything.
+	ScopeSendSignIns = "sign_in_event.send"
 )
 
 // Scopes lists every scope.
-var Scopes = []string{ScopeSyncSource, ScopeImportAccounts}
+var Scopes = []string{ScopeSyncSource, ScopeImportAccounts, ScopeSendSignIns}
 
 // Limits on what a token is created with.
 const (
@@ -108,6 +112,9 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID string, in New, actor strin
 			return Token{}, "", apperr.Invalidf("unknown scope %q (known: %s)", scope, strings.Join(Scopes, ", "))
 		}
 		if pinned {
+			if _, ok := scopeTargets[scope]; !ok {
+				return Token{}, "", apperr.Invalidf("scope %q cannot be limited to one thing; use %q", s, scope)
+			}
 			var ok bool
 			if db.ValidUUID(target) {
 				if err := tx.QueryRow(ctx, scopeTargets[scope], target).Scan(&ok); err != nil {

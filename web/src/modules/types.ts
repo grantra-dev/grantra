@@ -3,14 +3,15 @@ import type { LucideIcon } from "lucide-react";
 import type { Me } from "@/lib/api";
 import type { Inbox } from "@/lib/console";
 
-/** A part of Grantra that brings its own pages. A tenant can turn pam and login off (Settings → Modules). */
-export type ModuleId = "platform" | "iga" | "pam" | "login";
+/** A part of Grantra that brings its own pages. A tenant can turn pam, login and itdr off (Settings → Modules). */
+export type ModuleId = "platform" | "iga" | "pam" | "login" | "itdr";
 
 /** Where an item sits in the menu, in the order the menu shows them. */
 export const groups = [
   { id: "mine", title: "For you" },
   { id: "todo", title: "To do" },
   { id: "privileged", title: "Privileged access" },
+  { id: "security", title: "Security" },
   { id: "governance", title: "Governance" },
   { id: "settings", title: "Settings" },
 ] as const;

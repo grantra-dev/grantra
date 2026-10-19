@@ -93,7 +93,7 @@ func (a *API) listConnectorRuns(w http.ResponseWriter, r *http.Request) {
 		out, err = accounts.Runs(r.Context(), tx, r.PathValue("id"), limit)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"runs": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"runs": httpjson.NonNil(out)}, err)
 }
 
 // listAccounts pages through an application's accounts:
@@ -119,7 +119,7 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 		out, err = accounts.List(r.Context(), tx, r.PathValue("id"), accounts.Filter{Orphans: orphans, After: after, Limit: limit})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"accounts": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"accounts": httpjson.NonNil(out)}, err)
 }
 
 // linkAccount ties an account to an identity by hand: {"identity_id": "..."},
@@ -154,7 +154,7 @@ func (a *API) identityAccounts(w http.ResponseWriter, r *http.Request) {
 		out, err = accounts.ForIdentity(r.Context(), tx, target.ID)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"accounts": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"accounts": httpjson.NonNil(out)}, err)
 }
 
 // setProvisioning configures how Grantra writes to an application:

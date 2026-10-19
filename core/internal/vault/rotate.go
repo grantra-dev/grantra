@@ -13,6 +13,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // Rotation changes a vault account's password in the target system:
@@ -128,11 +129,11 @@ func (v *Vault) rotate(ctx context.Context, pool *pgxpool.Pool, tenantID, actor,
 			if _, err := tx.Exec(ctx,
 				`UPDATE vault_accounts SET rotation_failures = rotation_failures + 1, last_rotation_error = $2, updated_at = now(),
 				        rotate_at = now() + least(interval '5 minutes' * power(2, rotation_failures), interval '1 day')
-				 WHERE id = $1`, id, truncate(r.Error, 1000)); err != nil {
+				 WHERE id = $1`, id, textutil.Clip(r.Error, 1000)); err != nil {
 				return err
 			}
 			return db.Audit(ctx, tx, tenantID, actor, "vault.rotation_failed", "vault_account", id,
-				map[string]any{"version": r.Version, "trigger": trigger, "error": truncate(r.Error, 1000)})
+				map[string]any{"version": r.Version, "trigger": trigger, "error": textutil.Clip(r.Error, 1000)})
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE vault_secret_versions SET status = 'retired' WHERE vault_account_id = $1 AND status = 'current'`, id); err != nil {
@@ -175,13 +176,6 @@ func (v *Vault) setPassword(ctx context.Context, t target, password string) erro
 	ctx, cancel := context.WithTimeout(ctx, rotateTimeout)
 	defer cancel()
 	return ps.SetPassword(ctx, t.native, password)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }
 
 // RotateDue ends the check-outs whose time ran out, then rotates the

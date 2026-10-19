@@ -27,7 +27,7 @@ func (a *API) getAppAuthz(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.Keys, err = appauthz.ListKeys(r.Context(), tx, id)
-		out.Keys = nonNil(out.Keys)
+		out.Keys = httpjson.NonNil(out.Keys)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

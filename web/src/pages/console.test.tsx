@@ -32,9 +32,10 @@ const inbox: Inbox = {
     { campaign_id: "c1", campaign_name: "Q4 review", due_at: "2026-10-27T09:00:00Z", pending: 3 },
   ],
   break_glass: [],
+  threats: [],
   total: 4,
 };
-const empty: Inbox = { approvals: [], reviews: [], break_glass: [], total: 0 };
+const empty: Inbox = { approvals: [], reviews: [], break_glass: [], threats: [], total: 0 };
 const quiet: Home = { expiring_access: [], pending_requests: 0 };
 
 describe("Inbox", () => {

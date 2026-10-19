@@ -195,6 +195,17 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/service-tokens", a.createServiceToken)
 	route("DELETE /api/v1/service-tokens/{id}", a.revokeServiceToken)
 	route("POST /api/v1/assignments/{id}/eligibility", a.convertToEligibility)
+	route("GET /api/v1/threats", a.getThreats)
+	route("GET /api/v1/threats/alerts", a.listThreatAlerts)
+	route("GET /api/v1/threats/alerts/{id}", a.getThreatAlert)
+	route("POST /api/v1/threats/alerts/{id}/close", a.closeThreatAlert)
+	route("GET /api/v1/threats/detections", a.listThreatDetections)
+	route("PUT /api/v1/threats/detections/{id}", a.setThreatDetection)
+	route("POST /api/v1/threats/scan", a.scanThreats)
+	route("GET /api/v1/sign-in-events", a.listSignIns)
+	tokenRoute("POST /api/v1/sign-in-events", a.receiveSignIns)
+	route("GET /api/v1/identities/{id}/threat-responses", a.listThreatResponses)
+	route("POST /api/v1/identities/{id}/threat-responses", a.respondToThreat)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)
@@ -237,7 +248,7 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFrom(r.Context())
 	out := me{Principal: p}
 	err := a.inTenant(r, func(tx pgx.Tx, s authz.Subject) error {
-		out.PlatformRoles = nonNil(s.Roles)
+		out.PlatformRoles = httpjson.NonNil(s.Roles)
 		if err := tx.QueryRow(r.Context(),
 			`SELECT EXISTS (SELECT 1 FROM identities WHERE manager_id = $1 AND status <> 'terminated'),
 			        EXISTS (SELECT 1 FROM applications WHERE owner_id = $1)`, s.ID).
@@ -245,7 +256,7 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		off, err := disabledModules(r.Context(), tx)
-		out.DisabledModules = nonNil(off)
+		out.DisabledModules = httpjson.NonNil(off)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)
@@ -333,7 +344,7 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 		out, err = pgx.CollectRows(rows, scanIdentity)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"identities": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"identities": httpjson.NonNil(out)}, err)
 }
 
 type auditEvent struct {
@@ -398,7 +409,7 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"events": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"events": httpjson.NonNil(out)}, err)
 }
 
 type platformRole struct {

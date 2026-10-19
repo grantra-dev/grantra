@@ -1,10 +1,8 @@
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { IdentityStatusBadge } from "@/components/AccessBadges";
 import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import {
@@ -16,23 +14,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { identitiesPageSize, listIdentities } from "@/lib/api";
-import { useDebounced } from "@/lib/hooks";
+import { useDebounced, usePages } from "@/lib/hooks";
 import { formatDate } from "@/lib/utils";
+import { ShowMore } from "@/components/ShowMore";
 
 export function People() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const q = useDebounced(search.trim());
-  const { data, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey: ["identities", q, status],
-      queryFn: ({ pageParam }) => listIdentities({ q, status, after: pageParam }),
-      initialPageParam: "",
-      placeholderData: keepPreviousData,
-      getNextPageParam: (last) =>
-        last.length === identitiesPageSize ? last.at(-1)?.id : undefined,
-    });
-  const people = data?.pages.flat() ?? [];
+  const list = usePages(
+    ["identities", q, status],
+    (after?: string) => listIdentities({ q, status, after }),
+    identitiesPageSize,
+  );
+  const { rows: people, error, isPending } = list;
 
   return (
     <>
@@ -102,17 +97,7 @@ export function People() {
                 ))}
               </TableBody>
             </Table>
-            {hasNextPage && (
-              <div className="border-t border-slate-200 p-3 text-center">
-                <Button
-                  variant="outline"
-                  onClick={() => void fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
-                  {isFetchingNextPage ? "Loading…" : "Show more"}
-                </Button>
-              </div>
-            )}
+            <ShowMore query={list} />
           </>
         )}
       </Card>

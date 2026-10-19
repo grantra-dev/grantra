@@ -10,6 +10,8 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/itdr"
 )
 
 // Modules a tenant can turn off in the console. The platform and identity
@@ -17,6 +19,7 @@ import (
 const (
 	ModulePAM   = "pam"
 	ModuleLogin = "login"
+	ModuleITDR  = itdr.Module
 )
 
 type module struct {
@@ -31,6 +34,8 @@ var modules = []module{
 		Description: "The vault, servers over SSH, and remote access to databases, clusters, desktops and cloud consoles."},
 	{ID: ModuleLogin, Title: "Grantra Login",
 		Description: "The sign-in that ships with Grantra, for companies without their own. Turn it off when everyone signs in with Entra ID, Okta or Google."},
+	{ID: ModuleITDR, Title: "Threat detection",
+		Description: "Watches sign-ins and access for attacks, such as password sprays, MFA fatigue or a leaver signing in, and responds. Turned off, Grantra stops looking."},
 }
 
 // disabledModules returns the modules the tenant turned off.
@@ -63,7 +68,7 @@ func (a *API) listModules(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"modules": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"modules": httpjson.NonNil(out)}, err)
 }
 
 // setModule turns a module on or off: {"enabled": false}.

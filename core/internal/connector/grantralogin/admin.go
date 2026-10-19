@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
 // The connector reads and provisions people. The rest of this file manages
@@ -79,14 +80,7 @@ type client struct {
 
 func (cl client) app() SSOApp {
 	return SSOApp{ID: cl.ID, ClientID: cl.ClientID, Name: cl.Name, Description: cl.Description,
-		Enabled: cl.Enabled, Public: cl.PublicClient, RedirectURIs: nonNil(cl.RedirectURIs)}
-}
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
+		Enabled: cl.Enabled, Public: cl.PublicClient, RedirectURIs: httpjson.NonNil(cl.RedirectURIs)}
 }
 
 // Apps lists the OpenID Connect apps registered in the realm.

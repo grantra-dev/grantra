@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/itdr"
 )
 
 // expiringAccess is access of yours that ends soon.
@@ -54,6 +56,15 @@ type home struct {
 	// Governance is there for whoever may read the catalog: admins and
 	// auditors.
 	Governance *governanceHome `json:"governance,omitempty"`
+	// Security is there for whoever may read threat alerts, while threat
+	// detection is on.
+	Security *securityHome `json:"security,omitempty"`
+}
+
+// securityHome is what the people who watch for threats need to know.
+type securityHome struct {
+	// OpenAlerts is how many alerts are open, per severity.
+	OpenAlerts itdr.Counts `json:"open_alerts"`
 }
 
 // homeWindow is how far ahead the home page warns about access ending.
@@ -93,6 +104,20 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 			`SELECT count(*) FROM access_requests WHERE status = 'pending' AND (requester_id = $1 OR beneficiary_id = $1)`,
 			me.ID).Scan(&out.PendingRequests); err != nil {
 			return err
+		}
+
+		if a.may(me, authz.ReadThreats, authz.ThreatsResource()) {
+			on, err := moduleOn(ctx, tx, ModuleITDR)
+			if err != nil {
+				return err
+			}
+			if on {
+				open, err := itdr.OpenCounts(ctx, tx, "")
+				if err != nil {
+					return err
+				}
+				out.Security = &securityHome{OpenAlerts: open}
+			}
 		}
 
 		if !a.may(me, authz.ReadCatalog, authz.CatalogResource()) {
@@ -163,7 +188,7 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 			}
 			g.OpenViolations = &n
 		}
-		g.FailedRuns, g.Orphans = nonNil(g.FailedRuns), nonNil(g.Orphans)
+		g.FailedRuns, g.Orphans = httpjson.NonNil(g.FailedRuns), httpjson.NonNil(g.Orphans)
 		out.Governance = g
 		return nil
 	})

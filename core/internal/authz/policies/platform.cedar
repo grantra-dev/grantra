@@ -142,6 +142,17 @@ when { resource == principal };
 forbid (principal, action == Action::"access.activate", resource)
 unless { resource == principal };
 
+// Nobody responds to a threat against themselves or closes an alert about
+// themselves, not even an admin: if their account was taken over, whoever
+// has it must not be able to undo or hide the alarm. Another admin does.
+@id("no-self-threat-response")
+forbid (principal, action == Action::"threat.respond", resource)
+when { resource == principal };
+
+@id("no-self-threat-close")
+forbid (principal, action == Action::"threat_alert.close", resource is ThreatAlert)
+when { resource has identity && resource.identity == principal };
+
 // Only active identities act. Sessions already end when an identity stops
 // being active; this keeps that true for any future way in.
 @id("only-active-identities")

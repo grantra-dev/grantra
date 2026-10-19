@@ -9,6 +9,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
 func (a *API) listApplications(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +18,7 @@ func (a *API) listApplications(w http.ResponseWriter, r *http.Request) {
 		out, err = catalog.ListApplications(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"applications": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"applications": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) createApplication(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +46,7 @@ func (a *API) listEntitlements(w http.ResponseWriter, r *http.Request) {
 		out, err = catalog.ListEntitlements(r.Context(), tx, r.PathValue("id"))
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"entitlements": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"entitlements": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) createEntitlement(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +71,7 @@ func (a *API) listRoles(w http.ResponseWriter, r *http.Request) {
 		out, err = catalog.ListRoles(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"roles": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"roles": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getRole(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +105,7 @@ func (a *API) saveRole(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), action, "role", out.ID,
-			map[string]any{"name": out.Name, "owner_id": out.OwnerID, "entitlement_ids": nonNil(body.EntitlementIDs)})
+			map[string]any{"name": out.Name, "owner_id": out.OwnerID, "entitlement_ids": httpjson.NonNil(body.EntitlementIDs)})
 	})
 	status := http.StatusOK
 	if id == "" {
@@ -119,7 +120,7 @@ func (a *API) listAccessRules(w http.ResponseWriter, r *http.Request) {
 		out, err = access.ListRules(r.Context(), tx)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"rules": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"rules": httpjson.NonNil(out)}, err)
 }
 
 func (a *API) getAccessRule(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +163,7 @@ func (a *API) saveAccessRule(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := db.Audit(r.Context(), tx, a.tenantID, actor, action, "access_rule", out.ID,
 			map[string]any{"name": out.Name, "conditions": out.Conditions, "enabled": out.Enabled,
-				"role_ids": nonNil(body.RoleIDs), "entitlement_ids": nonNil(body.EntitlementIDs)}); err != nil {
+				"role_ids": httpjson.NonNil(body.RoleIDs), "entitlement_ids": httpjson.NonNil(body.EntitlementIDs)}); err != nil {
 			return err
 		}
 		if out.Changes, err = access.Reconcile(r.Context(), tx, a.tenantID, actor, nil); err != nil {
@@ -224,5 +225,5 @@ func (a *API) identityAccess(w http.ResponseWriter, r *http.Request) {
 		out, err = access.IdentityAccess(r.Context(), tx, target.ID)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"assignments": nonNil(out)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"assignments": httpjson.NonNil(out)}, err)
 }

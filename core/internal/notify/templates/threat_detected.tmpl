@@ -1,0 +1,13 @@
+{{define "subject"}}Identity threats: {{.Data.count}} {{plural .Data.count "alert" "alerts"}} to look at{{end}}
+{{define "body"}}Hi {{.Name}},
+
+Grantra found {{.Data.count}} high or critical identity {{plural .Data.count "threat" "threats"}}:
+{{range .Data.alerts}}
+- {{.summary}} ({{.severity}}{{if .escalated}}, now more severe{{end}}){{end}}
+{{if .Data.more}}
+...and {{.Data.more}} more.
+{{end}}
+Look at each one: end the person's sessions, require a second factor or suspend them if it is real, and close it with a note.
+
+{{.URL}}
+{{end}}

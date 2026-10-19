@@ -353,7 +353,7 @@ func TestModules(t *testing.T) {
 		t.Errorf("disabled modules at first = %#v, want []", got)
 	}
 	list := decode[struct{ Modules []module }](t, e.do(auditor, http.MethodGet, "/api/v1/modules", ""))
-	if len(list.Modules) != 2 || !list.Modules[0].Enabled || !list.Modules[1].Enabled {
+	if len(list.Modules) != 3 || !list.Modules[0].Enabled || !list.Modules[1].Enabled || list.Modules[2].ID != ModuleITDR || !list.Modules[2].Enabled {
 		t.Errorf("modules = %+v", list.Modules)
 	}
 	for _, tc := range []struct {

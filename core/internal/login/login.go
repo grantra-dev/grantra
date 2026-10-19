@@ -1,6 +1,7 @@
 // Package login manages Grantra Login, the bundled Keycloak, from Grantra:
 // the apps that sign in through it, its sign-in policy, and risk-based MFA,
-// which keeps a realm role in step with who holds sensitive access.
+// which keeps a realm role in step with who holds sensitive access (and
+// who a threat response asked for a second factor).
 //
 // Grantra reaches Grantra Login through the application that uses the
 // grantra-login connector, with that connector's service account.
@@ -66,7 +67,8 @@ type Sync struct {
 
 // SyncMFA keeps the MFARole realm role on exactly the Grantra Login accounts
 // of active people who hold, or are assigned, a high or critical risk
-// entitlement in any application. It only runs while the sign-in policy is
+// entitlement in any application, or whom a threat response asked for a
+// second factor for a while. It only runs while the sign-in policy is
 // MFASensitive. Every change is audited.
 func SyncMFA(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets connector.SecretResolver) (Sync, error) {
 	var (
@@ -90,6 +92,10 @@ func SyncMFA(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets c
 				LEFT JOIN role_entitlements re ON re.role_id = x.role_id
 				JOIN entitlements e ON e.id = coalesce(x.entitlement_id, re.entitlement_id)
 				WHERE e.risk = ANY($2) AND (x.expires_at IS NULL OR x.expires_at > now())
+				UNION
+				-- People asked for a second factor for a while because of a
+				-- threat (package itdr).
+				SELECT identity_id FROM mfa_overrides WHERE until > now()
 			)
 			SELECT a.native_id, a.identity_id, (s.identity_id IS NOT NULL AND i.status = 'active')
 			FROM accounts a

@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // Import brings users, groups, roles and apps over from an existing
@@ -92,13 +93,6 @@ func dropIDs(v any) {
 			dropIDs(y)
 		}
 	}
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return fmt.Sprintf("%d %s", n, many)
 }
 
 // parseExport reads a realm export and leaves out what does not belong in
@@ -193,16 +187,16 @@ func parseExport(data []byte, realm string) (export, error) {
 		ex.users = append(ex.users, u)
 	}
 	if len(system) > 0 {
-		ex.notes = append(ex.notes, plural(len(system), "Keycloak client", "Keycloak clients")+" left out ("+strings.Join(system, ", ")+"): Grantra Login has its own.")
+		ex.notes = append(ex.notes, textutil.Plural(len(system), "Keycloak client", "Keycloak clients")+" left out ("+strings.Join(system, ", ")+"): Grantra Login has its own.")
 	}
 	if services > 0 {
-		ex.notes = append(ex.notes, plural(services, "service account", "service accounts")+" left out: they belong to the clients that own them.")
+		ex.notes = append(ex.notes, textutil.Plural(services, "service account", "service accounts")+" left out: they belong to the clients that own them.")
 	}
 	if federated > 0 {
-		ex.notes = append(ex.notes, plural(federated, "user comes", "users come")+" from the old realm's user federation (such as LDAP): imported without it, they need a password reset unless you connect the directory here too.")
+		ex.notes = append(ex.notes, textutil.Plural(federated, "user comes", "users come")+" from the old realm's user federation (such as LDAP): imported without it, they need a password reset unless you connect the directory here too.")
 	}
 	if linked > 0 {
-		ex.notes = append(ex.notes, plural(linked, "user's link", "users' links")+" to the old realm's identity providers left out: they link again by email when they sign in with a provider added here.")
+		ex.notes = append(ex.notes, textutil.Plural(linked, "user's link", "users' links")+" to the old realm's identity providers left out: they link again by email when they sign in with a provider added here.")
 	}
 	if len(ex.users) == 0 {
 		ex.notes = append(ex.notes, "The export has no users: export them with kc.sh export --users realm_file.")

@@ -6,6 +6,7 @@ import {
   Clock,
   FileQuestion,
   Inbox,
+  Radar,
   ShieldAlert,
   UserX,
   type LucideIcon,
@@ -59,6 +60,7 @@ function waitingText(inbox: InboxData) {
       plural(pendingReviews(inbox), "access to review", "accesses to review"),
     inbox.break_glass.length > 0 &&
       plural(inbox.break_glass.length, "break-glass use", "break-glass uses"),
+    inbox.threats.length > 0 && plural(inbox.threats.length, "threat", "threats"),
   ].filter(Boolean);
   return parts.join(", ");
 }
@@ -83,6 +85,31 @@ function Today() {
   const h = home.data;
   const g = h.governance;
   const notices: ReactNode[] = [];
+  const alerts = h.security?.open_alerts ?? {};
+  const serious = (alerts.critical ?? 0) + (alerts.high ?? 0);
+  const openAlerts = serious + (alerts.medium ?? 0) + (alerts.low ?? 0);
+  if (openAlerts > 0) {
+    notices.push(
+      <Notice
+        key="threats"
+        icon={Radar}
+        tone={serious > 0 ? "red" : "amber"}
+        title={`${plural(openAlerts, "threat alert is", "threat alerts are")} open`}
+        to="/security/threats"
+      >
+        {[
+          alerts.critical && `${alerts.critical} critical`,
+          alerts.high && `${alerts.high} high`,
+          alerts.medium && `${alerts.medium} medium`,
+          alerts.low && `${alerts.low} low`,
+        ]
+          .filter(Boolean)
+          .join(", ")}
+        . Look at each one and end sessions, require a second factor or suspend where it was not
+        them.
+      </Notice>,
+    );
+  }
   if (inbox.data && inbox.data.total > 0) {
     notices.push(
       <Notice

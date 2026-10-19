@@ -1,4 +1,11 @@
-import { ChevronRight, ClipboardCheck, ListChecks, Siren, type LucideIcon } from "lucide-react";
+import {
+  ChevronRight,
+  ClipboardCheck,
+  ListChecks,
+  Radar,
+  Siren,
+  type LucideIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
@@ -89,6 +96,24 @@ export function InboxPage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
+          {data.threats.length > 0 && (
+            <Section icon={Radar} title="Threats" count={data.threats.length}>
+              {data.threats.map((t) => (
+                <Task
+                  key={t.id}
+                  to={`/security/threats?alert=${t.id}`}
+                  aside={
+                    <Badge variant="red">{t.severity === "critical" ? "Critical" : "High"}</Badge>
+                  }
+                >
+                  <span className="block font-medium">{t.title}</span>
+                  <span className="block text-slate-500">
+                    {t.summary} · {formatTime(t.last_seen_at)}
+                  </span>
+                </Task>
+              ))}
+            </Section>
+          )}
           {data.approvals.length > 0 && (
             <Section icon={ClipboardCheck} title="Approvals" count={data.approvals.length}>
               {data.approvals.map((r) => (
