@@ -18,6 +18,13 @@ Every so often an admin launches a **campaign**: managers review what their peop
 - **Keep** what the person still needs for their job.
 - **Revoke** what they no longer need. Grantra takes it away. Revoking many at once asks you to confirm.
 
+Under each access, Grantra may **suggest** keeping or revoking it, and says why:
+
+- **Not used** in the last 90 days, or **used** lately. Grantra knows this for the vault, servers and the gateway, for access people turn on just in time, for Grantra itself, and for applications that say when their accounts last signed in. Where it cannot tell, it says nothing about use.
+- How many of the person's **peers** have it too: the people in their department, or on their manager's team. Most of them having it suggests keeping; almost nobody else having it is worth a closer look.
+
+A suggestion never decides for you: you know what the person does. Filter by **Grantra suggests** to go through the suggested revokes first.
+
 In a long campaign, **Find** a person, access or application, filter by **Risk** or by how they got it (requested, birthright, eligible…), and sort by person, access, risk or the oldest first. Selecting all, keeping or revoking in bulk only reaches the items shown. A review email opens its campaign only; **Show every campaign** brings back the rest.
 
 When unsure, ask the person or their manager before the campaign ends. Admins launch and close campaigns, and admins and auditors follow each campaign's progress.

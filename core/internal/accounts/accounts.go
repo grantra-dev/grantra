@@ -411,11 +411,12 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 		// the missing ones added in the same statement as the account. The
 		// two touch different rows, so they cannot step on each other.
 		b.Queue(`WITH acc AS (
-			   INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by)
-			   VALUES ($1, $2, $3, $4, nullif($5, ''), $6, $7, now(), $8)
+			   INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, status, attributes, last_seen_at, correlated_by, last_login_at)
+			   VALUES ($1, $2, $3, $4, nullif($5, ''), $6, $7, now(), $8, $10)
 			   ON CONFLICT (application_id, native_id) DO UPDATE SET
 			     identity_id = EXCLUDED.identity_id, username = EXCLUDED.username, status = EXCLUDED.status,
-			     attributes = EXCLUDED.attributes, last_seen_at = now(), correlated_by = EXCLUDED.correlated_by
+			     attributes = EXCLUDED.attributes, last_seen_at = now(), correlated_by = EXCLUDED.correlated_by,
+			     last_login_at = greatest(accounts.last_login_at, EXCLUDED.last_login_at)
 			   RETURNING id
 			 ), removed AS (
 			   DELETE FROM account_entitlements ae USING acc
@@ -428,7 +429,7 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 			   RETURNING 1
 			 )
 			 SELECT (SELECT count(*) FROM removed), (SELECT count(*) FROM added)`,
-			tenantID, appID, db.Nullable(p.identity), p.NativeID, p.Username, p.status, p.attrs, db.Nullable(p.by), p.want)
+			tenantID, appID, db.Nullable(p.identity), p.NativeID, p.Username, p.status, p.attrs, db.Nullable(p.by), p.want, nullableTime(p.LastLogin))
 	}, func(br pgx.BatchResults, p pendingAccount) error {
 		var removed, added int
 		if err := br.QueryRow().Scan(&removed, &added); err != nil {
@@ -505,4 +506,12 @@ func AggregateDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, ever
 		runs = append(runs, run)
 	}
 	return runs, nil
+}
+
+// nullableTime is t, or NULL when it is zero.
+func nullableTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }

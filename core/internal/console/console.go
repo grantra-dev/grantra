@@ -206,6 +206,11 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	tokenRoute("POST /api/v1/sign-in-events", a.receiveSignIns)
 	route("GET /api/v1/identities/{id}/threat-responses", a.listThreatResponses)
 	route("POST /api/v1/identities/{id}/threat-responses", a.respondToThreat)
+	route("GET /api/v1/attack-paths", a.listAttackPaths)
+	route("GET /api/v1/attack-paths/{id}", a.getAttackPaths)
+	route("GET /api/v1/identities/{id}/reach", a.identityReach)
+	route("GET /api/v1/unused-access", a.listUnusedAccess)
+	route("GET /api/v1/role-suggestions", a.listRoleSuggestions)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)

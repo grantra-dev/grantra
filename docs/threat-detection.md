@@ -2,7 +2,7 @@
 
 Grantra already knows who should have which access, who left and who is an admin. Threat detection (ITDR) adds what people actually do with their identities, sign-ins first, and raises **alerts** when that does not fit: a leaver who still signs in, a password being guessed, a second factor being pushed until someone accepts, high-risk access granted behind Grantra's back. Admins **respond** from the alert: end sessions, require a second factor, suspend. Some detections may respond on their own.
 
-It is the `itdr` module: a company that does not want it turns it off in **Settings → Modules** and Grantra stops reading and looking. The console page is **Security → Threats**; the in-console help is [docs/help/threats.md](help/threats.md).
+It is the `itdr` module: a company that does not want it turns it off in **Settings → Modules** and Grantra stops reading and looking. Who can reach the riskiest access, and how, is in [access-insights.md](access-insights.md). The console page is **Security → Threats**; the in-console help is [docs/help/threats.md](help/threats.md).
 
 ## Sign-ins
 

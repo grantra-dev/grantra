@@ -72,6 +72,11 @@ func TestJustInTime(t *testing.T) {
 	if e.count(`SELECT count(*) FROM access_assignments WHERE identity_id = $1 AND origin = 'activation'`, ana) != 1 {
 		t.Error("no activation")
 	}
+	// Activations are deleted once they end; the eligibility remembers
+	// it was used.
+	if e.count(`SELECT count(*) FROM access_eligibilities WHERE id = $1 AND last_activated_at > now() - interval '1 minute'`, el.ID) != 1 {
+		t.Error("the eligibility does not say when it was last turned on")
+	}
 	if rec := e.do(luis, http.MethodPost, "/api/v1/eligibilities/"+el.ID+"/deactivate", ""); rec.Code != http.StatusForbidden {
 		t.Errorf("peer deactivates = %d", rec.Code)
 	}

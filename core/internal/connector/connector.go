@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Entitlement is a permission as the application describes it.
@@ -42,6 +43,9 @@ type Account struct {
 	// Entitlements are the native ids of the entitlements the account holds.
 	Entitlements []string
 	Attributes   map[string]string
+	// LastLogin is when the person last signed in with the account, when
+	// the application says; zero when it does not.
+	LastLogin time.Time
 }
 
 // Snapshot is everything an aggregation read.

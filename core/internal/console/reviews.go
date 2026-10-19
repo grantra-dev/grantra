@@ -81,8 +81,15 @@ func (a *API) listReviewItems(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		f.Me, f.Admin = me.ID, slices.Contains(me.Roles, authz.RoleAdmin)
-		out, err = reviews.Items(r.Context(), tx, f)
-		return err
+		if out, err = reviews.Items(r.Context(), tx, f); err != nil {
+			return err
+		}
+		// Suggestions help whoever decides; a list for reading does
+		// without them.
+		if f.Mine {
+			return reviews.Suggest(r.Context(), tx, out)
+		}
+		return nil
 	})
 	a.respond(w, r, http.StatusOK, map[string]any{"items": httpjson.NonNil(out)}, err)
 }

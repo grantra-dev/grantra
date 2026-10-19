@@ -1,4 +1,4 @@
-import { Radar } from "lucide-react";
+import { Radar, Waypoints } from "lucide-react";
 import { governs } from "@/lib/roles";
 import { lazyPage, type NavItem } from "./types";
 
@@ -18,5 +18,17 @@ export const itdr: NavItem[] = [
     header: true,
     // Open high and critical alerts, for admins.
     count: (inbox) => inbox.threats.length,
+  },
+  {
+    path: "/security/attack-paths",
+    title: "Attack paths",
+    description:
+      "Who can reach the riskiest access, and every way there, shared accounts' passwords included.",
+    icon: Waypoints,
+    module: "itdr",
+    group: "security",
+    visible: governs,
+    page: lazyPage(() => import("@/pages/AttackPaths"), "AttackPaths"),
+    header: true,
   },
 ];

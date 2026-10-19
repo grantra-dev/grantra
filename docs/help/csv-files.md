@@ -65,6 +65,7 @@ One row per account, or one row per account and entitlement: rows of the same ac
 | `employee_id` | | an HR `employee_id` | The person who uses the account: the surest way to link it to them. Without it, Grantra links by email, or by a user name that is an email address |
 | `status` | | see below | Empty means active |
 | `entitlements` | | names separated by `;` | The roles or groups the account holds. Entitlements are created from the names found. The application's settings can change the separator |
+| `last_login` | | `2026-10-19` or `2026-10-19T08:30:00Z` | When the person last signed in with the account. Grantra uses it to find access nobody uses (Governance → Insights) |
 
 `status`, in any case:
 

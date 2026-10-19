@@ -1,5 +1,6 @@
 // Client for the Grantra core API. The browser holds only the HttpOnly
 // session cookie; no tokens are ever handled here.
+import type { Suggestion } from "./insights";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -252,6 +253,8 @@ export interface ReviewItem {
   decided_by?: string;
   decided_at?: string;
   comment?: string;
+  /** What Grantra makes of the access, on pending items for their reviewer. */
+  suggestion?: Suggestion;
 }
 
 export interface Campaign {

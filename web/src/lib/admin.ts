@@ -229,6 +229,7 @@ export const accountFields = [
   ["employee_id", "Employee id", "links the account to its person"],
   ["status", "Status", "active or disabled"],
   ["entitlements", "Entitlements", "roles or groups"],
+  ["last_login", "Last sign-in", "YYYY-MM-DD, shows unused access"],
 ] as const satisfies readonly (readonly [string, string, string])[];
 
 export const setConnector = (appId: string, kind: string, config: object) =>
