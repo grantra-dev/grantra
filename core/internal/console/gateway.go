@@ -101,26 +101,14 @@ func (a *API) gatewayCAFile(w http.ResponseWriter, r *http.Request) {
 func (a *API) listGatewayTargets(w http.ResponseWriter, r *http.Request) {
 	var out []gateways.Target
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		reader := a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadVault, Resource: authz.VaultResource()}).Allowed
-		held, err := gateways.List(r.Context(), tx, me.ID)
-		if err != nil {
+		reader := a.may(me, authz.ReadVault, authz.VaultResource())
+		var err error
+		if out, err = gateways.List(r.Context(), tx, me.ID, !reader); err != nil || reader {
 			return err
 		}
-		if !reader {
-			out = held
-			// What the gateway logs in with is for admins and auditors.
-			for i := range out {
-				out[i].VaultAccountID, out[i].VaultAccountName, out[i].CACertificate = "", "", ""
-			}
-		} else if out, err = gateways.List(r.Context(), tx, ""); err != nil {
-			return err
-		}
-		mine := map[string]bool{}
-		for _, t := range held {
-			mine[t.ID] = true
-		}
+		// What the gateway logs in with is for admins and auditors.
 		for i := range out {
-			out[i].Held = mine[out[i].ID]
+			out[i].VaultAccountID, out[i].VaultAccountName, out[i].CACertificate = "", "", ""
 		}
 		return nil
 	})

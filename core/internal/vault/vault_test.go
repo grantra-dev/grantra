@@ -286,13 +286,21 @@ func TestCreateAndCheckout(t *testing.T) {
 
 	// List: everything for readers, only what you hold for others.
 	e.must(func(tx pgx.Tx) error {
-		all, err := List(e.ctx, tx, "")
+		all, err := List(e.ctx, tx, ana, false)
 		if err != nil || len(all) != 2 {
 			t.Fatalf("all = %d, %v", len(all), err)
 		}
-		mine, err := List(e.ctx, tx, ana)
-		if err != nil || len(mine) != 1 || mine[0].ID != a.ID {
+		for _, acct := range all {
+			if acct.Held != (acct.ID == a.ID) {
+				t.Errorf("%s held by ana = %v", acct.Name, acct.Held)
+			}
+		}
+		mine, err := List(e.ctx, tx, ana, true)
+		if err != nil || len(mine) != 1 || mine[0].ID != a.ID || !mine[0].Held {
 			t.Fatalf("ana's = %+v, %v", mine, err)
+		}
+		if nobody, err := List(e.ctx, tx, "", true); err != nil || len(nobody) != 0 {
+			t.Fatalf("nobody's = %+v, %v", nobody, err)
 		}
 		return nil
 	})

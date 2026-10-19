@@ -3,6 +3,7 @@ import type { ReviewItem } from "./api";
 import { connectorConfig, connectorTypes, missingFields } from "./connectors";
 import { filterReviewItems, sortReviewItems } from "./reviews";
 import { hitLink } from "./search";
+import { hasWords } from "./utils";
 
 const item = (over: Partial<ReviewItem>): ReviewItem => ({
   id: "i",
@@ -108,5 +109,16 @@ describe("connector settings", () => {
         expect(f.placeholder).toMatch(/^env:GRANTRA_SECRET_/);
       }
     }
+  });
+});
+
+describe("filter boxes", () => {
+  it("match every word, in any of the texts, whatever the case", () => {
+    expect(hasWords("", "anything")).toBe(true);
+    expect(hasWords("  ", undefined)).toBe(true);
+    expect(hasWords("aws admin", "Admins", "AWS")).toBe(true);
+    expect(hasWords("PAY", "Payments")).toBe(true);
+    expect(hasWords("aws sales", "Admins", "AWS")).toBe(false);
+    expect(hasWords("x", undefined, undefined)).toBe(false);
   });
 });

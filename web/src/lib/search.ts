@@ -1,5 +1,6 @@
 import type { NavItem } from "@/modules";
 import type { SearchHit } from "./console";
+import { hasWords } from "./utils";
 
 /**
  * Where a hit leads, among the pages this person sees: an admin opens an
@@ -29,10 +30,6 @@ export function hitLink(hit: SearchHit, sees: (path: string) => boolean): string
 
 /** The pages whose name or description has every word of the query. */
 export function matchPages(items: NavItem[], query: string): NavItem[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [];
-  return items.filter((i) => {
-    const text = `${i.title} ${i.description}`.toLowerCase();
-    return words.every((w) => text.includes(w));
-  });
+  if (!query.trim()) return [];
+  return items.filter((i) => hasWords(query, i.title, i.description));
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
+	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 )
 
@@ -28,13 +29,6 @@ type searchHit struct {
 // searchPerKind is how many hits of each kind a search returns.
 const searchPerKind = 5
 
-// likeContains is an SQL LIKE pattern matching any text that contains s,
-// whatever its case once both sides are lowercased.
-func likeContains(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return "%" + r.Replace(strings.ToLower(s)) + "%"
-}
-
 // search finds people, access, applications and privileged targets whose
 // name contains ?q=, at least 2 characters. Each kind only appears when the
 // person may see it on its own page, and holds what that page would show
@@ -45,13 +39,10 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "q must be between 2 and 100 characters")
 		return
 	}
-	pattern := likeContains(q)
+	pattern := db.ContainsPattern(q)
 	out := []searchHit{}
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
 		ctx := r.Context()
-		may := func(action authz.Action, res authz.Resource) bool {
-			return a.authz.Authorize(authz.Request{Principal: me, Action: action, Resource: res}).Allowed
-		}
 		find := func(sql string, args ...any) error {
 			rows, err := tx.Query(ctx, sql, args...)
 			if err != nil {
@@ -66,7 +57,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		if may(authz.ListIdentities, authz.DirectoryResource()) {
+		if a.may(me, authz.ListIdentities, authz.DirectoryResource()) {
 			// Whoever is still here first, then by name.
 			if err := find(
 				`SELECT 'person', id::text, display_name, coalesce(email, ''), '' FROM identities
@@ -76,7 +67,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Everyone may see what they could ask for: the Request access list.
-		if may(authz.ReadRequestable, authz.CatalogResource()) {
+		if a.may(me, authz.ReadRequestable, authz.CatalogResource()) {
 			if err := find(
 				`(SELECT 'role', id::text, name, 'Business role', '' FROM roles
 				  WHERE lower(name) LIKE $1 OR lower(coalesce(description, '')) LIKE $1
@@ -90,7 +81,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if may(authz.ReadCatalog, authz.CatalogResource()) {
+		if a.may(me, authz.ReadCatalog, authz.CatalogResource()) {
 			if err := find(
 				`SELECT 'application', id::text, name, '', '' FROM applications
 				 WHERE connector <> $2 AND lower(name) LIKE $1 ORDER BY name, id LIMIT $3`,
@@ -106,7 +97,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 		// Admins and auditors see every vault account, server and target;
 		// everyone else the ones they hold access to, as on those pages.
 		holder := me.ID
-		if may(authz.ReadVault, authz.VaultResource()) {
+		if a.may(me, authz.ReadVault, authz.VaultResource()) {
 			holder = ""
 		}
 		held := func(entitlement string) string { return catalog.HeldSQL(`nullif($2, '')::uuid`, entitlement) }

@@ -95,7 +95,7 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		if !a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadCatalog, Resource: authz.CatalogResource()}).Allowed {
+		if !a.may(me, authz.ReadCatalog, authz.CatalogResource()) {
 			return nil
 		}
 		g := &governanceHome{}
@@ -156,7 +156,7 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 			authz.BuiltinConnector).Scan(&g.Undescribed); err != nil {
 			return err
 		}
-		if a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadSoD, Resource: authz.SoDResource()}).Allowed {
+		if a.may(me, authz.ReadSoD, authz.SoDResource()) {
 			var n int
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM sod_violations WHERE status = 'open'`).Scan(&n); err != nil {
 				return err

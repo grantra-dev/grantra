@@ -7,6 +7,14 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 )
 
+func TestContainsPattern(t *testing.T) {
+	for q, want := range map[string]string{"Ana": "%ana%", "50%_OFF": `%50\%\_off%`, `C:\Temp`: `%c:\\temp%`} {
+		if got := ContainsPattern(q); got != want {
+			t.Errorf("ContainsPattern(%q) = %q, want %q", q, got, want)
+		}
+	}
+}
+
 func TestSearchPattern(t *testing.T) {
 	for q, want := range map[string]string{
 		"drop table": "%drop table%", "  50%_off ": `%50\%\_off%`, `C:\temp`: `%C:\\temp%`,

@@ -128,8 +128,7 @@ type Target struct {
 	MaxTokenHours int       `json:"max_token_hours"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
-	// Held says whether the person asking holds access to it. Set by the
-	// console.
+	// Held says whether the person asking holds access to it. Set by List.
 	Held bool `json:"held"`
 }
 
@@ -644,18 +643,33 @@ func lockTarget(ctx context.Context, tx pgx.Tx, id string) (Target, error) {
 	return Get(ctx, tx, id)
 }
 
-const targetSelect = `SELECT t.id, t.name, t.kind, t.address, coalesce(t.database, ''), t.tls_mode, coalesce(t.ca_certificate, ''),
+const targetColumns = `t.id, t.name, t.kind, t.address, coalesce(t.database, ''), t.tls_mode, coalesce(t.ca_certificate, ''),
 	coalesce(t.vault_account_id::text, ''), coalesce(va.name, ''), t.kube_groups, coalesce(t.notes, ''), t.entitlement_id, e.name,
 	e.risk, t.max_token_hours, t.created_at, t.updated_at, coalesce(t.clipboard, ''), coalesce(t.rdp_security, ''), coalesce(t.cloud_role, ''),
-	coalesce(t.cloud_directory, '')
-	FROM gateway_targets t JOIN entitlements e ON e.id = t.entitlement_id
+	coalesce(t.cloud_directory, '')`
+
+const targetFrom = ` FROM gateway_targets t JOIN entitlements e ON e.id = t.entitlement_id
 	LEFT JOIN vault_accounts va ON va.id = t.vault_account_id`
+
+const targetSelect = `SELECT ` + targetColumns + targetFrom
+
+// targetFields are where the columns of targetColumns go.
+func targetFields(t *Target) []any {
+	return []any{&t.ID, &t.Name, &t.Kind, &t.Address, &t.Database, &t.TLSMode, &t.CACertificate, &t.VaultAccountID,
+		&t.VaultAccountName, &t.KubeGroups, &t.Notes, &t.EntitlementID, &t.EntitlementName, &t.Risk, &t.MaxTokenHours,
+		&t.CreatedAt, &t.UpdatedAt, &t.Clipboard, &t.RDPSecurity, &t.CloudRole, &t.CloudDirectory}
+}
 
 func scanTarget(row pgx.CollectableRow) (Target, error) {
 	var t Target
-	err := row.Scan(&t.ID, &t.Name, &t.Kind, &t.Address, &t.Database, &t.TLSMode, &t.CACertificate, &t.VaultAccountID,
-		&t.VaultAccountName, &t.KubeGroups, &t.Notes, &t.EntitlementID, &t.EntitlementName, &t.Risk, &t.MaxTokenHours,
-		&t.CreatedAt, &t.UpdatedAt, &t.Clipboard, &t.RDPSecurity, &t.CloudRole, &t.CloudDirectory)
+	err := row.Scan(targetFields(&t)...)
+	return t, err
+}
+
+// scanHeldTarget reads a target followed by whether the asker holds it.
+func scanHeldTarget(row pgx.CollectableRow) (Target, error) {
+	var t Target
+	err := row.Scan(append(targetFields(&t), &t.Held)...)
 	return t, err
 }
 
@@ -663,14 +677,15 @@ func scanTarget(row pgx.CollectableRow) (Target, error) {
 // the target t's access right now.
 var heldBy = catalog.HeldSQL(`nullif($1, '')::uuid`, `t.entitlement_id`)
 
-// List returns every target, or with holder set only the ones that identity
-// holds access to right now.
-func List(ctx context.Context, tx pgx.Tx, holder string) ([]Target, error) {
-	rows, err := tx.Query(ctx, targetSelect+` WHERE $1 = '' OR `+heldBy+` ORDER BY t.name`, holder)
+// List returns the targets with Held set for identity, in one query: every
+// target, or with onlyHeld only the ones identity holds access to right now.
+func List(ctx context.Context, tx pgx.Tx, identity string, onlyHeld bool) ([]Target, error) {
+	rows, err := tx.Query(ctx, `SELECT `+targetColumns+`, `+heldBy+targetFrom+`
+		WHERE NOT $2 OR `+heldBy+` ORDER BY t.name`, identity, onlyHeld)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, scanTarget)
+	return pgx.CollectRows(rows, scanHeldTarget)
 }
 
 // Get returns one target.

@@ -104,7 +104,7 @@ func TestSeedWithVault(t *testing.T) {
 	var version int
 	var entitlement string
 	if err := db.InTenant(ctx, pool, tenant, func(tx pgx.Tx) error {
-		list, err := vault.List(ctx, tx, "")
+		list, err := vault.List(ctx, tx, "", false)
 		// By name: the office desktop's login, the root password, the shop
 		// database's owner.
 		if err != nil || len(list) != 3 {

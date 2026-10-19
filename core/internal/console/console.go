@@ -326,7 +326,7 @@ func (a *API) listIdentities(w http.ResponseWriter, r *http.Request) {
 			 WHERE ($1 = '' OR id > $1::uuid)
 			   AND ($3 = '' OR lower(display_name) LIKE $5 OR lower(email) LIKE $5)
 			   AND ($4 = '' OR status = $4)
-			 ORDER BY id LIMIT $2`, after, limit, search, status, likeContains(search))
+			 ORDER BY id LIMIT $2`, after, limit, search, status, db.ContainsPattern(search))
 		if err != nil {
 			return err
 		}
@@ -415,7 +415,7 @@ func (a *API) listPlatformRoles(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		for _, role := range authz.PlatformRoles {
-			if a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadPlatformRole, Resource: authz.RoleResource(role.Name)}).Allowed {
+			if a.may(me, authz.ReadPlatformRole, authz.RoleResource(role.Name)) {
 				pr := platformRole{PlatformRole: role, Members: []authz.Member{}}
 				for _, m := range members {
 					if m.Role == role.Name {

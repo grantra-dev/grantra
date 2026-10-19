@@ -16,3 +16,13 @@ const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", tim
 export function formatTime(iso: string) {
   return timeFormat.format(new Date(iso));
 }
+
+/**
+ * Whether every word of query appears in one of texts, whatever the case:
+ * how every filter box in the console matches. An empty query matches all.
+ */
+export function hasWords(query: string, ...texts: (string | undefined)[]): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const text = texts.filter(Boolean).join(" ").toLowerCase();
+  return words.every((w) => text.includes(w));
+}

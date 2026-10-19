@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Users, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Alert } from "@/components/ui/alert";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { listEligibilities } from "@/lib/jit";
+import { hasWords } from "@/lib/utils";
 import {
   createRequest,
   getIdentityAccess,
@@ -46,11 +48,9 @@ export function RequestAccess({ me }: { me: Me }) {
       .map((r) => r.target_id),
   );
 
-  const needle = filter.trim().toLowerCase();
-  const items = (catalog.data?.items ?? []).filter(
-    (i) =>
-      !needle ||
-      [i.name, i.application, i.description].some((v) => v?.toLowerCase().includes(needle)),
+  const needle = filter.trim();
+  const items = (catalog.data?.items ?? []).filter((i) =>
+    hasWords(needle, i.name, i.application, i.description),
   );
 
   return (
@@ -62,20 +62,13 @@ export function RequestAccess({ me }: { me: Me }) {
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <Card>
           <div className="border-b border-slate-200 p-4">
-            <label className="relative block max-w-sm">
-              <span className="sr-only">Search the catalog</span>
-              <Search
-                className="pointer-events-none absolute top-2.5 left-3 size-4 text-slate-400"
-                aria-hidden
-              />
-              <input
-                type="search"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Search by name, application or description"
-                className="h-9 w-full rounded-md border border-slate-300 pr-3 pl-9 text-sm focus:outline-2 focus:outline-brand-600"
-              />
-            </label>
+            <FilterBox
+              label="Search the catalog"
+              placeholder="Search by name, application or description"
+              value={filter}
+              onChange={setFilter}
+              className="max-w-sm"
+            />
           </div>
           {catalog.isPending ? (
             <p className="p-6 text-sm text-slate-500">Loading the catalog…</p>

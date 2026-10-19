@@ -1,4 +1,5 @@
 import type { ReviewItem } from "./api";
+import { hasWords } from "./utils";
 
 /** What a reviewer narrows a long campaign down to. */
 export interface ReviewFilter {
@@ -15,13 +16,11 @@ const riskRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low:
 
 /** The items that match every part of the filter. */
 export function filterReviewItems(items: ReviewItem[], f: ReviewFilter): ReviewItem[] {
-  const words = (f.text ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   return items.filter((it) => {
     if (f.campaign && it.campaign_id !== f.campaign) return false;
     if (f.risk && (it.risk ?? "") !== f.risk) return false;
     if (f.origin && it.origin !== f.origin) return false;
-    const text = `${it.identity_name} ${it.target_name} ${it.application ?? ""}`.toLowerCase();
-    return words.every((w) => text.includes(w));
+    return hasWords(f.text ?? "", it.identity_name, it.target_name, it.application);
   });
 }
 

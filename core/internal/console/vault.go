@@ -18,22 +18,13 @@ import (
 func (a *API) listVaultAccounts(w http.ResponseWriter, r *http.Request) {
 	var out []vault.Account
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) error {
-		reader := a.authz.Authorize(authz.Request{Principal: me, Action: authz.ReadVault, Resource: authz.VaultResource()}).Allowed
-		held, err := vault.List(r.Context(), tx, me.ID)
+		reader := a.may(me, authz.ReadVault, authz.VaultResource())
+		all, err := vault.List(r.Context(), tx, me.ID, false)
 		if err != nil {
 			return err
-		}
-		all, err := vault.List(r.Context(), tx, "")
-		if err != nil {
-			return err
-		}
-		mine := map[string]bool{}
-		for _, h := range held {
-			mine[h.ID] = true
 		}
 		for i := range all {
 			acct := &all[i]
-			acct.Held = mine[acct.ID]
 			if acct.BreakGlass {
 				responders, _, err := vault.Responders(r.Context(), tx, acct.ID)
 				if err != nil {
