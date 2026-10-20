@@ -138,23 +138,3 @@ func parseUserKey(line string) (ssh.PublicKey, error) {
 	}
 	return key, nil
 }
-
-// Certificates lists the certificates signed for a person, newest first.
-func Certificates(ctx context.Context, tx pgx.Tx, identityID string, limit int) ([]Certificate, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT c.id, c.serial, coalesce(c.target_id::text, ''), t.name, t.login, c.identity_id, c.principal, c.key_fingerprint,
-		        t.via_gateway, c.valid_after, c.valid_before, c.issued_at
-		 FROM ssh_certificates c JOIN ssh_targets t ON t.id = c.target_id
-		 WHERE c.identity_id::text = $1 ORDER BY c.issued_at DESC LIMIT $2`, identityID, limit)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Certificate, error) {
-		var c Certificate
-		var serial int64
-		err := row.Scan(&c.ID, &serial, &c.TargetID, &c.TargetName, &c.Login, &c.IdentityID, &c.Principal, &c.Fingerprint,
-			&c.ViaGateway, &c.ValidAfter, &c.ValidBefore, &c.IssuedAt)
-		c.Serial = uint64(serial)
-		return c, err
-	})
-}

@@ -153,7 +153,10 @@ func Grant(ctx context.Context, tx pgx.Tx, tenantID, role, identityID string, ex
 		 FROM entitlements e JOIN applications app ON app.id = e.application_id AND app.connector = $3
 		 WHERE e.native_id = $4
 		 ON CONFLICT (account_id, entitlement_id)
-		   DO UPDATE SET expires_at = EXCLUDED.expires_at, granted_at = now()`,
+		   DO UPDATE SET expires_at = EXCLUDED.expires_at, granted_at = now(),
+		     -- A role given again after it ended is new for threat detection.
+		     threat_checked = account_entitlements.threat_checked
+		       AND (account_entitlements.expires_at IS NULL OR account_entitlements.expires_at > now())`,
 		tenantID, accountID, BuiltinConnector, role, expiresAt)
 	if err != nil {
 		return err

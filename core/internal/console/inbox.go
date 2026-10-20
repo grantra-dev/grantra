@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/requests"
@@ -70,7 +71,7 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		if !admin {
 			return nil
 		}
-		if on, err := moduleOn(ctx, tx, ModuleITDR); err != nil {
+		if on, err := db.ModuleOn(ctx, tx, ModuleITDR); err != nil {
 			return err
 		} else if on {
 			rows, err := tx.Query(ctx,
@@ -91,7 +92,7 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 			}
 			out.Total += len(out.Threats)
 		}
-		if on, err := moduleOn(ctx, tx, ModulePAM); err != nil || !on {
+		if on, err := db.ModuleOn(ctx, tx, ModulePAM); err != nil || !on {
 			return err
 		}
 		uses, err := vault.BreakGlassUses(ctx, tx, true)

@@ -42,7 +42,7 @@ Up to 1,000 events and 4 MiB per call. The answer is `{"received": 3, "new": 2}`
 
 ## Detections
 
-Each detection has a default severity and values, which admins change in the **Detections** tab (`threat_detections`). Detections look at each sign-in once, within a minute of it arriving.
+Each detection has a default severity and values, which admins change in the **Detections** tab (`threat_detections`). Detections look at each sign-in once, within a minute of it arriving, and at each grant of access in an application once (`account_entitlements.threat_checked`), within a minute of the read that wrote it. The first scan only notes the access already there: that is for access reviews. One scan runs at a time per tenant.
 
 | Detection | Raises | Default | May respond on its own with |
 |---|---|---|---|
@@ -54,7 +54,7 @@ Each detection has a default severity and values, which admins change in the **D
 | `password_spray` | One address failing for 10 different people in 15 minutes | high | none |
 | `mfa_fatigue` | 5 refused second factors for one person in 10 minutes; critical if a sign-in then succeeds | high | end sessions, suspend |
 | `privilege_outside_grantra` | High or critical access read on an account that Grantra neither gave nor was asked for; critical access makes it critical | high | none |
-| `new_platform_admin` | Someone given the Grantra admin role | medium | none |
+| `new_platform_admin` | Someone given the Grantra admin role, however it was given (Settings, a request, or again after it ended) | medium | none |
 
 Detections that compare with earlier sign-ins (new country, dormant account, impossible travel) only fire once Grantra has that history: Grantra Login's first read goes back one day, so dormant accounts are found once Grantra has seen people sign in before.
 
@@ -86,7 +86,7 @@ Each response is stored in `threat_responses` and audited as `itdr.response`; a 
 | `GET /api/v1/threats/alerts/{id}` | `threat.read`, with its responses |
 | `POST /api/v1/threats/alerts/{id}/close` | `threat_alert.close`: `{"status": "dismissed", "note": "travelling"}`; a note is required to dismiss |
 | `GET /api/v1/threats/detections`, `PUT /api/v1/threats/detections/{id}` | `threat.read`, `threat.manage`: `{"enabled": true, "severity": "high", "auto_response": "require_mfa", "values": {"failures": 20}}` |
-| `POST /api/v1/threats/scan` | `threat.manage`: reads and looks now instead of waiting for the minute |
+| `POST /api/v1/threats/scan` | `threat.manage`: reads and looks now instead of waiting for the minute; 409 while a scan is already running |
 | `GET /api/v1/sign-in-events?identity=&outcome=&ip=&limit=&before=` | `threat.read` |
 | `POST /api/v1/sign-in-events` | `threat.manage`, or a service token with `sign_in_event.send` |
 | `GET`, `POST /api/v1/identities/{id}/threat-responses` | `threat.read`, `threat.respond`: `{"action": "suspend", "alert_id": "...", "reason": "..."}`, with `days` for `require_mfa` |

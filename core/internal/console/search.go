@@ -92,7 +92,7 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		on, err := moduleOn(ctx, tx, ModulePAM)
+		on, err := db.ModuleOn(ctx, tx, ModulePAM)
 		if err != nil || !on {
 			return err
 		}

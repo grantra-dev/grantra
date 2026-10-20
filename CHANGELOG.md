@@ -8,6 +8,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 - **Threat detection reads Grantra Login's sign-ins**, which needs two more `realm-management` roles on the connector's service account: `view-events` and `manage-events`. New installs have them in `deploy/keycloak/grantra-realm.json`; on an existing realm add them in Keycloak (Clients → `grantra-connector` → Service account roles), or run `make reset` in the demo. Without them Grantra still looks at access and at the sign-ins scripts send; the job logs that it cannot read Grantra Login, and **Look now** on the Threats page shows the error.
 - **Migration 0026** adds when each account last signed in. It is empty until the next read of each application (Active Directory, OpenLDAP or an account file with a `last_login` column), so unused access only shows for those applications after that read.
+- **Migration 0028** marks every grant of access already stored as looked at by threat detection, and adds indexes for who holds a role or an entitlement. On a large `access_assignments` table the indexes take a moment to build while the server starts.
 - **Birthright rules only reach people** unless they name a `kind`: a rule with no conditions, or one by department, no longer matches service accounts, AI agents or workloads. Grantra had no way to create those before this release, so this only matters for identities added straight in the database.
 
 ### Added
@@ -32,6 +33,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 - **Console menu** grouped by what people come to do (For you, To do, Privileged access, Governance, Settings), with old `/admin` addresses redirecting. Email settings and signing out moved to the menu under your name.
 - **Emails link to the exact task**: the request to approve or the campaign to review, not the whole list.
 - **Auditors see Governance and Settings**, read only.
+- Fixes from a review before 0.4: access granted outside Grantra by a long connector run, and admins made through a request, were not always noticed by threat detection (it now looks at each grant once, whenever it commits); a threat scan started from the console while the job ran could raise, email and respond to an alert twice (**Look now** now answers 409 while a scan runs); creating a service account can no longer take over an account that belongs to a person; "who holds this access" checks, attack paths and vault check-outs use indexes (attack paths about 40 times faster with 2 million assignments).
 - New API endpoints for the console: `GET /api/v1/me/inbox`, `GET /api/v1/me/home`, `GET /api/v1/search`. People search by name or email now uses a trigram index when `pg_trgm` is available.
 
 ## [0.3.0] - 2026-10-17

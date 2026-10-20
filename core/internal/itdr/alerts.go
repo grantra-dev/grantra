@@ -128,13 +128,9 @@ func Get(ctx context.Context, tx pgx.Tx, id string) (Alert, error) {
 // Counts is how many alerts are open, per severity.
 type Counts map[string]int
 
-// OpenCounts counts the open alerts per severity, leaving out the ones
-// about the identity except (an admin's own alerts are not theirs to act on).
-func OpenCounts(ctx context.Context, tx pgx.Tx, except string) (Counts, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT severity, count(*) FROM threat_alerts
-		 WHERE status = 'open' AND (nullif($1, '') IS NULL OR identity_id IS DISTINCT FROM nullif($1, '')::uuid)
-		 GROUP BY severity`, except)
+// OpenCounts counts the open alerts per severity.
+func OpenCounts(ctx context.Context, tx pgx.Tx) (Counts, error) {
+	rows, err := tx.Query(ctx, `SELECT severity, count(*) FROM threat_alerts WHERE status = 'open' GROUP BY severity`)
 	if err != nil {
 		return nil, err
 	}

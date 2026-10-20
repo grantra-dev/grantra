@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/connector"
@@ -20,18 +21,17 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
-// batchSize is how many sign-ins one transaction of a scan looks at.
+// batchSize is how many sign-ins, or grants of access, one transaction of
+// a scan looks at.
 const batchSize = 2000
 
 // Retention is how long sign-ins are kept: over a year, so an account
 // dormant for up to a year is still recognised as such.
 const Retention = 400 * 24 * time.Hour
 
-// Cursors of the access detections.
-const (
-	privilegeCursor = "privileges"
-	adminCursor     = "platform-admins"
-)
+// privilegeCursor says the access detections ran once: the first scan
+// only notes where things stand.
+const privilegeCursor = "privileges"
 
 // ScanResult is what one scan did.
 type ScanResult struct {
@@ -67,18 +67,40 @@ func (sc Scanner) now() time.Time {
 // looked at and at access that changed, raises alerts, emails the admins
 // about new serious ones and runs automatic responses. A failure to read
 // Grantra Login is returned, after the rest has run. While the tenant has
-// threat detection off, it does nothing.
-func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
+// threat detection off, it does nothing; while another scan of the tenant
+// runs, it returns ErrScanRunning.
+func (sc Scanner) Scan(ctx context.Context) (res ScanResult, err error) {
+	// One scan at a time per tenant, so an alert is never raised, mailed or
+	// answered twice.
+	ran, err := db.TryLocked(ctx, sc.Pool, "itdr scan: "+sc.TenantID, func(ctx context.Context) error {
+		res, err = sc.scan(ctx)
+		return err
+	})
+	if err == nil && !ran {
+		err = ErrScanRunning
+	}
+	return res, err
+}
+
+// ErrScanRunning is Scan's error while another scan of the tenant runs; its
+// results show up when it ends.
+var ErrScanRunning = apperr.Conflictf("a threat scan is running right now; its results show up in a moment")
+
+func (sc Scanner) scan(ctx context.Context) (ScanResult, error) {
 	var res ScanResult
 	var (
-		on       bool
-		settings map[string]Setting
+		on, first bool
+		settings  map[string]Setting
 	)
 	if err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
 		if on, err = On(ctx, tx); err != nil || !on {
 			return err
 		}
-		settings, err = settingsByID(ctx, tx)
+		if settings, err = settingsByID(ctx, tx); err != nil {
+			return err
+		}
+		cursor, err := getCursor(ctx, tx, privilegeCursor)
+		first = cursor == ""
 		return err
 	}); err != nil || !on {
 		return res, err
@@ -93,37 +115,44 @@ func (sc Scanner) Scan(ctx context.Context) (ScanResult, error) {
 	res.Read = n
 
 	var all []raised
-	for {
-		var (
-			done  bool
-			found []raised
-		)
-		err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
-			var evaluated int
-			found, evaluated, err = sc.evaluate(ctx, tx, settings)
-			res.Evaluated += evaluated
-			done = evaluated < batchSize
+	// inBatches runs step, one batch per transaction, until a batch is not
+	// full, and emails the admins about what each one raised.
+	inBatches := func(step func(tx pgx.Tx) ([]raised, int, error)) (int, error) {
+		total := 0
+		for {
+			var (
+				n     int
+				found []raised
+			)
+			err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
+				if found, n, err = step(tx); err != nil {
+					return err
+				}
+				return notifyAdmins(ctx, tx, sc.TenantID, found)
+			})
 			if err != nil {
-				return err
+				return total, err
 			}
-			return notifyAdmins(ctx, tx, sc.TenantID, found)
-		})
-		if err != nil {
-			return res, errors.Join(readErr, err)
-		}
-		all = append(all, found...)
-		if done {
-			break
+			all = append(all, found...)
+			total += n
+			if n < batchSize {
+				return total, nil
+			}
 		}
 	}
-	err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) error {
-		found, err := sc.checkAccess(ctx, tx, settings)
-		if err != nil {
-			return err
-		}
-		all = append(all, found...)
-		if err := notifyAdmins(ctx, tx, sc.TenantID, found); err != nil {
-			return err
+	evaluated, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.evaluate(ctx, tx, settings) })
+	res.Evaluated = evaluated
+	if err != nil {
+		return res, errors.Join(readErr, err)
+	}
+	if _, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.checkAccess(ctx, tx, settings, first) }); err != nil {
+		return res, errors.Join(readErr, err)
+	}
+	err = db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) error {
+		if first {
+			if err := setCursor(ctx, tx, sc.TenantID, privilegeCursor, sc.now().UTC().Format(time.RFC3339)); err != nil {
+				return err
+			}
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM signin_events WHERE occurred_at < $1`, sc.now().Add(-Retention))
 		res.Deleted = int(tag.RowsAffected())
@@ -455,44 +484,62 @@ func detectSprays(ctx context.Context, tx pgx.Tx, ids []int64, settings map[stri
 	return out, rows.Err()
 }
 
-// checkAccess looks at access that appeared since the last scan: high and
-// critical access Grantra did not give, and new Grantra admins.
-func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[string]Setting) ([]raised, error) {
-	var findings []finding
-
-	// Access granted outside Grantra. The first scan only notes where
-	// things stand: what was there before is for reviews to deal with.
-	var now time.Time
-	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
-		return nil, err
-	}
-	since, err := getCursor(ctx, tx, privilegeCursor)
+// checkAccess looks at one batch of the access accounts gained since the
+// last scan: high and critical access Grantra did not give, and new
+// Grantra admins. Each grant waits in account_entitlements until a scan has
+// looked at it (threat_checked), so a grant committed late, by a long
+// connector run, is looked at as soon as it is visible. On the first scan
+// (first) it only notes where things stand: what was there before is for
+// reviews to deal with.
+func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[string]Setting, first bool) ([]raised, int, error) {
+	rows, err := tx.Query(ctx, `SELECT account_id, entitlement_id FROM account_entitlements WHERE NOT threat_checked
+		ORDER BY granted_at LIMIT $1 FOR UPDATE SKIP LOCKED`, batchSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	if since != "" && settings[OutsideGrantra].Enabled {
-		from, err := time.Parse(time.RFC3339Nano, since)
-		if err != nil {
-			return nil, err
+	var accs, ents []string
+	for rows.Next() {
+		var acc, ent string
+		if err := rows.Scan(&acc, &ent); err != nil {
+			rows.Close()
+			return nil, 0, err
 		}
+		accs, ents = append(accs, acc), append(ents, ent)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(accs) == 0 {
+		return nil, 0, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE account_entitlements ae SET threat_checked = true
+		FROM unnest($1::uuid[], $2::uuid[]) AS k(account_id, entitlement_id)
+		WHERE ae.account_id = k.account_id AND ae.entitlement_id = k.entitlement_id`, accs, ents); err != nil {
+		return nil, 0, err
+	}
+	if first {
+		return nil, len(accs), nil
+	}
+	const batch = `unnest($1::uuid[], $2::uuid[]) AS k(account_id, entitlement_id)
+		JOIN account_entitlements ae ON ae.account_id = k.account_id AND ae.entitlement_id = k.entitlement_id
+		JOIN accounts a ON a.id = ae.account_id
+		JOIN entitlements e ON e.id = ae.entitlement_id
+		JOIN applications app ON app.id = a.application_id`
+
+	var findings []finding
+	if settings[OutsideGrantra].Enabled {
 		// An application's first read brings all its access at once; only
 		// what appears in an application already read counts.
 		rows, err := tx.Query(ctx, `
 			SELECT a.id, coalesce(a.identity_id::text, ''), coalesce(i.display_name, ''), coalesce(a.username, a.native_id),
 			       app.name, e.id, e.name, e.risk, ae.granted_at
-			FROM account_entitlements ae
-			JOIN accounts a ON a.id = ae.account_id
-			JOIN entitlements e ON e.id = ae.entitlement_id
-			JOIN applications app ON app.id = a.application_id
+			FROM `+batch+`
 			LEFT JOIN identities i ON i.id = a.identity_id
-			WHERE ae.granted_at > $1 AND ae.granted_at <= $2 AND `+catalog.RiskySQL("e.risk")+`
-			  AND a.status = 'active' AND app.connector <> $3
+			WHERE `+catalog.RiskySQL("e.risk")+` AND a.status = 'active' AND app.connector <> $3
 			  AND EXISTS (SELECT 1 FROM accounts o WHERE o.application_id = a.application_id
 			              AND o.created_at < ae.granted_at - interval '10 minutes')
 			  AND (a.identity_id IS NULL OR NOT `+catalog.HeldSQL("a.identity_id", "e.id")+`)
-			ORDER BY ae.granted_at`, from, now, authz.BuiltinConnector)
+			ORDER BY ae.granted_at, a.id, e.id`, accs, ents, authz.BuiltinConnector)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		for rows.Next() {
 			var (
@@ -501,7 +548,7 @@ func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[strin
 			)
 			if err := rows.Scan(&account, &identity, &name, &user, &app, &ent, &entName, &risk, &at); err != nil {
 				rows.Close()
-				return nil, err
+				return nil, 0, err
 			}
 			subject, who := identity, name
 			if identity == "" {
@@ -515,58 +562,52 @@ func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[strin
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-	}
-	if err := setCursor(ctx, tx, sc.TenantID, privilegeCursor, now.Format(time.RFC3339Nano)); err != nil {
-		return nil, err
 	}
 
-	// New Grantra admins, from the audit log.
-	last, err := getCursor(ctx, tx, adminCursor)
-	if err != nil {
-		return nil, err
-	}
-	var top int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM audit_events`).Scan(&top); err != nil {
-		return nil, err
-	}
-	if last != "" && settings[NewPlatformAdmin].Enabled {
-		from, err := strconv.ParseInt(last, 10, 64)
-		if err != nil {
-			return nil, err
-		}
+	// New Grantra admins: the admin platform role is an entitlement of
+	// Grantra's own application, however it was given. Who gave it comes
+	// from the audit log, when it says.
+	if settings[NewPlatformAdmin].Enabled {
 		rows, err := tx.Query(ctx, `
-			SELECT ev.id, ev.actor, ev.target_id, coalesce(i.display_name, ''), ev.occurred_at
-			FROM audit_events ev LEFT JOIN identities i ON i.id::text = ev.target_id
-			WHERE ev.id > $1 AND ev.id <= $2 AND ev.action = 'platform_role.granted' AND ev.details->>'role' = $3
-			ORDER BY ev.id`, from, top, authz.RoleAdmin)
+			SELECT a.identity_id::text, i.display_name, ae.granted_at, coalesce(ev.id, 0), coalesce(ev.actor, '')
+			FROM `+batch+`
+			JOIN identities i ON i.id = a.identity_id
+			LEFT JOIN LATERAL (
+				SELECT ev.id, ev.actor FROM audit_events ev
+				WHERE ev.target_type = 'identity' AND ev.target_id = a.identity_id::text
+				  AND ev.action = 'platform_role.granted' AND ev.details->>'role' = $4
+				ORDER BY ev.id DESC LIMIT 1) ev ON true
+			WHERE app.connector = $3 AND e.native_id = $4 AND (ae.expires_at IS NULL OR ae.expires_at > now())
+			ORDER BY ae.granted_at, a.identity_id`, accs, ents, authz.BuiltinConnector, authz.RoleAdmin)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		for rows.Next() {
 			var (
-				id                  int64
-				actor, target, name string
+				event               int64
+				target, name, actor string
 				at                  time.Time
 			)
-			if err := rows.Scan(&id, &actor, &target, &name, &at); err != nil {
+			if err := rows.Scan(&target, &name, &at, &event, &actor); err != nil {
 				rows.Close()
-				return nil, err
+				return nil, 0, err
+			}
+			evidence := map[string]any{"at": at}
+			if event != 0 {
+				evidence["audit_event_id"], evidence["granted_by"] = event, actor
 			}
 			findings = append(findings, finding{detection: NewPlatformAdmin, identityID: target, subject: target,
-				summary:  fmt.Sprintf("%s was made a Grantra admin", name),
-				evidence: map[string]any{"audit_event_id": id, "granted_by": actor, "at": at}, at: at})
+				summary: fmt.Sprintf("%s was made a Grantra admin", name), evidence: evidence, at: at})
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
-	if err := setCursor(ctx, tx, sc.TenantID, adminCursor, strconv.FormatInt(top, 10)); err != nil {
-		return nil, err
-	}
-	return raiseAll(ctx, tx, sc.TenantID, settings, findings)
+	out, err := raiseAll(ctx, tx, sc.TenantID, settings, findings)
+	return out, len(accs), err
 }
 
 // where names where a sign-in happened, such as "Grantra Login (grantra-console)".

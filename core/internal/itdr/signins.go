@@ -37,11 +37,7 @@ const (
 const Module = "itdr"
 
 // On reports whether the tenant has threat detection on.
-func On(ctx context.Context, tx pgx.Tx) (bool, error) {
-	var off bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenant_modules WHERE module = $1 AND NOT enabled)`, Module).Scan(&off)
-	return !off, err
-}
+func On(ctx context.Context, tx pgx.Tx) (bool, error) { return db.ModuleOn(ctx, tx, Module) }
 
 // SourceGrantraLogin is the source of the sign-ins read from Grantra Login.
 const SourceGrantraLogin = "grantra-login"

@@ -319,6 +319,19 @@ func Create(ctx context.Context, tx pgx.Tx, tenantID, actor string, in Input) (I
 	if err != nil {
 		return Identity{}, spiffeTaken(err)
 	}
+	// Only accounts nobody owns: taking a person's account would quietly
+	// move it out of their reviews and their leaver flow.
+	if len(in.AccountIDs) > 0 {
+		var owned string
+		err := tx.QueryRow(ctx, `SELECT coalesce(min(a.id::text), '') FROM accounts a
+			WHERE a.id = ANY($1::uuid[]) AND a.identity_id IS NOT NULL`, validIDs(in.AccountIDs)).Scan(&owned)
+		if err != nil {
+			return Identity{}, err
+		}
+		if owned != "" {
+			return Identity{}, apperr.Invalidf("account %s already belongs to someone: unlink it from them first", owned)
+		}
+	}
 	for _, acc := range in.AccountIDs {
 		if _, err := accounts.Link(ctx, tx, acc, id); err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
@@ -407,6 +420,11 @@ func Retire(ctx context.Context, tx pgx.Tx, tenantID, actor, id, reason string) 
 		return Identity{}, err
 	}
 	return Get(ctx, tx, id)
+}
+
+// validIDs keeps the ids that are UUIDs; Link reports the others.
+func validIDs(ids []string) []string {
+	return slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return !db.ValidUUID(id) })
 }
 
 func deref(s *string) string {

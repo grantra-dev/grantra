@@ -89,3 +89,32 @@ func (l *JobLocks) Close(ctx context.Context) {
 // jobLockKey keeps job locks apart from other advisory locks, such as the
 // migration lock.
 func jobLockKey(name string) string { return "grantra job: " + name }
+
+// TryLocked runs fn while holding the session advisory lock name on a
+// connection of pool, and reports whether it ran: when someone else holds
+// the lock, it returns false at once. Use it for work that spans several
+// transactions and must never run twice at the same time, such as a scan
+// that can also be started by hand. It never waits, so callers queueing on
+// the lock cannot hold every connection of the pool.
+func TryLocked(ctx context.Context, pool *pgxpool.Pool, name string, fn func(ctx context.Context) error) (bool, error) {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Release()
+	var ok bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, name).Scan(&ok); err != nil {
+		return false, fmt.Errorf("take lock %s: %w", name, err)
+	}
+	if !ok {
+		return false, nil
+	}
+	defer func() {
+		if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, name); err != nil {
+			// A connection that may still hold the lock must not go back to
+			// the pool; closing it releases the lock.
+			conn.Conn().Close(context.WithoutCancel(ctx)) //nolint:errcheck
+		}
+	}()
+	return true, fn(ctx)
+}

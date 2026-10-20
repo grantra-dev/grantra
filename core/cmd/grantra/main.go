@@ -514,6 +514,9 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// minute, and so is access that appeared outside Grantra.
 		{"detect identity threats", time.Minute, func(ctx context.Context) error {
 			res, err := itdr.Scanner{Pool: pool, TenantID: tenantID, Secrets: connector.EnvSecrets}.Scan(ctx)
+			if errors.Is(err, itdr.ErrScanRunning) {
+				return nil // started from the console; it does this pass's work
+			}
 			if res.Raised+res.Escalated+res.Responses > 0 {
 				log.InfoContext(ctx, "identity threat scan", "sign_ins_read", res.Read, "evaluated", res.Evaluated,
 					"raised", res.Raised, "escalated", res.Escalated, "responses", res.Responses, "response_errors", res.ResponseErrors)

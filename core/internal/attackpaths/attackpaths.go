@@ -201,9 +201,9 @@ func Load(ctx context.Context, tx pgx.Tx) (*Graph, error) {
 	}
 
 	rows, err = tx.Query(ctx, `
-		SELECT e.id, e.name, app.name, e.risk, e.jit_only, e.risk IN ('high', 'critical')
+		SELECT e.id, e.name, app.name, e.risk, e.jit_only, `+catalog.RiskySQL("e.risk")+`
 		FROM entitlements e JOIN applications app ON app.id = e.application_id
-		WHERE e.risk IN ('high', 'critical') OR e.id = ANY($1::uuid[])`, keys)
+		WHERE `+catalog.RiskySQL("e.risk")+` OR e.id = ANY($1::uuid[])`, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -223,9 +223,10 @@ func Load(ctx context.Context, tx pgx.Tx) (*Graph, error) {
 	}
 
 	// Assignments and eligibilities of active people, directly or through
-	// a role.
+	// a role. given is inlined into each branch, so each reads only the
+	// access to the targets, by index, instead of every assignment.
 	rows, err = tx.Query(ctx, `
-		WITH given AS (
+		WITH given AS NOT MATERIALIZED (
 			SELECT x.identity_id, x.role_id, x.entitlement_id, x.origin, x.rule_id, x.expires_at
 			FROM access_assignments x WHERE x.expires_at IS NULL OR x.expires_at > now()
 			UNION ALL
