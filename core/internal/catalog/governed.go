@@ -32,11 +32,13 @@ func EnsureApplication(ctx context.Context, tx pgx.Tx, tenantID, name, feature s
 }
 
 // currentAssignments are the unexpired assignments x of active identities i
-// that give the entitlement %[1]s, directly or through a business role.
+// that give the entitlement %[1]s, directly or through a business role. The
+// roles are an array rather than an IN subquery so both sides of the OR
+// use their index (0028).
 const currentAssignments = `access_assignments x JOIN identities i ON i.id = x.identity_id
 	WHERE i.status = 'active' AND (x.expires_at IS NULL OR x.expires_at > now())
 	  AND (x.entitlement_id = %[1]s
-	       OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = %[1]s))`
+	       OR x.role_id = ANY (ARRAY(SELECT re.role_id FROM role_entitlements re WHERE re.entitlement_id = %[1]s)))`
 
 // HeldSQL is an SQL condition, true when the identity identity, active,
 // holds the entitlement entitlement right now: an unexpired assignment,

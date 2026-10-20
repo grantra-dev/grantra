@@ -790,3 +790,112 @@ func TestAutomaticResponse(t *testing.T) {
 		t.Errorf("rescan = %+v, want the alert escalated and no second suspension", res)
 	}
 }
+
+// TestAccessCommittedLate pins that a grant committed after scans that
+// started later is still looked at: a long connector run writes its grants
+// with the time it started, so reading grants by time missed them.
+func TestAccessCommittedLate(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	ana := e.identity("Ana")
+	var acc, ent string
+	e.tx(func(tx pgx.Tx) error {
+		app, err := catalog.CreateApplication(ctx, tx, e.tenant, "ERP", "")
+		if err != nil {
+			return err
+		}
+		en, err := catalog.CreateEntitlement(ctx, tx, e.tenant, app.ID, catalog.EntitlementInput{NativeID: "root", Name: "root", Risk: "critical"})
+		if err != nil {
+			return err
+		}
+		ent = en.ID
+		return tx.QueryRow(ctx, `INSERT INTO accounts (tenant_id, application_id, identity_id, native_id, username, created_at)
+			VALUES ($1, $2, $3, 'ana', 'ana', now() - interval '1 day') RETURNING id`, e.tenant, app.ID, ana).Scan(&acc)
+	})
+	e.scan()
+
+	// The connector run's transaction starts, and grants root to Ana...
+	slow, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slow.Rollback(ctx) //nolint:errcheck
+	if _, err := slow.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, e.tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slow.Exec(ctx, `INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id) VALUES ($1, $2, $3)`,
+		e.tenant, acc, ent); err != nil {
+		t.Fatal(err)
+	}
+	// ...while scans run and see nothing yet...
+	e.scan()
+	e.none(OutsideGrantra)
+	// ...and commits.
+	if err := slow.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.scan()
+	if a := e.only(OutsideGrantra); a.IdentityID != ana || a.Severity != "critical" {
+		t.Errorf("alert = %+v, want Ana's critical one", a)
+	}
+	if n := e.count(`SELECT count(*) FROM account_entitlements WHERE NOT threat_checked`); n != 0 {
+		t.Errorf("%d grants left to look at, want 0", n)
+	}
+}
+
+// TestNewAdminHoweverGiven pins that a new admin is noticed from the role
+// itself, also when nothing audited it as a platform role grant (such as
+// an approved request), and when an admin role that ended is given again.
+func TestNewAdminHoweverGiven(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	luis := e.identity("Luis")
+	e.scan()
+	grant := func(until *time.Time) {
+		e.tx(func(tx pgx.Tx) error { return authz.Grant(ctx, tx, e.tenant, authz.RoleAdmin, luis, until) })
+	}
+	soon := time.Now().Add(time.Hour)
+	grant(&soon)
+	e.scan()
+	a := e.only(NewPlatformAdmin)
+	if a.IdentityID != luis || a.Evidence["granted_by"] != nil {
+		t.Errorf("alert = %+v, want Luis with nobody named as granting it", a)
+	}
+	e.tx(func(tx pgx.Tx) (err error) {
+		_, err = Close(ctx, tx, e.tenant, "test", a.ID, Resolved, "checked")
+		return err
+	})
+
+	// Renewing a role still held is not news...
+	later := time.Now().Add(2 * time.Hour)
+	grant(&later)
+	e.scan()
+	if open := e.alerts(AlertFilter{Detection: NewPlatformAdmin, Status: Open}); len(open) != 0 {
+		t.Errorf("renewal raised %+v", open)
+	}
+	// ...giving it again once it ended is.
+	e.exec(`UPDATE account_entitlements SET expires_at = now() - interval '1 minute'`)
+	grant(nil)
+	e.scan()
+	if open := e.alerts(AlertFilter{Detection: NewPlatformAdmin, Status: Open}); len(open) != 1 || open[0].IdentityID != luis {
+		t.Errorf("open alerts = %+v, want Luis again", open)
+	}
+}
+
+// TestScanRunsOnce pins that a scan started while another runs for the
+// tenant says so instead of running twice.
+func TestScanRunsOnce(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	ran, err := db.TryLocked(ctx, e.pool, "itdr scan: "+e.tenant, func(ctx context.Context) error {
+		_, err := Scanner{Pool: e.pool, TenantID: e.tenant, Secrets: noSecrets}.Scan(ctx)
+		if !errors.Is(err, ErrScanRunning) {
+			t.Errorf("scan during a scan: err = %v, want ErrScanRunning", err)
+		}
+		return nil
+	})
+	if !ran || err != nil {
+		t.Fatalf("ran = %v, err = %v", ran, err)
+	}
+	e.scan() // and runs once the other one is done
+}

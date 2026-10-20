@@ -641,9 +641,8 @@ func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO vault_checkouts (tenant_id, vault_account_id, identity_id, version, reason, expires_at, break_glass, review_status)
 		 VALUES ($1, $2, $3, $4, $5, least(now() + make_interval(mins => $6), CASE WHEN NOT $7 THEN (
-		           SELECT max(coalesce(x.expires_at, 'infinity')) FROM access_assignments x, vault_accounts va
-		           WHERE va.id = $2 AND x.identity_id = $3 AND (x.entitlement_id = va.entitlement_id
-		                 OR x.role_id IN (SELECT role_id FROM role_entitlements re WHERE re.entitlement_id = va.entitlement_id)))
+		           SELECT CASE WHEN w.forever THEN 'infinity' ELSE w.until END
+		           FROM vault_accounts va, LATERAL (`+catalog.HeldWindowSQL("$3::uuid", "va.entitlement_id")+`) w WHERE va.id = $2)
 		         END), $7, CASE WHEN $7 THEN 'pending' END)
 		 RETURNING id, vault_account_id, identity_id, version, reason, checked_out_at, expires_at,
 		           (SELECT display_name FROM identities WHERE id = $3), break_glass, coalesce(review_status, '')`,

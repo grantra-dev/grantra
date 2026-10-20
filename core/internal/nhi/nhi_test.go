@@ -113,7 +113,10 @@ func TestCreateChecksTheOwner(t *testing.T) {
 		t.Errorf("created %+v", svc)
 	}
 	tomorrow := time.Now().AddDate(0, 0, 1).Format(time.DateOnly)
+	app := e.id(`INSERT INTO applications (tenant_id, name, connector) VALUES ($1, 'ERP', 'csv') RETURNING id`)
+	anas := e.id(`INSERT INTO accounts (tenant_id, application_id, identity_id, native_id) VALUES ($1, $2, $3, 'ana') RETURNING id`, app, ana)
 	for name, in := range map[string]Input{
+		"someone's account": {Kind: str("service"), Name: str("x"), OwnerID: &ana, AccountIDs: []string{anas}},
 		"no owner":          {Kind: str("service"), Name: str("x")},
 		"owner left":        {Kind: str("service"), Name: str("x"), OwnerID: &gone},
 		"owned by a robot":  {Kind: str("agent"), Name: str("x"), OwnerID: &svc.ID},

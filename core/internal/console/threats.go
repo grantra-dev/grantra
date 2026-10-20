@@ -1,6 +1,7 @@
 package console
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -45,7 +46,7 @@ func (a *API) getThreats(w http.ResponseWriter, r *http.Request) {
 	out := threatsOverview{LoginEventTypes: grantralogin.SignInEventTypes, TokenScope: servicetoken.ScopeSendSignIns}
 	err := a.guardedOn(r, authz.ReadThreats, authz.ThreatsResource(), func(tx pgx.Tx, _ authz.Subject) (err error) {
 		ctx := r.Context()
-		if out.Open, err = itdr.OpenCounts(ctx, tx, ""); err != nil {
+		if out.Open, err = itdr.OpenCounts(ctx, tx); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM applications WHERE connector = $1)`, grantralogin.Kind).
@@ -160,6 +161,10 @@ func (a *API) scanThreats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := a.scanner().Scan(r.Context())
+	if errors.Is(err, itdr.ErrScanRunning) {
+		a.fail(w, r, err)
+		return
+	}
 	if err != nil {
 		// What was read and raised stands; say what failed.
 		a.log.WarnContext(r.Context(), "threat scan", "err", err)
