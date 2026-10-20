@@ -56,6 +56,22 @@ func HeldWindowSQL(identity, entitlement string) string {
 	FROM ` + fmt.Sprintf(currentAssignments, entitlement) + ` AND x.identity_id = ` + identity
 }
 
+// RiskySQL is an SQL condition, true when the risk risk (an SQL
+// expression, such as e.risk) is high or critical: the access attack
+// paths, the vault and threat detection care about.
+func RiskySQL(risk string) string {
+	return risk + ` IN ('high', 'critical')`
+}
+
+// AccountRiskySQL is an SQL condition, true when the account account (an
+// SQL expression, such as a.id) holds a high or critical risk entitlement
+// right now in its application.
+func AccountRiskySQL(account string) string {
+	return `EXISTS (SELECT 1 FROM account_entitlements ae JOIN entitlements e ON e.id = ae.entitlement_id
+	        WHERE ae.account_id = ` + account + ` AND ` + RiskySQL("e.risk") + `
+	          AND (ae.expires_at IS NULL OR ae.expires_at > now()))`
+}
+
 // Holders returns the active identities who hold an entitlement right
 // now, directly or through a business role.
 func Holders(ctx context.Context, tx pgx.Tx, entitlementID string) ([]string, error) {

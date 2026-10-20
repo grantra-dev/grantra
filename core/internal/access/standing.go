@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -45,7 +46,7 @@ func StandingAccess(ctx context.Context, tx pgx.Tx, limit int) ([]Standing, erro
 			FROM access_assignments x
 			JOIN entitlements e ON e.id = x.entitlement_id
 			   OR e.id IN (SELECT entitlement_id FROM role_entitlements WHERE role_id = x.role_id)
-			WHERE x.expires_at IS NULL AND (e.risk IN ('high', 'critical') OR e.jit_only)
+			WHERE x.expires_at IS NULL AND (`+catalog.RiskySQL("e.risk")+` OR e.jit_only)
 			GROUP BY x.id
 		)
 		SELECT x.id, x.identity_id, i.display_name, CASE WHEN x.role_id IS NULL THEN 'entitlement' ELSE 'role' END,

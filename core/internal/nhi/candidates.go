@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 )
 
 // Candidate is an active account nobody owns, which may be a service
@@ -44,8 +45,7 @@ func Candidates(ctx context.Context, tx pgx.Tx) ([]Candidate, error) {
 		       a.last_login_at, u.name ~* $2
 		FROM accounts a JOIN applications app ON app.id = a.application_id
 		CROSS JOIN LATERAL (SELECT coalesce(nullif(a.username, ''), a.native_id) AS name) u
-		CROSS JOIN LATERAL (SELECT EXISTS (SELECT 1 FROM account_entitlements ae JOIN entitlements e ON e.id = ae.entitlement_id
-		                                   WHERE ae.account_id = a.id AND e.risk IN ('high', 'critical')) AS risky) r
+		CROSS JOIN LATERAL (SELECT `+catalog.AccountRiskySQL("a.id")+` AS risky) r
 		WHERE a.identity_id IS NULL AND a.status = 'active' AND app.connector <> $1
 		ORDER BY u.name ~* $2 DESC, r.risky DESC, app.name, u.name, a.id
 		LIMIT $3`, authz.BuiltinConnector, serviceName, MaxCandidates)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 )
 
@@ -84,20 +85,16 @@ type Identity struct {
 // high or critical risk access do not, when it last signed in anywhere, and
 // how many high and critical risk entitlements it holds, through Grantra or
 // through its accounts.
-const statsSQL = `
+var statsSQL = `
 	SELECT count(*) AS accounts,
 	       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM vault_accounts va WHERE va.account_id = a.id)) AS vaulted,
 	       count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM vault_accounts va WHERE va.account_id = a.id)
-	                          AND EXISTS (SELECT 1 FROM account_entitlements ae JOIN entitlements e ON e.id = ae.entitlement_id
-	                                      WHERE ae.account_id = a.id AND e.risk IN ('high', 'critical')
-	                                        AND (ae.expires_at IS NULL OR ae.expires_at > now()))) AS unvaulted,
+	                          AND ` + catalog.AccountRiskySQL("a.id") + `) AS unvaulted,
 	       greatest(max(a.last_login_at),
 	                (SELECT max(se.occurred_at) FROM signin_events se WHERE se.identity_id = i.id AND se.outcome = 'success')) AS last_used_at,
 	       (SELECT count(DISTINCT e.id) FROM entitlements e
-	        WHERE e.risk IN ('high', 'critical')
-	          AND (EXISTS (SELECT 1 FROM access_assignments x LEFT JOIN role_entitlements re ON re.role_id = x.role_id
-	                       WHERE x.identity_id = i.id AND (x.entitlement_id = e.id OR re.entitlement_id = e.id)
-	                         AND (x.expires_at IS NULL OR x.expires_at > now()))
+	        WHERE ` + catalog.RiskySQL("e.risk") + `
+	          AND (` + catalog.HeldSQL("i.id", "e.id") + `
 	               OR EXISTS (SELECT 1 FROM account_entitlements ae JOIN accounts ha ON ha.id = ae.account_id
 	                          WHERE ha.identity_id = i.id AND ha.status = 'active' AND ae.entitlement_id = e.id
 	                            AND (ae.expires_at IS NULL OR ae.expires_at > now())))) AS risky

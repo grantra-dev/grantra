@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { FilterBox } from "@/components/FilterBox";
 import { Loaded } from "@/components/Loaded";
 import { Manage } from "@/components/Manage";
-import { PersonSearch } from "@/components/PersonSearch";
+import { PickPerson, type Picked } from "@/components/PersonSearch";
 import { ShowMore } from "@/components/ShowMore";
 import { Tabs } from "@/components/Tabs";
 import { Alert } from "@/components/ui/alert";
@@ -113,11 +113,7 @@ function Registry() {
             }
           >
             <option value="">All kinds</option>
-            {nonHumanKinds.map((k) => (
-              <option key={k} value={k}>
-                {identityKindLabels[k]}
-              </option>
-            ))}
+            <KindOptions />
           </Select>
         </div>
         <FilterBox
@@ -164,6 +160,13 @@ function Registry() {
     </div>
   );
 }
+
+const KindOptions = () =>
+  nonHumanKinds.map((k) => (
+    <option key={k} value={k}>
+      {identityKindLabels[k]}
+    </option>
+  ));
 
 const flagVariant: Record<Flag, "red" | "amber"> = {
   no_owner: "red",
@@ -228,7 +231,7 @@ function NewNonHuman({ account, onDone }: { account?: Candidate; onDone: () => v
   const [kind, setKind] = useState<NonHumanKind>("service");
   const [name, setName] = useState(account?.username ?? "");
   const [purpose, setPurpose] = useState("");
-  const [owner, setOwner] = useState<{ id: string; name: string }>();
+  const [owner, setOwner] = useState<Picked>();
   const [spiffe, setSpiffe] = useState("");
   const [end, setEnd] = useState("");
   const key = account?.account_id ?? "new";
@@ -270,11 +273,7 @@ function NewNonHuman({ account, onDone }: { account?: Candidate; onDone: () => v
               value={kind}
               onChange={(e) => setKind(e.target.value as NonHumanKind)}
             >
-              {nonHumanKinds.map((k) => (
-                <option key={k} value={k}>
-                  {identityKindLabels[k]}
-                </option>
-              ))}
+              <KindOptions />
             </Select>
           </div>
           <div>
@@ -288,25 +287,12 @@ function NewNonHuman({ account, onDone }: { account?: Candidate; onDone: () => v
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={`nhi-new-owner-${key}`}>Owner</Label>
-            {owner && (
-              <p className="text-sm">
-                <span className="font-medium">{owner.name}</span>{" "}
-                <button
-                  type="button"
-                  className="text-brand-700 hover:underline"
-                  onClick={() => setOwner(undefined)}
-                >
-                  Change
-                </button>
-              </p>
-            )}
-            {!owner && (
-              <PersonSearch
-                id={`nhi-new-owner-${key}`}
-                placeholder="The person who answers for it"
-                onPick={(p) => setOwner({ id: p.id, name: p.display_name })}
-              />
-            )}
+            <PickPerson
+              id={`nhi-new-owner-${key}`}
+              placeholder="The person who answers for it"
+              value={owner}
+              onChange={setOwner}
+            />
           </div>
           <div>
             <Label htmlFor={`nhi-new-end-${key}`}>Ends on (optional)</Label>

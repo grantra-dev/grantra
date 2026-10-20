@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { PersonSearch } from "@/components/PersonSearch";
+import { PickPerson, type Picked } from "@/components/PersonSearch";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +59,7 @@ export function NonHumanCard({ id, canChange }: { id: string; canChange: boolean
 
 function Edit({ n, onDone }: { n: NonHuman; onDone: () => void }) {
   const client = useQueryClient();
-  const [owner, setOwner] = useState<{ id: string; name: string }>();
+  const [owner, setOwner] = useState<Picked>();
   const [purpose, setPurpose] = useState(n.purpose ?? "");
   const [end, setEnd] = useState(n.end_date ?? "");
   const [spiffe, setSpiffe] = useState(n.spiffe_id ?? "");
@@ -94,26 +94,15 @@ function Edit({ n, onDone }: { n: NonHuman; onDone: () => void }) {
       >
         <div className="flex flex-col gap-2">
           <Label htmlFor="nhi-owner">Owner</Label>
-          {owner ? (
-            <p>
-              <span className="font-medium">{owner.name}</span>{" "}
-              <button
-                type="button"
-                className="text-brand-700 hover:underline"
-                onClick={() => setOwner(undefined)}
-              >
-                Keep {n.owner_name || "nobody"}
-              </button>
-            </p>
-          ) : (
-            <PersonSearch
-              id="nhi-owner"
-              placeholder={`Now ${n.owner_name || "nobody"}: search someone else`}
-              action="Hand it to"
-              skip={n.owner_id ? [n.owner_id] : []}
-              onPick={(p) => setOwner({ id: p.id, name: p.display_name })}
-            />
-          )}
+          <PickPerson
+            id="nhi-owner"
+            placeholder={`Now ${n.owner_name || "nobody"}: search someone else`}
+            action="Hand it to"
+            skip={n.owner_id ? [n.owner_id] : []}
+            value={owner}
+            onChange={setOwner}
+            undo={`Keep ${n.owner_name || "nobody"}`}
+          />
         </div>
         <div>
           <Label htmlFor="nhi-purpose">What it is for</Label>

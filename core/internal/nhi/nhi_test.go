@@ -375,7 +375,10 @@ func TestCandidates(t *testing.T) {
 		return e.id(`INSERT INTO accounts (tenant_id, application_id, native_id, username, identity_id) VALUES ($1, $2, $3, $3, $4) RETURNING id`,
 			app, name, owner)
 	}
-	account(app, "maria", nil)
+	maria := account(app, "maria", nil)
+	// A grant that ended does not make an account risky.
+	e.id(`INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id, expires_at)
+	      VALUES ($1, $2, $3, now() - interval '1 day') RETURNING account_id`, maria, risky)
 	admin := account(app, "admin2", nil)
 	e.id(`INSERT INTO account_entitlements (tenant_id, account_id, entitlement_id) VALUES ($1, $2, $3) RETURNING account_id`, admin, risky)
 	account(app, "svc-backup", nil)
