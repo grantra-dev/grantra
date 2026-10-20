@@ -47,14 +47,6 @@ func disabledModules(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// moduleOn reports whether the tenant shows module, for the endpoints that
-// gather things from several modules (inbox, search, home).
-func moduleOn(ctx context.Context, tx pgx.Tx, module string) (bool, error) {
-	var off bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenant_modules WHERE module = $1 AND NOT enabled)`, module).Scan(&off)
-	return !off, err
-}
-
 func (a *API) listModules(w http.ResponseWriter, r *http.Request) {
 	var out []module
 	err := a.guardedOn(r, authz.ReadModules, authz.ModulesResource(), func(tx pgx.Tx, _ authz.Subject) error {
@@ -89,7 +81,7 @@ func (a *API) setModule(w http.ResponseWriter, r *http.Request) {
 		if body.Enabled == nil {
 			return apperr.Invalidf("say whether the module is enabled")
 		}
-		on, err := moduleOn(r.Context(), tx, id)
+		on, err := db.ModuleOn(r.Context(), tx, id)
 		if err != nil {
 			return err
 		}

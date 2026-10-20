@@ -206,7 +206,7 @@ func List(ctx context.Context, tx pgx.Tx) ([]Policy, error) { return list(ctx, t
 func list(ctx context.Context, tx pgx.Tx, id string) ([]Policy, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, name, coalesce(description, ''), severity, mode, enabled, created_at, updated_at
-		 FROM sod_policies WHERE $1 = '' OR id::text = $1 ORDER BY name`, id)
+		 FROM sod_policies WHERE $1 = '' OR id = nullif($1, '')::uuid ORDER BY name`, id)
 	if err != nil {
 		return nil, err
 	}

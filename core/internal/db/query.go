@@ -74,3 +74,11 @@ func IsUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
 }
+
+// ModuleOn reports whether the tenant has the console module on. Modules
+// are on until an admin turns them off under Settings → Modules.
+func ModuleOn(ctx context.Context, tx pgx.Tx, module string) (bool, error) {
+	var off bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenant_modules WHERE module = $1 AND NOT enabled)`, module).Scan(&off)
+	return !off, err
+}

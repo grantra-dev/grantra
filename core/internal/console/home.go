@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 )
@@ -107,12 +108,12 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if a.may(me, authz.ReadThreats, authz.ThreatsResource()) {
-			on, err := moduleOn(ctx, tx, ModuleITDR)
+			on, err := db.ModuleOn(ctx, tx, ModuleITDR)
 			if err != nil {
 				return err
 			}
 			if on {
-				open, err := itdr.OpenCounts(ctx, tx, "")
+				open, err := itdr.OpenCounts(ctx, tx)
 				if err != nil {
 					return err
 				}
