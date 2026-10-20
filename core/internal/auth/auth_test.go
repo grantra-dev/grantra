@@ -22,6 +22,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 func TestSafeReturnTo(t *testing.T) {
@@ -149,11 +150,9 @@ func newHarness(t *testing.T) *harness {
 
 	idp := newFakeIdP(t)
 	svc := New(Config{
-		Issuer:      idp.URL,
-		ClientID:    "grantra-console",
-		PublicURL:   "http://grantra.test",
-		SessionIdle: 30 * time.Minute,
-		SessionMax:  8 * time.Hour,
+		Issuer:    idp.URL,
+		ClientID:  "grantra-console",
+		PublicURL: "http://grantra.test",
 	}, pool, tenant, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	mux := http.NewServeMux()
 	svc.Register(mux)
@@ -380,6 +379,21 @@ func TestSessionEnds(t *testing.T) {
 		h.exec(`UPDATE sessions SET last_seen_at = now() - interval '31 minutes'`)
 		if code, _ := h.me(s); code != http.StatusUnauthorized {
 			t.Fatalf("me = %d, want 401", code)
+		}
+	})
+
+	t.Run("as long as the tenant says", func(t *testing.T) {
+		h.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 60, 'test'), ($1, $3, 2, 'test')`,
+			h.tenant, settings.SessionIdleMinutes, settings.SessionMaxHours)
+		defer h.exec(`DELETE FROM tenant_settings`)
+		s := signIn()
+		left := time.Duration(h.count(`SELECT extract(epoch FROM expires_at - now())::int FROM sessions WHERE token_hash = $1`, hash(s.Value))) * time.Second
+		if left > 2*time.Hour || left < 2*time.Hour-time.Minute {
+			t.Errorf("session lasts %v, want the tenant's 2 hours", left)
+		}
+		h.exec(`UPDATE sessions SET last_seen_at = now() - interval '31 minutes'`)
+		if code, _ := h.me(s); code != http.StatusOK {
+			t.Fatalf("me after 31 idle minutes of 60 = %d, want 200", code)
 		}
 	})
 

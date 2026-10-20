@@ -13,6 +13,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
@@ -84,7 +85,11 @@ func (v *Vault) begin(ctx context.Context, tx pgx.Tx, tenantID, actor, id string
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, "", t, err
 	}
-	password, err := GeneratePassword()
+	length, err := settings.Get(ctx, tx, settings.PasswordLength)
+	if err != nil {
+		return 0, "", t, err
+	}
+	password, err := GeneratePassword(length)
 	if err != nil {
 		return 0, "", t, err
 	}

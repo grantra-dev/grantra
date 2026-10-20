@@ -1,6 +1,6 @@
 # Administration
 
-For Grantra admins. Applications, roles and rules, separation of duties and standing access are under **Governance** in the menu; HR sources, connectors, Grantra Login, API tokens and modules under **Settings**. Auditors see all of these pages read only.
+For Grantra admins. Applications, roles and rules, separation of duties and standing access are under **Governance** in the menu; general settings, HR sources, connectors, Grantra Login, API tokens and modules under **Settings**. Auditors see all of these pages read only.
 
 **Home** shows admins what needs fixing: connections whose last run failed, accounts that belong to nobody, open separation of duties violations and access with no description (people ask for what they understand).
 
@@ -39,6 +39,12 @@ High and critical risk access held with no end date. Turn it into eligibility in
 ## API tokens
 
 Tokens for scripts that send HR exports and account files. Each one is shown once, with a `curl` example, can only do what its scopes say and expires. Revoke a token you no longer use.
+
+## General settings
+
+**Settings → General** holds the time limits, reminders and thresholds of each part of Grantra: how long approvers have for each step, how long reviewers get, the longest separation of duties exception, the longest break-glass check-out, when access counts as unused, how long console sessions last, and more. Each one shows its default and the values it accepts; **Use the default** puts it back.
+
+A change that makes Grantra less strict, such as a longer break-glass check-out, waits for another admin when there is one: write why, and they approve or reject it from their Inbox. You can withdraw it while it waits. Stricter changes take effect at once. Every change is in the audit log.
 
 ## Modules
 

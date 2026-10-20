@@ -8,6 +8,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/insights"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 func TestInsightsAPI(t *testing.T) {
@@ -64,9 +65,19 @@ func TestInsightsAPI(t *testing.T) {
 		Access []insights.Unused
 		Days   int
 	}](t, e.do(auditor, http.MethodGet, "/api/v1/unused-access?identity="+ana, ""))
-	if len(unused.Access) != 1 || unused.Access[0].Name != "Org admin" || unused.Days != insights.UnusedDays {
+	if len(unused.Access) != 1 || unused.Access[0].Name != "Org admin" || unused.Days != 90 {
 		t.Errorf("unused = %+v", unused)
 	}
+	// Two years without use before it counts: nothing is unused yet.
+	e.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 730, 'test')`, e.tenant, settings.UnusedDays)
+	longer := decode[struct {
+		Access []insights.Unused
+		Days   int
+	}](t, e.do(auditor, http.MethodGet, "/api/v1/unused-access?identity="+ana, ""))
+	if len(longer.Access) != 0 || longer.Days != 730 {
+		t.Errorf("unused after two years = %+v", longer)
+	}
+	e.exec(`DELETE FROM tenant_settings`)
 	for _, q := range []string{"identity=nope", "after=nope", "limit=0"} {
 		if rec := e.do(auditor, http.MethodGet, "/api/v1/unused-access?"+q, ""); rec.Code != http.StatusBadRequest {
 			t.Errorf("unused ?%s = %d", q, rec.Code)

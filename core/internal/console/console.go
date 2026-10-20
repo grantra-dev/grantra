@@ -20,6 +20,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
@@ -74,6 +75,9 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/search", a.search)
 	route("GET /api/v1/modules", a.listModules)
 	route("PUT /api/v1/modules/{module}", a.setModule)
+	route("GET /api/v1/settings", a.listSettings)
+	route("PUT /api/v1/settings/{key}", a.saveSetting)
+	route("POST /api/v1/setting-changes/{id}/decision", a.decideSettingChange)
 	route("GET /api/v1/me/notifications", a.getNotifications)
 	route("PUT /api/v1/me/notifications/{kind}", a.setNotification)
 	route("GET /api/v1/identities", a.listIdentities)
@@ -254,6 +258,10 @@ type me struct {
 	// DisabledModules are the parts of Grantra the tenant turned off, whose
 	// pages the console hides.
 	DisabledModules []string `json:"disabled_modules"`
+	// Settings are the tenant's settings everyone may see, by key, for the
+	// console to explain what it shows (such as how long access goes
+	// unused before it counts as unused).
+	Settings map[string]int `json:"settings"`
 }
 
 func (a *API) me(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +276,11 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		off, err := disabledModules(r.Context(), tx)
+		if err != nil {
+			return err
+		}
 		out.DisabledModules = httpjson.NonNil(off)
+		out.Settings, err = settings.Public(r.Context(), tx)
 		return err
 	})
 	a.respond(w, r, http.StatusOK, out, err)

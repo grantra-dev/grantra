@@ -31,6 +31,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/insights"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // Reviewer kinds.
@@ -74,7 +75,8 @@ type Input struct {
 	Reviewer       string   `json:"reviewer"`
 	ApplicationIDs []string `json:"application_ids"`
 	OnMissing      string   `json:"on_missing"`
-	// DueInDays is how long reviewers have. Default 14, at most 90.
+	// DueInDays is how long reviewers have, at most 90 days. Left out, it is
+	// the tenant's settings.ReviewDefaultDueDays.
 	DueInDays int `json:"due_in_days"`
 }
 
@@ -95,10 +97,14 @@ func (in *Input) check(ctx context.Context, tx pgx.Tx) error {
 	if in.OnMissing != Keep && in.OnMissing != Revoke {
 		return apperr.Invalidf(`on_missing must be "keep" or "revoke"`)
 	}
-	switch {
-	case in.DueInDays == 0:
-		in.DueInDays = 14
-	case in.DueInDays < 1 || in.DueInDays > 90:
+	if in.DueInDays == 0 {
+		days, err := settings.Get(ctx, tx, settings.ReviewDefaultDueDays)
+		if err != nil {
+			return err
+		}
+		in.DueInDays = days
+	}
+	if in.DueInDays < 1 || in.DueInDays > 90 {
 		return apperr.Invalidf("due_in_days must be between 1 and 90")
 	}
 	if in.ApplicationIDs == nil {

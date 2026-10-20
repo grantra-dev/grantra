@@ -35,6 +35,8 @@ const (
 	ThreatDetected Kind = "threat_detected"
 	// OwnerLeft is about non-human identities whose owner left.
 	OwnerLeft Kind = "non_human_owner_left"
+	// SettingChange is a setting change waiting for a second admin.
+	SettingChange Kind = "setting_change_proposed"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -49,16 +51,17 @@ type KindInfo struct {
 // Kinds lists every kind of notification, in the order the console shows them.
 var Kinds = []KindInfo{
 	{ApprovalNeeded, "Approvals waiting for you", "Someone asked for access and you are the one to approve it.", false},
-	{RequestExpiring, "Approval reminders", "A request you have not decided expires within a day.", false},
+	{RequestExpiring, "Approval reminders", "A request you have not decided expires soon.", false},
 	{RequestDecided, "Decisions on requests", "A request you made, or one for you, was approved, rejected or expired.", false},
 	{ReviewAssigned, "Access reviews to do", "A review campaign started and asks you to keep or revoke some access.", false},
-	{CampaignDueSoon, "Review reminders", "A campaign ends within two days and you still have access to review.", false},
+	{CampaignDueSoon, "Review reminders", "A campaign ends soon and you still have access to review.", false},
 	{SoDViolation, "Separation of duties violations", "For admins: a check found people holding access that should not go together.", false},
 	{BreakGlassUsed, "Break-glass use", "For admins and auditors: someone opened a break-glass vault account in an emergency.", true},
 	{BreakGlassDue, "Break-glass reviews", "For admins: a break-glass use still waits for someone to confirm it was justified.", false},
 	{TokenCreatorLeft, "API tokens of people who left", "For admins: someone who left the company had created API tokens that still work.", false},
 	{ThreatDetected, "Identity threats", "For admins: Grantra found a high or critical threat, such as a password spray or a leaver signing in.", false},
 	{OwnerLeft, "Service accounts and agents whose owner left", "For admins, and for whoever takes them over: someone who left owned service accounts, AI agents or workloads, which passed to their manager.", false},
+	{SettingChange, "Setting changes to approve", "For admins: another admin made a setting less strict, such as a longer break-glass check-out, and it waits for a second admin.", false},
 }
 
 // required reports whether nobody may turn k off.

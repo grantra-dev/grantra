@@ -56,6 +56,8 @@ export interface Me {
   owns_applications: boolean;
   /** Parts of Grantra the tenant turned off; their pages are hidden. */
   disabled_modules?: string[];
+  /** The tenant's settings everyone may see, by key (see lib/settings). */
+  settings?: Record<string, number>;
 }
 
 /** A role or entitlement someone has, and why. */

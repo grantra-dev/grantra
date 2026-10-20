@@ -9,6 +9,7 @@ import { Label, Select, Textarea } from "@/components/ui/field";
 import { decideRequest, durationText, listApprovals, type AccessRequest, type Me } from "@/lib/api";
 import { focusRing, useFocusParam } from "@/lib/focus";
 import { kindLabels } from "@/lib/requests";
+import { exceptionChoices, SettingKey, useSetting } from "@/lib/settings";
 import { cn, formatDate } from "@/lib/utils";
 
 const wants = { access: "", eligibility: "to be eligible for ", activation: "to activate " };
@@ -86,7 +87,10 @@ function ApprovalCard({
   const queryClient = useQueryClient();
   const step = r.steps.find((s) => s.status === "pending");
   const risk = step?.kind === "risk";
-  const [days, setDays] = useState(r.duration_days ?? (r.duration_hours ? 7 : 90));
+  const [picked, setDays] = useState(r.duration_days ?? (r.duration_hours ? 7 : 90));
+  // Never longer than the tenant lets a risk be accepted for.
+  const most = useSetting(SettingKey.SoDExceptionMaxDays, risk);
+  const days = Math.min(picked, most ?? picked);
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") =>
       decideRequest(
@@ -174,7 +178,7 @@ function ApprovalCard({
                 value={days}
                 onChange={(e) => setDays(Number(e.target.value))}
               >
-                {riskDays(r.duration_days).map((d) => (
+                {exceptionChoices(most, r.duration_days).map((d) => (
                   <option key={d} value={d}>
                     {d === r.duration_days ? `${d} days, as long as the access` : `${d} days`}
                   </option>
@@ -219,10 +223,4 @@ function outcomeText(r: AccessRequest, decision: "approve" | "reject", risk: boo
     return `You approved ${what}. It breaks separation of duties, so it now waits for a Grantra admin to accept the risk.`;
   const who = next?.kind === "admin" ? kindLabels.admin : next?.approver_name;
   return `You approved ${what}. It now waits for ${who ?? "the next approver"}.`;
-}
-
-/** How long an accepted risk can last: the access's own duration first. */
-function riskDays(duration?: number) {
-  const days = [7, 30, 90, 180, 365];
-  return duration && !days.includes(duration) ? [...days, duration].sort((a, b) => a - b) : days;
 }

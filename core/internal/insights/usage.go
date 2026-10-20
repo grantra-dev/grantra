@@ -6,18 +6,43 @@
 package insights
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
-// UnusedDays is how long access may go unused before Grantra calls it
-// unused, and how long someone must have held it first.
-const UnusedDays = 90
+// limits are the tenant's thresholds for insights (package settings).
+type limits struct {
+	// unusedDays is how long access may go unused before Grantra calls it
+	// unused, and how long someone must have held it first.
+	unusedDays int
+	// Role mining: the fewest people a group needs for its habits to mean
+	// something, the share of a group (in percent) that must hold an
+	// entitlement for it to belong in the group's role, and the fewest
+	// entitlements worth a role.
+	roleMinPeople, roleMinShare, roleMinEntitlements int
+	// Peer groups smaller than these say nothing either way: the smallest
+	// group whose habits make access look normal, and the smallest in
+	// which holding something alone stands out.
+	commonMinPeers, rareMinPeers int
+}
+
+func loadLimits(ctx context.Context, tx pgx.Tx) (limits, error) {
+	v, err := settings.Values(ctx, tx, settings.UnusedDays, settings.RoleMinPeople, settings.RoleMinSharePercent,
+		settings.RoleMinEntitlements, settings.CommonMinPeers, settings.RareMinPeers)
+	return limits{
+		unusedDays: v[settings.UnusedDays], roleMinPeople: v[settings.RoleMinPeople], roleMinShare: v[settings.RoleMinSharePercent],
+		roleMinEntitlements: v[settings.RoleMinEntitlements], commonMinPeers: v[settings.CommonMinPeers], rareMinPeers: v[settings.RareMinPeers],
+	}, err
+}
 
 // unusedSince is the moment before which use no longer counts.
-func unusedSince(now time.Time) time.Time { return now.AddDate(0, 0, -UnusedDays) }
+func (l limits) unusedSince(now time.Time) time.Time { return now.AddDate(0, 0, -l.unusedDays) }
 
 // Use is what Grantra knows about whether someone uses some access.
 type Use struct {
@@ -81,7 +106,7 @@ func useSQL(identity, role, entitlement, eligibility string) string {
 // unused says whether access held since grantedAt, with use u, has gone
 // unused: Grantra tracks it, it was held long enough, and nobody used it
 // lately.
-func unused(u Use, grantedAt, now time.Time) bool {
-	since := unusedSince(now)
+func (l limits) unused(u Use, grantedAt, now time.Time) bool {
+	since := l.unusedSince(now)
 	return u.Tracked && grantedAt.Before(since) && (u.LastUsedAt == nil || u.LastUsedAt.Before(since))
 }

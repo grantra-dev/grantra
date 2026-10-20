@@ -41,8 +41,10 @@ type Config struct {
 
 	OIDC OIDC
 
-	// SessionIdle signs people out after this long without activity;
-	// SessionMax signs them out this long after login, active or not.
+	// SessionIdle and SessionMax, when set, are the longest a tenant may
+	// let console sessions sit idle and last; each tenant picks how long
+	// under Settings → General, up to them. Zero leaves the limits built
+	// into package settings.
 	SessionIdle time.Duration
 	SessionMax  time.Duration
 
@@ -169,8 +171,6 @@ func FromEnv() (Config, error) {
 			CAFile:            os.Getenv("GRANTRA_GATEWAY_CA_FILE"),
 			Guacd:             os.Getenv("GRANTRA_GUACD_ADDR"),
 		},
-		SessionIdle: 30 * time.Minute,
-		SessionMax:  8 * time.Hour,
 		SMTP: SMTP{
 			Host:     os.Getenv("GRANTRA_SMTP_HOST"),
 			Port:     587,

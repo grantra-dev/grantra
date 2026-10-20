@@ -1,4 +1,13 @@
-import { Blocks, CircleHelp, FileSearch, House, Inbox, KeyRound, Users } from "lucide-react";
+import {
+  Blocks,
+  CircleHelp,
+  FileSearch,
+  House,
+  Inbox,
+  KeyRound,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 import { PlatformRole } from "@/lib/api";
 import { everyone, governs, hasRole } from "@/lib/roles";
 import { lazyPage, type NavItem } from "./types";
@@ -54,6 +63,20 @@ export const platform: NavItem[] = [
     group: "governance",
     visible: (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
     page: lazyPage(() => import("@/pages/AuditLog"), "AuditLog"),
+  },
+  {
+    path: "/settings/general",
+    title: "General",
+    description:
+      "Time limits, reminders and thresholds: how long approvers have, break-glass check-outs, when access counts as unused.",
+    icon: SlidersHorizontal,
+    module: "platform",
+    group: "settings",
+    visible: governs,
+    manages: true,
+    page: lazyPage(() => import("@/pages/admin/GeneralSettings"), "GeneralSettings"),
+    header: true,
+    count: (inbox) => inbox.setting_changes?.length ?? 0,
   },
   {
     path: "/settings/api-tokens",

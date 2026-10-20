@@ -19,6 +19,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
@@ -45,9 +46,6 @@ const (
 
 // Actor is how the audit log names automatic responses and detections.
 const Actor = "system:itdr"
-
-// DefaultMFADays is how long a required second factor lasts by default.
-const DefaultMFADays = 7
 
 // Response is something done about a threat to someone.
 type Response struct {
@@ -93,7 +91,8 @@ type ResponseInput struct {
 	// AlertID is the alert it answers, if any.
 	AlertID string `json:"alert_id"`
 	Reason  string `json:"reason"`
-	// Days is how long RequireMFA lasts, 1 to 90 (default 7).
+	// Days is how long RequireMFA lasts, 1 to 90 (default: the tenant's
+	// settings.RequireMFADays).
 	Days int `json:"days"`
 }
 
@@ -144,10 +143,7 @@ func (rs Responder) Respond(ctx context.Context, actor, identityID string, in Re
 		return Response{}, apperr.Invalidf("reason must be at most 2000 characters")
 	}
 	if in.Action == RequireMFA {
-		switch {
-		case in.Days == 0:
-			in.Days = DefaultMFADays
-		case in.Days < 1 || in.Days > 90:
+		if in.Days < 0 || in.Days > 90 {
 			return Response{}, apperr.Invalidf("days must be between 1 and 90")
 		}
 	} else if in.Days != 0 {
@@ -161,6 +157,12 @@ func (rs Responder) Respond(ctx context.Context, actor, identityID string, in Re
 	// can ask for one: check before changing anything.
 	var lt loginTarget
 	err := db.InTenant(ctx, rs.Pool, rs.TenantID, func(tx pgx.Tx) (err error) {
+		if in.Action == RequireMFA && in.Days == 0 {
+			// Left out, it lasts as long as the tenant's settings say.
+			if in.Days, err = settings.Get(ctx, tx, settings.RequireMFADays); err != nil {
+				return err
+			}
+		}
 		lt, err = rs.openLogin(ctx, tx, identityID)
 		return err
 	})

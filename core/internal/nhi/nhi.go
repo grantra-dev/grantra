@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,29 +22,23 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // Kinds are the kinds of non-human identity.
 var Kinds = []string{"service", "agent", "workload"}
 
-// UnusedDays is how long a non-human identity may go without signing in
-// anywhere before it counts as unused.
-const UnusedDays = 90
-
-// ExpiringDays is how soon an end date must be for the identity to count as
-// expiring.
-const ExpiringDays = 30
-
 // Flags say what about a non-human identity needs a look.
 const (
 	// FlagNoOwner: nobody active answers for it.
 	FlagNoOwner = "no_owner"
-	// FlagUnused: its accounts say it has not signed in for UnusedDays.
+	// FlagUnused: its accounts say it has not signed in for the
+	// tenant's settings.UnusedDays.
 	FlagUnused = "unused"
 	// FlagUnvaulted: an account holding high or critical risk access keeps
 	// its secret outside the vault, so nobody knows who has it or rotates it.
 	FlagUnvaulted = "unvaulted"
-	// FlagExpiring: it ends within ExpiringDays.
+	// FlagExpiring: it ends within the tenant's settings.NHIExpiringDays.
 	FlagExpiring = "expiring"
 )
 
@@ -109,9 +102,9 @@ var listSQL = `
 		       coalesce(o.status, '') AS owner_status, i.end_date, i.created_at,
 		       s.accounts, s.vaulted, s.risky, s.last_used_at,
 		       i.status <> 'terminated' AND (o.id IS NULL OR o.status <> 'active') AS no_owner,
-		       coalesce(i.status = 'active' AND s.last_used_at < $1::timestamptz - make_interval(days => ` + strconv.Itoa(UnusedDays) + `), false) AS unused,
+		       coalesce(i.status = 'active' AND s.last_used_at < $1::timestamptz - make_interval(days => ` + settings.SQL(settings.UnusedDays) + `), false) AS unused,
 		       i.status <> 'terminated' AND s.unvaulted > 0 AS unvaulted,
-		       coalesce(i.status <> 'terminated' AND i.end_date < ($1::timestamptz + make_interval(days => ` + strconv.Itoa(ExpiringDays) + `))::date, false) AS expiring
+		       coalesce(i.status <> 'terminated' AND i.end_date < ($1::timestamptz + make_interval(days => ` + settings.SQL(settings.NHIExpiringDays) + `))::date, false) AS expiring
 		FROM identities i
 		LEFT JOIN identities o ON o.id = i.manager_id
 		CROSS JOIN LATERAL (` + statsSQL + `) s

@@ -14,6 +14,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
@@ -477,3 +478,29 @@ func TestRiskAfterRequest(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestTenantTimeLimits(t *testing.T) {
+	e := newEnv(t)
+	boss := e.identity("Boss", "")
+	ana := e.identity("Ana", boss)
+	crm := e.entitlement("CRM", e.identity("Owner", ""))
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 48, 'test'), ($1, $3, 49, 'test')`,
+			e.tenant, settings.RequestStepTimeoutHours, settings.RequestReminderHours)
+		return err
+	})
+	r, err := e.create(ana, Input{EntitlementID: crm, Justification: "sales"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := r.Current()
+	if c == nil || c.DueAt == nil || time.Until(*c.DueAt) > 48*time.Hour || time.Until(*c.DueAt) < 47*time.Hour {
+		t.Fatalf("current step = %+v, want it due in the tenant's 48 hours", c)
+	}
+	// Reminders go out 49 hours ahead, so the boss hears right away.
+	n, err := RemindDue(context.Background(), e.pool, e.tenant)
+	if err != nil || n != 1 {
+		t.Errorf("reminded %d steps, %v; want 1", n, err)
+	}
+}

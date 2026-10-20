@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // login is what the provider told us about the person signing in.
@@ -59,8 +60,8 @@ func (s *Service) openSession(ctx context.Context, l login, token string) (outco
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO sessions (tenant_id, token_hash, identity_id, id_token, expires_at)
-			 VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))`,
-			s.tenantID, hash(token), identityID, l.idToken, s.cfg.SessionMax.Seconds()); err != nil {
+			 VALUES ($1, $2, $3, $4, now() + make_interval(hours => `+settings.SQL(settings.SessionMaxHours)+`))`,
+			s.tenantID, hash(token), identityID, l.idToken); err != nil {
 			return err
 		}
 		return audit(ctx, tx, s.tenantID, db.IdentityActor(identityID), "auth.login", identityID, map[string]any{"issuer": l.issuer})
@@ -127,9 +128,9 @@ func (s *Service) Lookup(r *http.Request) (Principal, bool, error) {
 		var expired bool
 		err := tx.QueryRow(ctx,
 			`SELECT i.id, i.display_name, coalesce(i.email, ''), i.status,
-			        s.expires_at <= now() OR s.last_seen_at <= now() - make_interval(secs => $2)
+			        s.expires_at <= now() OR s.last_seen_at <= now() - make_interval(mins => `+settings.SQL(settings.SessionIdleMinutes)+`)
 			 FROM sessions s JOIN identities i ON i.id = s.identity_id
-			 WHERE s.token_hash = $1`, hash(c.Value), s.cfg.SessionIdle.Seconds()).
+			 WHERE s.token_hash = $1`, hash(c.Value)).
 			Scan(&p.IdentityID, &p.DisplayName, &p.Email, &status, &expired)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

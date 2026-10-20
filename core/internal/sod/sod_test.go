@@ -13,6 +13,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 type env struct {
@@ -190,6 +191,18 @@ func TestSoD(t *testing.T) {
 	})
 	if !errors.As(err, &inv) {
 		t.Errorf("exception without reason = %v", err)
+	}
+	// The tenant allows exceptions of up to 30 days, and none for good.
+	e.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 30, 'test'), ($1, $3, 0, 'test')`,
+		e.tenant, settings.SoDExceptionMaxDays, settings.SoDExceptionsWithoutEnd)
+	for _, days := range []int{0, 31} {
+		err = db.InTenant(ctx, e.pool, e.tenant, func(tx pgx.Tx) error {
+			_, err := Except(ctx, tx, e.tenant, "identity:admin", evaV.ID, "small team; weekly audit", days)
+			return err
+		})
+		if !errors.As(err, &inv) {
+			t.Errorf("exception for %d days = %v, want refused by the tenant's settings", days, err)
+		}
 	}
 	e.tx(func(tx pgx.Tx) error {
 		v, err := Except(ctx, tx, e.tenant, "identity:admin", evaV.ID, "small team; weekly audit", 30)

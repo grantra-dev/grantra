@@ -11,6 +11,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/insights"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // attackPaths runs fn on the tenant's attack path graph, for the people
@@ -73,12 +74,16 @@ func (a *API) listUnusedAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []insights.Unused
+	var days int
 	err := a.guarded(r, authz.ReadCatalog, func(tx pgx.Tx, _ authz.Subject) (err error) {
+		if days, err = settings.Get(r.Context(), tx, settings.UnusedDays); err != nil {
+			return err
+		}
 		out, err = insights.UnusedAccess(r.Context(), tx, insights.UnusedFilter{IdentityID: identity,
 			After: r.URL.Query().Get("after"), Limit: limit})
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"access": httpjson.NonNil(out), "days": insights.UnusedDays}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"access": httpjson.NonNil(out), "days": days}, err)
 }
 
 // listRoleSuggestions lists the business roles Grantra finds in what people

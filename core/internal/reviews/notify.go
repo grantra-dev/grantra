@@ -9,11 +9,8 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
-
-// ReminderWindow is how long before a campaign ends its reviewers get a
-// reminder.
-const ReminderWindow = 48 * time.Hour
 
 // notifyReviewers emails everyone with items left to review in campaign
 // id, with how many. Items with nobody to ask count for every admin.
@@ -71,16 +68,17 @@ func notifyReviewers(ctx context.Context, tx pgx.Tx, tenantID, id string, kind n
 	return nil
 }
 
-// RemindDue reminds reviewers once about campaigns that end within
-// ReminderWindow. It returns how many campaigns it reminded about.
+// RemindDue reminds reviewers once about campaigns that end within the
+// tenant's settings.ReviewReminderHours. It returns how many campaigns it
+// reminded about.
 func RemindDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
 	var n int
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`UPDATE review_campaigns SET reminded_at = now()
 			 WHERE status = 'active' AND reminded_at IS NULL
-			   AND due_at > now() AND due_at <= now() + make_interval(secs => $1)
-			 RETURNING id`, ReminderWindow.Seconds())
+			   AND due_at > now() AND due_at <= now() + make_interval(hours => `+settings.SQL(settings.ReviewReminderHours)+`)
+			 RETURNING id`)
 		if err != nil {
 			return err
 		}

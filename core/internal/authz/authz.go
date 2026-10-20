@@ -94,6 +94,8 @@ const (
 	ManageServiceTokens Action = "service_token.manage"
 	ReadModules         Action = "module.read"
 	ManageModules       Action = "module.manage"
+	ReadSettings        Action = "setting.read"
+	ManageSettings      Action = "setting.manage"
 	ReadThreats         Action = "threat.read"
 	ManageThreats       Action = "threat.manage"
 	RespondToThreat     Action = "threat.respond"
@@ -142,6 +144,8 @@ var actionGroup = map[Action]string{
 	ManageServiceTokens: "write",
 	ReadModules:         "read",
 	ManageModules:       "write",
+	ReadSettings:        "read",
+	ManageSettings:      "write",
 	ReadThreats:         "read",
 	ManageThreats:       "write",
 	RespondToThreat:     "write",
@@ -220,6 +224,9 @@ func ServiceTokensResource() Resource {
 
 // ModulesResource is the parts of Grantra the tenant shows in the console.
 func ModulesResource() Resource { return Resource{uid: cedar.NewEntityUID("Modules", "tenant")} }
+
+// SettingsResource is how the tenant has Grantra set up.
+func SettingsResource() Resource { return Resource{uid: cedar.NewEntityUID("Settings", "tenant")} }
 
 // ThreatsResource is threat detection: sign-ins, alerts and how the
 // detections are set up.

@@ -11,22 +11,12 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 )
 
-// Peer groups smaller than these say nothing either way.
-const (
-	// minCommonPeers is the smallest group whose habits make access look
-	// normal.
-	minCommonPeers = 3
-	// minRarePeers is the smallest group in which holding something alone
-	// stands out.
-	minRarePeers = 5
-)
-
 // What a suggestion rests on.
 const (
 	// SignalUnused: Grantra tracks the access and nobody used it in
-	// UnusedDays.
+	// settings.UnusedDays.
 	SignalUnused = "unused"
-	// SignalUsed: they used it in the last UnusedDays.
+	// SignalUsed: they used it in the last settings.UnusedDays.
 	SignalUsed = "used"
 	// SignalCommon: at least half of their peers hold it too.
 	SignalCommon = "common"
@@ -100,6 +90,10 @@ func Suggest(ctx context.Context, tx pgx.Tx, items []Access) ([]Suggestion, erro
 		role = `nullif(k.role_id, '')::uuid`
 		ent  = `nullif(k.entitlement_id, '')::uuid`
 	)
+	l, err := loadLimits(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	holds := fmt.Sprintf(holdsSQL, role, ent, catalog.HeldSQL("p.id", ent))
 	rows, err := tx.Query(ctx, `
 		WITH k AS (SELECT * FROM unnest($1::int[], $2::uuid[], $3::text[], $4::text[], $5::text[])
@@ -138,26 +132,26 @@ func Suggest(ctx context.Context, tx pgx.Tx, items []Access) ([]Suggestion, erro
 		if s.PeerGroup != "department" {
 			s.Department = ""
 		}
-		s.decide(items[i].GrantedAt, now)
+		s.decide(l, items[i].GrantedAt, now)
 		out[i] = s
 	}
 	return out, rows.Err()
 }
 
 // decide works out the signals and the action from what is known.
-func (s *Suggestion) decide(grantedAt, now time.Time) {
+func (s *Suggestion) decide(l limits, grantedAt, now time.Time) {
 	s.Signals = []string{}
-	usedLately := s.LastUsedAt != nil && !s.LastUsedAt.Before(unusedSince(now))
+	usedLately := s.LastUsedAt != nil && !s.LastUsedAt.Before(l.unusedSince(now))
 	switch {
-	case unused(s.Use, grantedAt, now):
+	case l.unused(s.Use, grantedAt, now):
 		s.Signals = append(s.Signals, SignalUnused)
 	case usedLately:
 		s.Signals = append(s.Signals, SignalUsed)
 	}
 	switch {
-	case s.Peers >= minCommonPeers && s.PeerHolders*2 >= s.Peers:
+	case s.Peers >= l.commonMinPeers && s.PeerHolders*2 >= s.Peers:
 		s.Signals = append(s.Signals, SignalCommon)
-	case s.Peers >= minRarePeers && s.PeerHolders*10 <= s.Peers:
+	case s.Peers >= l.rareMinPeers && s.PeerHolders*10 <= s.Peers:
 		s.Signals = append(s.Signals, SignalRare)
 	}
 	// Use says more than habits: access nobody uses can go however common

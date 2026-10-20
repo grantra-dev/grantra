@@ -12,7 +12,7 @@ import (
 )
 
 // Unused is access someone was given by hand or by request, or may
-// activate, and has not used in UnusedDays. Birthright access is left out:
+// activate, and has not used in the tenant's settings.UnusedDays. Birthright access is left out:
 // rules give it, and the rule is what to change.
 type Unused struct {
 	// ID is the assignment's id, or the eligibility's when Eligible.
@@ -40,13 +40,17 @@ type UnusedFilter struct {
 	Limit int
 }
 
-// UnusedAccess lists the access nobody used in UnusedDays, by id, a page
-// at a time.
+// UnusedAccess lists the access nobody used in the tenant's
+// settings.UnusedDays, by id, a page at a time.
 func UnusedAccess(ctx context.Context, tx pgx.Tx, f UnusedFilter) ([]Unused, error) {
 	if f.After != "" && !db.ValidUUID(f.After) {
 		return nil, apperr.Invalidf("after must be an id from the list")
 	}
-	since := unusedSince(time.Now())
+	l, err := loadLimits(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	since := l.unusedSince(time.Now())
 	rows, err := tx.Query(ctx, `
 		WITH c AS (
 			SELECT x.id, false AS eligible, x.identity_id, x.role_id, x.entitlement_id, x.origin, x.granted_at, x.expires_at

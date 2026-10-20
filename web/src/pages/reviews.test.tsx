@@ -160,6 +160,10 @@ describe("Access reviews", () => {
         launched = JSON.parse(init!.body as string);
         return { status: 201, body: campaign };
       },
+      "GET /api/v1/settings": ok({
+        settings: [{ key: "reviews.default_due_days", value: 21 }],
+        second_admin: false,
+      }),
     });
     renderAt("/reviews?tab=campaigns");
     expect(await screen.findByText("4 of 8 reviewed · 3 kept · 1 revoked")).toBeInTheDocument();
@@ -169,6 +173,10 @@ describe("Access reviews", () => {
     expect(await screen.findByLabelText("ERP")).toBeInTheDocument();
     expect(screen.queryByLabelText("Grantra")).toBeNull();
     await userEvent.click(screen.getByLabelText("ERP"));
+    // The tenant's default length is offered first, and left to the server.
+    expect(
+      await screen.findByRole("option", { name: "21 days (the default)" }),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
     await waitFor(() =>
       expect(launched).toEqual({
@@ -176,7 +184,7 @@ describe("Access reviews", () => {
         reviewer: "owner",
         application_ids: ["erp"],
         on_missing: "keep",
-        due_in_days: 14,
+        due_in_days: 0,
       }),
     );
   });

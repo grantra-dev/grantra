@@ -5,9 +5,6 @@ import (
 	"math/big"
 )
 
-// PasswordLength is how long the passwords Grantra generates are.
-const PasswordLength = 24
-
 // Characters for generated passwords. Look-alikes (I, O, l, 0, 1) are left
 // out for the times someone has to type one, and the symbols are ones that
 // need no escaping in shells, URLs or LDAP.
@@ -18,14 +15,15 @@ var passwordClasses = []string{
 	"-_.!@#%+=",
 }
 
-// GeneratePassword returns a random password with at least one character of
-// each class, which satisfies Active Directory's complexity rules.
-func GeneratePassword() (string, error) {
+// GeneratePassword returns a random password of length characters, with at
+// least one character of each class, which satisfies Active Directory's
+// complexity rules.
+func GeneratePassword(length int) (string, error) {
 	all := ""
 	for _, c := range passwordClasses {
 		all += c
 	}
-	out := make([]byte, 0, PasswordLength)
+	out := make([]byte, 0, length)
 	for _, c := range passwordClasses {
 		ch, err := pick(c)
 		if err != nil {
@@ -33,7 +31,7 @@ func GeneratePassword() (string, error) {
 		}
 		out = append(out, ch)
 	}
-	for len(out) < PasswordLength {
+	for len(out) < length {
 		ch, err := pick(all)
 		if err != nil {
 			return "", err

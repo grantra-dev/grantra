@@ -50,8 +50,8 @@ func TestFromEnvLoginSettings(t *testing.T) {
 	if !cfg.OIDC.Enabled() || cfg.OIDC.ClientID != "grantra-console" {
 		t.Errorf("OIDC = %+v, want enabled with default client id", cfg.OIDC)
 	}
-	if cfg.SessionIdle != 10*time.Minute || cfg.SessionMax != 8*time.Hour {
-		t.Errorf("sessions = %v/%v, want 10m/8h", cfg.SessionIdle, cfg.SessionMax)
+	if cfg.SessionIdle != 10*time.Minute || cfg.SessionMax != 0 {
+		t.Errorf("sessions = %v/%v, want 10m and no limit set", cfg.SessionIdle, cfg.SessionMax)
 	}
 }
 

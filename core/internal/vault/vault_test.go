@@ -20,6 +20,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 const testKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=" // "0123456789abcdef0123456789abcdef"
@@ -85,12 +86,13 @@ func TestLocalKey(t *testing.T) {
 
 func TestGeneratePassword(t *testing.T) {
 	seen := map[string]bool{}
-	for range 200 {
-		p, err := GeneratePassword()
+	for i := range 200 {
+		length := 16 + i%3*24
+		p, err := GeneratePassword(length)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(p) != PasswordLength {
+		if len(p) != length {
 			t.Fatalf("%q has %d characters", p, len(p))
 		}
 		for _, class := range passwordClasses {
@@ -464,6 +466,8 @@ func TestRotation(t *testing.T) {
 		t.Fatalf("account = %+v, want rotation in 30 days", a)
 	}
 	e.grant(ana, a.EntitlementID, nil)
+	// The tenant asks for longer passwords than the default.
+	e.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 40, 'test')`, e.tenant, settings.PasswordLength)
 
 	// Rotate now: the target and the vault get the same new password.
 	r, err := e.v.Rotate(e.ctx, e.pool, e.tenant, "identity:admin", a.ID)
@@ -474,7 +478,7 @@ func TestRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Secret == "old-pw" || l.Secret != fakeT.last("svc-db") || len(l.Secret) != PasswordLength {
+	if l.Secret == "old-pw" || l.Secret != fakeT.last("svc-db") || len(l.Secret) != 40 {
 		t.Fatalf("vault has %q, target has %q", l.Secret, fakeT.last("svc-db"))
 	}
 	if s := e.one(`SELECT string_agg(version || ':' || status || ':' || source, ',' ORDER BY version) FROM vault_secret_versions WHERE vault_account_id = $1`, a.ID); s != "1:retired:set,2:current:rotation" {
