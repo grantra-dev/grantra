@@ -32,6 +32,7 @@ import {
   type SoDRef,
   type SoDViolation,
 } from "@/lib/admin";
+import { exceptionChoices, SettingKey, useSetting } from "@/lib/settings";
 import { formatDate } from "@/lib/utils";
 
 export function SeparationOfDuties() {
@@ -405,7 +406,10 @@ function AcceptRisk({ violation }: { violation: SoDViolation }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
-  const [days, setDays] = useState(30);
+  const [picked, setDays] = useState(30);
+  // Never longer than the tenant lets a risk be accepted for.
+  const most = useSetting(SettingKey.SoDExceptionMaxDays);
+  const days = Math.min(picked, most ?? picked);
   const accept = useMutation({
     mutationFn: () => exceptSoDViolation(violation.id, reason, days),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["sod-violations"] }),
@@ -439,7 +443,7 @@ function AcceptRisk({ violation }: { violation: SoDViolation }) {
           onChange={(e) => setDays(Number(e.target.value))}
           className="w-32"
         >
-          {[7, 30, 90, 180, 365].map((d) => (
+          {exceptionChoices(most).map((d) => (
             <option key={d} value={d}>
               {d} days
             </option>

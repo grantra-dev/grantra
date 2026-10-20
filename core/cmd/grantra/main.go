@@ -47,6 +47,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/server"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/telemetry"
@@ -65,6 +66,13 @@ func run() error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return err
+	}
+	// The operator's session limits bound what each tenant picks.
+	if cfg.SessionIdle > 0 {
+		settings.Cap(settings.SessionIdleMinutes, int(cfg.SessionIdle/time.Minute))
+	}
+	if cfg.SessionMax > 0 {
+		settings.Cap(settings.SessionMaxHours, int(cfg.SessionMax/time.Hour))
 	}
 
 	var level slog.Level
@@ -231,8 +239,6 @@ func run() error {
 			ClientID:     cfg.OIDC.ClientID,
 			ClientSecret: cfg.OIDC.ClientSecret,
 			PublicURL:    cfg.PublicURL,
-			SessionIdle:  cfg.SessionIdle,
-			SessionMax:   cfg.SessionMax,
 		}, pool, tenantID, log)
 		api = console.New(pool, tenantID, az, log)
 		api.EmailEnabled = cfg.SMTP.Enabled()

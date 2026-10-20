@@ -34,9 +34,8 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 	// PublicURL is the browser-facing base URL of Grantra, without trailing slash.
-	PublicURL   string
-	SessionIdle time.Duration
-	SessionMax  time.Duration
+	// How long sessions last is the tenant's (package settings).
+	PublicURL string
 }
 
 // Principal is the person behind an authenticated request.

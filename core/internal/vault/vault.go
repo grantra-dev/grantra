@@ -26,6 +26,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // ApplicationName is the application whose entitlements give access to
@@ -562,12 +563,9 @@ func (v *Vault) Checkout(ctx context.Context, tx pgx.Tx, tenantID, identityID, i
 	return v.lease(ctx, tx, tenantID, identityID, id, reason, false)
 }
 
-// BreakGlassMinutes caps how long a break-glass check-out lasts.
-const BreakGlassMinutes = 60
-
 // BreakGlass opens a break-glass account for identityID, a responder (the
 // caller checks the policies), without approval. The lease lasts at most
-// BreakGlassMinutes, ignores exclusivity, alerts every admin and auditor,
+// the tenant's settings.BreakGlassMinutes, ignores exclusivity, alerts every admin and auditor,
 // rotates the password when it ends and waits for an admin's review.
 func (v *Vault) BreakGlass(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, reason string) (Lease, error) {
 	return v.lease(ctx, tx, tenantID, identityID, id, reason, true)
@@ -607,7 +605,11 @@ func (v *Vault) lease(ctx context.Context, tx pgx.Tx, tenantID, identityID, id, 
 		return Lease{}, apperr.Conflictf("this vault account has no secret yet")
 	}
 	if breakGlass {
-		minutes = min(minutes, BreakGlassMinutes)
+		most, err := settings.Get(ctx, tx, settings.BreakGlassMinutes)
+		if err != nil {
+			return Lease{}, err
+		}
+		minutes = min(minutes, most)
 	}
 	// In an emergency, someone else holding the account does not stop a
 	// responder.

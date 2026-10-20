@@ -16,6 +16,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 type env struct {
@@ -636,9 +637,17 @@ func TestModuleOff(t *testing.T) {
 
 func TestRetention(t *testing.T) {
 	e := newEnv(t)
-	e.send(SignIn{Time: at(Retention + time.Hour), User: "x", Outcome: Failure}, SignIn{Time: at(0), User: "x", Outcome: Failure})
+	day := 24 * time.Hour
+	e.send(SignIn{Time: at(401 * day), User: "x", Outcome: Failure}, SignIn{Time: at(380 * day), User: "x", Outcome: Failure},
+		SignIn{Time: at(0), User: "x", Outcome: Failure})
+	// 400 days by default.
 	if res := e.scan(); res.Deleted != 1 {
-		t.Errorf("deleted = %d, want the old one", res.Deleted)
+		t.Errorf("deleted = %d, want the one older than 400 days", res.Deleted)
+	}
+	// The tenant keeps them for a year and a day.
+	e.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 366, 'test')`, e.tenant, settings.SignInRetentionDays)
+	if res := e.scan(); res.Deleted != 1 {
+		t.Errorf("deleted = %d, want the one older than 366 days", res.Deleted)
 	}
 }
 
@@ -689,6 +698,7 @@ func TestResponses(t *testing.T) {
 		{ResponseInput{Action: "delete"}, ana, new(*apperr.Invalid)},
 		{ResponseInput{Action: RevokeSessions, Days: 3}, ana, new(*apperr.Invalid)},
 		{ResponseInput{Action: RequireMFA, Days: 91}, ana, new(*apperr.Invalid)},
+		{ResponseInput{Action: RequireMFA, Days: -1}, ana, new(*apperr.Invalid)},
 		// Without Grantra Login nobody can be asked for a second factor.
 		{ResponseInput{Action: RequireMFA}, ana, new(*apperr.Conflict)},
 		{ResponseInput{Action: Reinstate}, ana, new(*apperr.Conflict)},

@@ -37,6 +37,7 @@ import {
   type ReviewFilter,
   type ReviewSort,
 } from "@/lib/reviews";
+import { SettingKey, unusedDays, useSetting } from "@/lib/settings";
 import { formatDate } from "@/lib/utils";
 
 export function AccessReviews({ me }: { me: Me }) {
@@ -63,7 +64,7 @@ export function AccessReviews({ me }: { me: Me }) {
           onSelect={(key) => setParams(key === "review" ? {} : { tab: key })}
         />
       )}
-      {tab === "review" ? <ToReview /> : <Campaigns canManage={isAdmin} />}
+      {tab === "review" ? <ToReview me={me} /> : <Campaigns canManage={isAdmin} />}
     </>
   );
 }
@@ -76,7 +77,7 @@ const originLabels = {
   eligibility: "Eligible to activate",
 };
 
-function ToReview() {
+function ToReview({ me }: { me: Me }) {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   // A review email links to its campaign.
@@ -357,7 +358,7 @@ function ToReview() {
                           <div className="text-slate-500">
                             {it.type === "role" ? "Role" : it.application}
                           </div>
-                          <SuggestionNote suggestion={it.suggestion} />
+                          <SuggestionNote suggestion={it.suggestion} days={unusedDays(me)} />
                         </TableCell>
                         <TableCell>
                           {originLabels[it.origin]}
@@ -527,8 +528,10 @@ function NewCampaignForm({ onDone }: { onDone: () => void }) {
     reviewer: "manager",
     application_ids: [],
     on_missing: "keep",
-    due_in_days: 14,
+    // 0: the tenant's default, which the server fills in.
+    due_in_days: 0,
   });
+  const defaultDays = useSetting(SettingKey.ReviewDefaultDueDays);
   const launch = useMutation({
     mutationFn: () => launchCampaign({ ...form, name: form.name.trim() }),
     onSuccess: async () => {
@@ -590,11 +593,16 @@ function NewCampaignForm({ onDone }: { onDone: () => void }) {
               value={form.due_in_days}
               onChange={(e) => setForm({ ...form, due_in_days: Number(e.target.value) })}
             >
-              {[7, 14, 30, 60, 90].map((d) => (
-                <option key={d} value={d}>
-                  {d} days
-                </option>
-              ))}
+              <option value={0}>
+                {defaultDays ? `${defaultDays} days (the default)` : "The default"}
+              </option>
+              {[7, 14, 30, 60, 90]
+                .filter((d) => d !== defaultDays)
+                .map((d) => (
+                  <option key={d} value={d}>
+                    {d} days
+                  </option>
+                ))}
             </Select>
           </div>
           <div>

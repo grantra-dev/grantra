@@ -13,6 +13,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
@@ -45,8 +46,11 @@ type inbox struct {
 	// Threats are open high and critical alerts for an admin to look at;
 	// never the ones about yourself.
 	Threats []threatTask `json:"threats"`
+	// SettingChanges are changes another admin made that wait for a second
+	// admin; never your own.
+	SettingChanges []settings.Change `json:"setting_changes"`
 	// Total is how many things wait on you: each approval, each access to
-	// review, each break-glass use and each threat.
+	// review, each break-glass use, each threat and each setting change.
 	Total int `json:"total"`
 }
 
@@ -71,6 +75,16 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		if !admin {
 			return nil
 		}
+		changes, err := settings.PendingChanges(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, c := range changes {
+			if c.ProposedBy != me.Actor() {
+				out.SettingChanges = append(out.SettingChanges, c)
+			}
+		}
+		out.Total += len(out.SettingChanges)
 		if on, err := db.ModuleOn(ctx, tx, ModuleITDR); err != nil {
 			return err
 		} else if on {
@@ -111,5 +125,6 @@ func (a *API) getInbox(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	out.Approvals, out.Reviews, out.BreakGlass, out.Threats = httpjson.NonNil(out.Approvals), httpjson.NonNil(out.Reviews), httpjson.NonNil(out.BreakGlass), httpjson.NonNil(out.Threats)
+	out.SettingChanges = httpjson.NonNil(out.SettingChanges)
 	a.respond(w, r, http.StatusOK, out, err)
 }

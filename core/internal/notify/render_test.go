@@ -26,6 +26,7 @@ func TestRenderEveryKind(t *testing.T) {
 	data["rotates"] = true
 	data["identities"] = []any{map[string]any{"name": "billing-bot", "kind": "service", "from": "Ana", "to": "Boss"}}
 	data["tokens"] = []any{map[string]any{"name": "Nightly HR", "prefix": "grantra_st_abc123", "creator": "Ana"}}
+	data["title"], data["old_value"], data["value"], data["proposed_by"] = "Longest break-glass check-out", "60 minutes", "120 minutes", "Ana"
 	data["uses"] = []any{map[string]any{"person": "Ana", "account": "Production database root", "reason": "INC-1234", "checked_out_at": "2026-11-13T07:00:00Z"}}
 	for _, k := range Kinds {
 		subject, body, err := render(k.Kind, view{Name: "Boss", RecipientID: "boss", URL: "https://g/x", Data: data, SettingsURL: "https://g/s"})

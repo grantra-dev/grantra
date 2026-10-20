@@ -10,14 +10,15 @@ someone already decided it.
 | Kind | Who gets it | When |
 |---|---|---|
 | `approval_needed` | The approver of the step, or every admin when the step has nobody else to ask | An access request starts waiting for them |
-| `request_expiring` | The same people | Once, when the step they have not decided expires within 24 hours |
+| `request_expiring` | The same people | Once, when the step they have not decided expires within 24 hours (set under [Settings → General](settings.md)) |
 | `request_decided` | The requester and the person the access is for | The request is approved, rejected (with who rejected it and their comment) or expired |
 | `review_assigned` | Each reviewer, with how many items they have; admins also count the items with nobody else to review them | A review campaign is launched |
-| `campaign_due_soon` | Reviewers who still have items pending, with how many | Once, when the campaign ends within 48 hours |
+| `campaign_due_soon` | Reviewers who still have items pending, with how many | Once, when the campaign ends within 48 hours (set under [Settings → General](settings.md)) |
 | `break_glass_used` | Every admin and auditor. **Cannot be turned off** | Someone breaks the glass on a vault account |
-| `break_glass_review` | Admins, about uses other than their own | A break-glass use is still not reviewed a day after it started, then daily |
+| `break_glass_review` | Admins, about uses other than their own | A break-glass use is still not reviewed a day after it started (set under [Settings → General](settings.md)), then daily |
 | `sod_violation` | Admins | A separation of duties check (every 30 minutes, or run from the console) finds new violations or ends exceptions. One email per check lists up to 20, most severe first |
 | `service_token_creator_left` | Admins | Someone who created [API tokens](service-tokens.md) that still work leaves the company. One email per HR sync or end-date check lists their tokens |
+| `setting_change_proposed` | Admins other than the one who proposed it | An admin asks to make a [setting](settings.md) less strict, which waits for another admin |
 | `non_human_owner_left` | Admins, and whoever takes them over | Someone who owned [service accounts, AI agents or workloads](non-human-identities.md) leaves. Admins get the whole list; each new owner (the leaver's manager) gets what is theirs now |
 
 Nobody is emailed about their own access as an approver. Withdrawn requests,

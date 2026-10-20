@@ -28,6 +28,7 @@ var pages = map[Kind]string{
 	TokenCreatorLeft: "/settings/api-tokens",
 	ThreatDetected:   "/security/threats",
 	OwnerLeft:        "/governance/non-human-identities",
+	SettingChange:    "/settings/general",
 }
 
 // pageFor is the console page a notification of kind, with data, links to:

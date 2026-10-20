@@ -9,6 +9,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 func (e *env) platformRole(role, identity string) {
@@ -79,6 +80,9 @@ func TestBreakGlassFlow(t *testing.T) {
 	if _, err := e.checkout(luis, a.ID); err != nil {
 		t.Fatal(err)
 	}
+	// The tenant allows break-glass check-outs of up to 90 minutes; the
+	// account's own 240 is cut to that.
+	e.exec(`INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 90, 'test')`, e.tenant, settings.BreakGlassMinutes)
 	l, err := e.breakGlass(admin, a.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +90,8 @@ func TestBreakGlassFlow(t *testing.T) {
 	if l.Secret != "glass-pw" || !l.BreakGlass || l.ReviewStatus != "pending" || l.AccountName != "emergency" {
 		t.Errorf("lease = %+v", l)
 	}
-	if d := time.Until(l.ExpiresAt); d > 61*time.Minute || d < 59*time.Minute {
-		t.Errorf("break-glass lasts %v, want at most an hour", d)
+	if d := time.Until(l.ExpiresAt); d > 91*time.Minute || d < 89*time.Minute {
+		t.Errorf("break-glass lasts %v, want the tenant's 90 minutes", d)
 	}
 	sent := e.one(`SELECT string_agg(i.display_name, ',' ORDER BY i.display_name) FROM notification_outbox o JOIN identities i ON i.id = o.identity_id
 	               WHERE o.kind = 'break_glass_used'`)

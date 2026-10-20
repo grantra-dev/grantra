@@ -8,8 +8,8 @@
 // Steps with nobody to ask (no manager, no owner, or an approver who would be
 // approving their own access) go to the admins. A step the requester would
 // approve themselves, such as a manager asking for a report, counts as
-// approved: asking is the approval. Steps not decided within StepTimeout
-// expire the request.
+// approved: asking is the approval. Steps not decided in time (the tenant's
+// settings.RequestStepTimeoutHours) expire the request.
 //
 // Access that would break a prevent-mode separation of duties policy adds a
 // last "risk" step: an admin other than the person getting the access
@@ -34,6 +34,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
@@ -75,10 +76,6 @@ const (
 	// duties risk.
 	KindRisk = "risk"
 )
-
-// StepTimeout is how long an approver has to decide before the request
-// expires.
-const StepTimeout = 7 * 24 * time.Hour
 
 // Step is one approval a request needs.
 type Step struct {
@@ -374,11 +371,11 @@ func advance(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		}
 	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE access_request_steps SET status = 'pending', due_at = now() + make_interval(secs => $2)
+		`UPDATE access_request_steps SET status = 'pending', due_at = now() + make_interval(hours => `+settings.SQL(settings.RequestStepTimeoutHours)+`)
 		 WHERE request_id = $1 AND position = (
 		   SELECT min(position) FROM access_request_steps WHERE request_id = $1 AND status = 'waiting')
 		   AND NOT EXISTS (SELECT 1 FROM access_request_steps WHERE request_id = $1 AND status = 'pending')`,
-		id, StepTimeout.Seconds())
+		id)
 	if err != nil {
 		return err
 	}
@@ -541,8 +538,8 @@ func grant(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 func askRisk(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, conflicts []string) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO access_request_steps (tenant_id, request_id, position, kind, status, due_at)
-		 SELECT $1, $2, max(position) + 1, 'risk', 'pending', now() + make_interval(secs => $3)
-		 FROM access_request_steps WHERE request_id = $2`, tenantID, id, StepTimeout.Seconds()); err != nil {
+		 SELECT $1, $2, max(position) + 1, 'risk', 'pending', now() + make_interval(hours => `+settings.SQL(settings.RequestStepTimeoutHours)+`)
+		 FROM access_request_steps WHERE request_id = $2`, tenantID, id); err != nil {
 		return err
 	}
 	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.risk_review", "access_request", id,
@@ -578,9 +575,14 @@ func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, d
 		return r, apperr.Invalidf("exception_days is only for accepting a separation of duties risk")
 	case step.Kind == KindRisk && d.Approve && comment == "":
 		return r, apperr.Invalidf("say why the risk is accepted and how it is mitigated: the comment is the exception's reason")
-	case step.Kind == KindRisk && d.Approve && (d.ExceptionDays < 1 || d.ExceptionDays > 365):
-		return r, apperr.Invalidf("exception_days must be between 1 and 365: an accepted risk needs an end date")
 	case step.Kind == KindRisk && d.Approve:
+		most, err := settings.Get(ctx, tx, settings.SoDExceptionMaxDays)
+		if err != nil {
+			return r, err
+		}
+		if d.ExceptionDays < 1 || d.ExceptionDays > most {
+			return r, apperr.Invalidf("exception_days must be between 1 and %d: an accepted risk needs an end date", most)
+		}
 		days = &d.ExceptionDays
 	}
 	if step.Kind == KindRisk && actor == db.IdentityActor(r.BeneficiaryID) {
@@ -898,22 +900,23 @@ func ListRequestable(ctx context.Context, tx pgx.Tx) ([]Requestable, error) {
 	})
 }
 
-// MinTeamForHolders is the smallest team whose holdings TeamHolders counts:
-// in a team of one or two, a count tells what a given colleague holds.
-const MinTeamForHolders = 3
-
 // TeamHolders tells what the team of identity holds, to help people pick
 // from a catalog of names they may not know: how many active people share
 // identity's manager (identity aside), and how many of them hold each role
 // and entitlement now, keyed by Requestable.Type + ":" + ID. An identity
-// with no manager has no team, and a team smaller than MinTeamForHolders
-// gets its size only.
+// with no manager has no team, and a team smaller than the tenant's
+// settings.RequestTeamMinPeople gets its size only: in a team of one or two,
+// a count tells what a given colleague holds.
 func TeamHolders(ctx context.Context, tx pgx.Tx, identity string) (size int, held map[string]int, err error) {
 	held = map[string]int{}
 	err = tx.QueryRow(ctx,
 		`SELECT count(*) FROM identities t JOIN identities me ON t.manager_id = me.manager_id
 		 WHERE me.id = $1 AND t.id <> me.id AND t.status = 'active' AND t.kind = 'human'`, identity).Scan(&size)
-	if err != nil || size < MinTeamForHolders {
+	if err != nil {
+		return size, held, err
+	}
+	smallest, err := settings.Get(ctx, tx, settings.RequestTeamMinPeople)
+	if err != nil || size < smallest {
 		return size, held, err
 	}
 	rows, err := tx.Query(ctx,

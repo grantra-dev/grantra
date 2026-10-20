@@ -18,16 +18,13 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/login"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/textutil"
 )
 
 // batchSize is how many sign-ins, or grants of access, one transaction of
 // a scan looks at.
 const batchSize = 2000
-
-// Retention is how long sign-ins are kept: over a year, so an account
-// dormant for up to a year is still recognised as such.
-const Retention = 400 * 24 * time.Hour
 
 // privilegeCursor says the access detections ran once: the first scan
 // only notes where things stand.
@@ -89,14 +86,14 @@ var ErrScanRunning = apperr.Conflictf("a threat scan is running right now; its r
 func (sc Scanner) scan(ctx context.Context) (ScanResult, error) {
 	var res ScanResult
 	var (
-		on, first bool
-		settings  map[string]Setting
+		on, first  bool
+		detections map[string]Setting
 	)
 	if err := db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) (err error) {
 		if on, err = On(ctx, tx); err != nil || !on {
 			return err
 		}
-		if settings, err = settingsByID(ctx, tx); err != nil {
+		if detections, err = settingsByID(ctx, tx); err != nil {
 			return err
 		}
 		cursor, err := getCursor(ctx, tx, privilegeCursor)
@@ -140,12 +137,12 @@ func (sc Scanner) scan(ctx context.Context) (ScanResult, error) {
 			}
 		}
 	}
-	evaluated, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.evaluate(ctx, tx, settings) })
+	evaluated, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.evaluate(ctx, tx, detections) })
 	res.Evaluated = evaluated
 	if err != nil {
 		return res, errors.Join(readErr, err)
 	}
-	if _, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.checkAccess(ctx, tx, settings, first) }); err != nil {
+	if _, err := inBatches(func(tx pgx.Tx) ([]raised, int, error) { return sc.checkAccess(ctx, tx, detections, first) }); err != nil {
 		return res, errors.Join(readErr, err)
 	}
 	err = db.InTenant(ctx, sc.Pool, sc.TenantID, func(tx pgx.Tx) error {
@@ -154,7 +151,14 @@ func (sc Scanner) scan(ctx context.Context) (ScanResult, error) {
 				return err
 			}
 		}
-		tag, err := tx.Exec(ctx, `DELETE FROM signin_events WHERE occurred_at < $1`, sc.now().Add(-Retention))
+		// Sign-ins are kept as long as the tenant says, never under a
+		// year, so an account dormant for up to a year is still
+		// recognised as such.
+		days, err := settings.Get(ctx, tx, settings.SignInRetentionDays)
+		if err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM signin_events WHERE occurred_at < $1`, sc.now().AddDate(0, 0, -days))
 		res.Deleted = int(tag.RowsAffected())
 		return err
 	})
@@ -168,7 +172,7 @@ func (sc Scanner) scan(ctx context.Context) (ScanResult, error) {
 			res.Escalated++
 		}
 	}
-	res.Responses, res.ResponseErrors = sc.respond(ctx, all, settings)
+	res.Responses, res.ResponseErrors = sc.respond(ctx, all, detections)
 	return res, readErr
 }
 

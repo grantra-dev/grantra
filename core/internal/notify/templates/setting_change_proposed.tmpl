@@ -1,0 +1,11 @@
+{{define "subject"}}A setting change waits for a second admin: {{.Data.title}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{or .Data.proposed_by "An admin"}} wants to change "{{.Data.title}}" from {{.Data.old_value}} to {{.Data.value}}. It makes Grantra less strict, so it waits for another admin to approve it.
+{{with .Data.reason}}
+Why: {{.}}
+{{end}}
+Approve or reject it in Settings. Until then nothing changes.
+
+{{.URL}}
+{{end}}

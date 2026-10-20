@@ -2,6 +2,7 @@
 // their inbox, their home page, the search box and the modules the tenant
 // turned off.
 import { api, send } from "./api";
+import type { SettingChange } from "./settings";
 
 /** A request waiting on your decision. */
 export interface WaitingRequest {
@@ -46,6 +47,8 @@ export interface Inbox {
   reviews: CampaignToReview[];
   break_glass: BreakGlassTask[];
   threats: ThreatTask[];
+  /** For admins: setting changes another admin made, waiting for a second one. */
+  setting_changes?: SettingChange[];
   total: number;
 }
 

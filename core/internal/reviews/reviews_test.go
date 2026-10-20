@@ -15,6 +15,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/db/dbtest"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 type env struct {
@@ -238,6 +239,15 @@ func TestOwnersAndDeadlines(t *testing.T) {
 	c, err := e.launch(Input{Name: "Owners", Reviewer: ByOwner, OnMissing: Revoke, DueInDays: 7})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Left out, reviewers get what the tenant set.
+	e.tx(func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `INSERT INTO tenant_settings (tenant_id, key, value, updated_by) VALUES ($1, $2, 30, 'test')`,
+			e.tenant, settings.ReviewDefaultDueDays)
+		return err
+	})
+	if d, err := e.launch(Input{Name: "Default length"}); err != nil || time.Until(d.DueAt) < 29*24*time.Hour || time.Until(d.DueAt) > 30*24*time.Hour {
+		t.Errorf("campaign with no length = due %v, %v; want the tenant's 30 days", d.DueAt, err)
 	}
 	if got := e.items(ItemFilter{Mine: true, Me: owner}); len(got) != 1 || got[0].IdentityID != ana {
 		t.Errorf("owner reviews = %+v", got)

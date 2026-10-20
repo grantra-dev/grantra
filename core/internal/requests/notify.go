@@ -12,11 +12,8 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
-
-// ReminderWindow is how long before a step expires its approvers get a
-// reminder.
-const ReminderWindow = 24 * time.Hour
 
 // mailData is what the request emails show, captured when the event happens.
 func mailData(r Request) map[string]any {
@@ -122,8 +119,8 @@ func notifyDecided(ctx context.Context, tx pgx.Tx, tenantID, id string) error {
 	return notify.Enqueue(ctx, tx, tenantID, notify.RequestDecided, []string{r.RequesterID, r.BeneficiaryID}, d)
 }
 
-// RemindDue reminds approvers once about steps that expire within
-// ReminderWindow. It returns how many steps it reminded about.
+// RemindDue reminds approvers once about steps that expire within the
+// tenant's settings.RequestReminderHours. It returns how many steps it reminded about.
 func RemindDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
 	var n int
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
@@ -131,8 +128,8 @@ func RemindDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, e
 			`UPDATE access_request_steps s SET reminded_at = now()
 			 FROM access_requests r
 			 WHERE r.id = s.request_id AND r.status = 'pending' AND s.status = 'pending' AND s.reminded_at IS NULL
-			   AND s.due_at > now() AND s.due_at <= now() + make_interval(secs => $1)
-			 RETURNING s.request_id`, ReminderWindow.Seconds())
+			   AND s.due_at > now() AND s.due_at <= now() + make_interval(hours => `+settings.SQL(settings.RequestReminderHours)+`)
+			 RETURNING s.request_id`)
 		if err != nil {
 			return err
 		}

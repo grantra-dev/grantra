@@ -30,7 +30,7 @@ People sign in through OpenID Connect, either with **Grantra Login** (the bundle
 
 - **Flow**: authorization code with PKCE, a `nonce` checked in the ID token, and a short-lived cookie that ties the callback to the browser that started the login. Grantra is a confidential client.
 - **Who you are**: a login is linked to an identity by `(issuer, subject)` in `identity_logins`. The first login links by *verified* email; later ones go by subject. Logins never create identities: someone the IdP knows but Grantra does not gets a 403.
-- **Sessions**: server-side, in `sessions`. The browser holds only an opaque `HttpOnly`, `SameSite=Lax` cookie; the database holds its SHA-256. Sessions end after `GRANTRA_SESSION_IDLE` of inactivity (30 min), after `GRANTRA_SESSION_MAX` (8 h), on logout (which also ends the IdP session), or as soon as the identity stops being `active`, so offboarding cuts access at the next request.
+- **Sessions**: server-side, in `sessions`. The browser holds only an opaque `HttpOnly`, `SameSite=Lax` cookie; the database holds its SHA-256. Sessions end after a time of inactivity (30 min) and a longest length (8 h) that each tenant sets under Settings → General, up to `GRANTRA_SESSION_IDLE` and `GRANTRA_SESSION_MAX` when the operator sets them ([settings.md](settings.md)), on logout (which also ends the IdP session), or as soon as the identity stops being `active`, so offboarding cuts access at the next request.
 - **Audit**: `auth.login`, `auth.login_denied` and `auth.logout` land in `audit_events`.
 - **Scripts**: the upload endpoints (HR syncs, account files and sign-ins) also take a [service token](service-tokens.md) as `Authorization: Bearer`, limited to its scopes, with an expiry date, stored as a SHA-256 like sessions.
 

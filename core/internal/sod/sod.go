@@ -26,6 +26,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
 	"github.com/grantra-dev/grantra/core/internal/db"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // Modes.
@@ -535,15 +536,24 @@ func Violations(ctx context.Context, tx pgx.Tx, f Filter) ([]Violation, error) {
 }
 
 // Except accepts an open violation: the person keeps both sides, with a
-// reason on record, until days have passed (0: no end date). The exception
+// reason on record, until days have passed (0: no end date, when the
+// tenant's settings allow it). The exception
 // lasts while the violation does: once resolved, a new one starts open.
 func Except(ctx context.Context, tx pgx.Tx, tenantID, actor, id, reason string, days int) (Violation, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > 2000 {
 		return Violation{}, apperr.Invalidf("reason is required, up to 2000 characters: say why the risk is accepted and how it is mitigated")
 	}
-	if days < 0 || days > 365 {
-		return Violation{}, apperr.Invalidf("days must be between 0 and 365")
+	limits, err := settings.Values(ctx, tx, settings.SoDExceptionMaxDays, settings.SoDExceptionsWithoutEnd)
+	if err != nil {
+		return Violation{}, err
+	}
+	most := limits[settings.SoDExceptionMaxDays]
+	switch {
+	case days == 0 && limits[settings.SoDExceptionsWithoutEnd] == 0:
+		return Violation{}, apperr.Invalidf("an exception needs an end date: days must be between 1 and %d", most)
+	case days < 0 || days > most:
+		return Violation{}, apperr.Invalidf("days must be between 0 (no end date) and %d", most)
 	}
 	if !db.ValidUUID(id) {
 		return Violation{}, apperr.ErrNotFound
@@ -554,7 +564,7 @@ func Except(ctx context.Context, tx pgx.Tx, tenantID, actor, id, reason string, 
 		until = &t
 	}
 	var status, identity string
-	err := tx.QueryRow(ctx, `SELECT status, identity_id FROM sod_violations WHERE id = $1 FOR UPDATE`, id).Scan(&status, &identity)
+	err = tx.QueryRow(ctx, `SELECT status, identity_id FROM sod_violations WHERE id = $1 FOR UPDATE`, id).Scan(&status, &identity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Violation{}, apperr.ErrNotFound
 	}

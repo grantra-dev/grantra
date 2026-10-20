@@ -29,6 +29,9 @@ entity ServiceTokens;
 // access or Grantra Login.
 entity Modules;
 
+// How the tenant has Grantra set up: time limits, reminders and thresholds.
+entity Settings;
+
 // The catalog of applications, entitlements and business roles, and the
 // birthright rules that give them out.
 entity Catalog;
@@ -361,5 +364,19 @@ action "module.read" in ["read"] appliesTo {
 action "module.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: Modules,
+  context: {},
+};
+
+// manage changes the tenant's settings, and approves or rejects a change
+// another admin proposed.
+action "setting.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Settings,
+  context: {},
+};
+
+action "setting.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Settings,
   context: {},
 };

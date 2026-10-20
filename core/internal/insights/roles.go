@@ -14,18 +14,10 @@ import (
 // Role mining looks, in every department, and every job title within one,
 // for access most people there hold one by one: what a business role and a
 // birthright rule could give them all instead.
-const (
-	// minGroup is the fewest people a group needs for its habits to mean
-	// something.
-	minGroup = 5
-	// minShare is the share of a group, in percent, that must hold an
-	// entitlement for it to belong in the group's role.
-	minShare = 80
-	// minEntitlements is the fewest entitlements worth a role.
-	minEntitlements = 2
-	// maxSuggestions keeps the list to what anyone reads.
-	maxSuggestions = 50
-)
+// The thresholds are the tenant's (see limits).
+//
+// maxSuggestions keeps the list to what anyone reads.
+const maxSuggestions = 50
 
 // RoleSuggestion is a business role Grantra found in what people hold.
 type RoleSuggestion struct {
@@ -63,6 +55,10 @@ type person struct {
 // just-in-time only entitlements (a role would make them standing) and
 // Grantra's own platform roles.
 func SuggestRoles(ctx context.Context, tx pgx.Tx) ([]RoleSuggestion, error) {
+	l, err := loadLimits(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	people := map[string]*person{}
 	rows, err := tx.Query(ctx, `
 		SELECT i.id, trim(i.attributes ->> 'department'), trim(coalesce(i.attributes ->> 'title', ''))
@@ -155,7 +151,7 @@ func SuggestRoles(ctx context.Context, tx pgx.Tx) ([]RoleSuggestion, error) {
 		}
 		out := map[string]int{}
 		for e, n := range counts {
-			if n*100 >= minShare*len(g.members) {
+			if n*100 >= l.roleMinShare*len(g.members) {
 				out[e] = n
 			}
 		}
@@ -164,18 +160,18 @@ func SuggestRoles(ctx context.Context, tx pgx.Tx) ([]RoleSuggestion, error) {
 	var out []RoleSuggestion
 	var ents []string
 	for _, g := range groups {
-		if len(g.members) < minGroup {
+		if len(g.members) < l.roleMinPeople {
 			continue
 		}
 		picked := shared(g)
 		if g.title != "" {
-			if dept := groups[key(g.department, "")]; dept != nil && len(dept.members) >= minGroup {
+			if dept := groups[key(g.department, "")]; dept != nil && len(dept.members) >= l.roleMinPeople {
 				for e := range shared(dept) {
 					delete(picked, e)
 				}
 			}
 		}
-		if len(picked) < minEntitlements {
+		if len(picked) < l.roleMinEntitlements {
 			continue
 		}
 		s := RoleSuggestion{Name: g.department, Conditions: map[string][]string{"department": {g.department}},

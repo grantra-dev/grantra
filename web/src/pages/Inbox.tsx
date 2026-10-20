@@ -4,6 +4,7 @@ import {
   ListChecks,
   Radar,
   Siren,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -13,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { pendingReviews } from "@/lib/console";
 import { useInbox } from "@/lib/hooks";
+import { describeSetting } from "@/lib/settings";
 import { formatDate, formatTime } from "@/lib/utils";
 
 const wants = { access: "", eligibility: "to be eligible for ", activation: "to activate " };
@@ -140,6 +142,25 @@ export function InboxPage() {
                   <span className="block font-medium">{c.campaign_name}</span>
                   <span className="block text-slate-500">
                     {c.pending} {c.pending === 1 ? "access" : "accesses"} to keep or revoke
+                  </span>
+                </Task>
+              ))}
+            </Section>
+          )}
+          {!!data.setting_changes?.length && (
+            <Section
+              icon={SlidersHorizontal}
+              title="Setting changes"
+              count={data.setting_changes.length}
+            >
+              {data.setting_changes.map((c) => (
+                <Task key={c.id} to="/settings/general">
+                  <span className="block font-medium">
+                    {c.proposed_by_name ?? "An admin"} wants {c.title.toLowerCase()} at{" "}
+                    {describeSetting(c, c.value)}
+                  </span>
+                  <span className="block text-slate-500">
+                    Now {describeSetting(c, c.old_value)} · asked {formatDate(c.proposed_at)}
                   </span>
                 </Task>
               ))}

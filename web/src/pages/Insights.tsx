@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { Me } from "@/lib/api";
 import { usePages } from "@/lib/hooks";
 import {
   createSuggestedRole,
@@ -28,12 +29,13 @@ import {
   type UnusedAccess,
 } from "@/lib/insights";
 import { convertToEligibility, removeEligibility } from "@/lib/jit";
+import { unusedDays } from "@/lib/settings";
 import { formatDate } from "@/lib/utils";
 
 type Tab = "unused" | "roles";
 
 /** Governance → Insights: access nobody uses, and roles hiding in what people hold. */
-export function Insights() {
+export function Insights({ me }: { me: Me }) {
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get("tab") === "roles" ? "roles" : "unused";
   return (
@@ -46,12 +48,12 @@ export function Insights() {
         current={tab}
         onSelect={(t) => setParams(t === "unused" ? {} : { tab: t })}
       />
-      {tab === "unused" ? <Unused /> : <Roles />}
+      {tab === "unused" ? <Unused days={unusedDays(me)} /> : <Roles />}
     </div>
   );
 }
 
-function Unused() {
+function Unused({ days }: { days?: number }) {
   const access = usePages(
     ["unused-access"],
     (after?: string) => listUnusedAccess(after),
@@ -63,11 +65,11 @@ function Unused() {
       <Card>
         <CardContent className="pt-5 text-sm text-slate-600">
           Access given by hand or by request, or that someone may turn on, and that they have not
-          used in 90 days. Grantra knows when the vault, servers and the gateway are used, when
-          eligibilities are turned on, and when people sign in to an application whose accounts say
-          so (Active Directory, an account file with a <code>last_login</code> column) or whose
-          sign-ins reach Grantra. Where it cannot tell, it says nothing. Reviews show the same
-          findings next to each access.
+          used in {days ? `${days} days` : "a while"}. Grantra knows when the vault, servers and the
+          gateway are used, when eligibilities are turned on, and when people sign in to an
+          application whose accounts say so (Active Directory, an account file with a{" "}
+          <code>last_login</code> column) or whose sign-ins reach Grantra. Where it cannot tell, it
+          says nothing. Reviews show the same findings next to each access.
         </CardContent>
       </Card>
       <Loaded

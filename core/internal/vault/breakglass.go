@@ -14,6 +14,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/notify"
+	"github.com/grantra-dev/grantra/core/internal/settings"
 )
 
 // setResponders replaces who may open a break-glass account.
@@ -157,20 +158,16 @@ func ReviewBreakGlass(ctx context.Context, tx pgx.Tx, tenantID, actor, id string
 	return BreakGlassUse(ctx, tx, id)
 }
 
-// ReviewReminder is how often admins hear about break-glass uses nobody
-// reviewed yet.
-const ReviewReminder = 24 * time.Hour
-
 // RemindBreakGlassReviews emails the admins about break-glass uses still
-// waiting for review a day or more after they started or were last
-// reminded. Each admin hears about the uses they may review: not their own.
+// waiting for review a while (the tenant's settings.BreakGlassReminderHours)
+// after they started or were last reminded. Each admin hears about the uses they may review: not their own.
 func RemindBreakGlassReviews(ctx context.Context, tx pgx.Tx, tenantID string) (int, error) {
 	rows, err := tx.Query(ctx,
 		`UPDATE vault_checkouts c SET reminded_at = now()
 		 FROM vault_accounts va, identities i
 		 WHERE va.id = c.vault_account_id AND i.id = c.identity_id AND c.review_status = 'pending'
-		   AND coalesce(c.reminded_at, c.checked_out_at) <= now() - make_interval(secs => $1)
-		 RETURNING c.identity_id::text, i.display_name, va.name, c.reason, c.checked_out_at`, ReviewReminder.Seconds())
+		   AND coalesce(c.reminded_at, c.checked_out_at) <= now() - make_interval(hours => `+settings.SQL(settings.BreakGlassReminderHours)+`)
+		 RETURNING c.identity_id::text, i.display_name, va.name, c.reason, c.checked_out_at`)
 	if err != nil {
 		return 0, err
 	}
