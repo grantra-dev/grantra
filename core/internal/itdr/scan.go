@@ -485,7 +485,7 @@ func (sc Scanner) checkAccess(ctx context.Context, tx pgx.Tx, settings map[strin
 			JOIN entitlements e ON e.id = ae.entitlement_id
 			JOIN applications app ON app.id = a.application_id
 			LEFT JOIN identities i ON i.id = a.identity_id
-			WHERE ae.granted_at > $1 AND ae.granted_at <= $2 AND e.risk IN ('high', 'critical')
+			WHERE ae.granted_at > $1 AND ae.granted_at <= $2 AND `+catalog.RiskySQL("e.risk")+`
 			  AND a.status = 'active' AND app.connector <> $3
 			  AND EXISTS (SELECT 1 FROM accounts o WHERE o.application_id = a.application_id
 			              AND o.created_at < ae.granted_at - interval '10 minutes')

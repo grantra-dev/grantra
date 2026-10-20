@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/connector"
 )
 
@@ -14,7 +15,8 @@ const (
 	ReasonPrivileged = "privileged"
 	// ReasonOrphan: it belongs to nobody Grantra knows.
 	ReasonOrphan = "orphan"
-	// ReasonService: it belongs to an identity of kind service.
+	// ReasonService: it belongs to a service account, an AI agent or a
+	// workload, not a person.
 	ReasonService = "service"
 )
 
@@ -37,7 +39,7 @@ type Finding struct {
 }
 
 // Discover finds active accounts in the applications Grantra reads that are
-// privileged, orphaned or used by a service, the ones in the vault included
+// privileged, orphaned or used by a program (a service account, agent or workload), the ones in the vault included
 // (with VaultAccountID set) so progress shows. At most limit come back,
 // those outside the vault first.
 func Discover(ctx context.Context, tx pgx.Tx, limit int) ([]Finding, error) {
@@ -45,12 +47,12 @@ func Discover(ctx context.Context, tx pgx.Tx, limit int) ([]Finding, error) {
 		WITH privileged AS (
 			SELECT ae.account_id, array_agg(e.name ORDER BY e.name) AS names
 			FROM account_entitlements ae JOIN entitlements e ON e.id = ae.entitlement_id
-			WHERE e.risk IN ('high', 'critical') AND (ae.expires_at IS NULL OR ae.expires_at > now())
+			WHERE `+catalog.RiskySQL("e.risk")+` AND (ae.expires_at IS NULL OR ae.expires_at > now())
 			GROUP BY ae.account_id
 		)
 		SELECT a.id, app.id, app.name, coalesce(a.username, ''), a.native_id,
 		       coalesce(i.id::text, ''), coalesce(i.display_name, ''),
-		       p.account_id IS NOT NULL, a.identity_id IS NULL, coalesce(i.kind = 'service', false),
+		       p.account_id IS NOT NULL, a.identity_id IS NULL, coalesce(i.kind <> 'human', false),
 		       coalesce(p.names, '{}'), app.connector, coalesce(va.id::text, '')
 		FROM accounts a
 		JOIN applications app ON app.id = a.application_id
@@ -58,7 +60,7 @@ func Discover(ctx context.Context, tx pgx.Tx, limit int) ([]Finding, error) {
 		LEFT JOIN privileged p ON p.account_id = a.id
 		LEFT JOIN vault_accounts va ON va.account_id = a.id
 		WHERE a.status = 'active' AND app.connector NOT IN ('grantra', 'manual')
-		  AND (p.account_id IS NOT NULL OR a.identity_id IS NULL OR i.kind = 'service')
+		  AND (p.account_id IS NOT NULL OR a.identity_id IS NULL OR i.kind <> 'human')
 		ORDER BY va.id IS NOT NULL, p.account_id IS NULL, app.name, a.username, a.native_id
 		LIMIT $1`, limit)
 	if err != nil {

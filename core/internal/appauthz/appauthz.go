@@ -113,12 +113,13 @@ func appExists(ctx context.Context, tx pgx.Tx, appID string) error {
 
 // Principal says who the question is about. Apps name people the way they
 // know them: Grantra's id, their email, their employee id, or their username
-// in this application.
+// in this application; and workloads by the SPIFFE ID they present.
 type Principal struct {
 	ID         string `json:"id,omitempty"`
 	Email      string `json:"email,omitempty"`
 	ExternalID string `json:"external_id,omitempty"`
 	Username   string `json:"username,omitempty"`
+	SpiffeID   string `json:"spiffe_id,omitempty"`
 }
 
 // Resource is what the person wants to act on, as the app models it: a type
@@ -156,7 +157,9 @@ type Person struct {
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
 	Kind        string `json:"kind"`
-	ManagerID   string `json:"manager_id,omitempty"`
+	// SpiffeID is a workload's, empty for people.
+	SpiffeID  string `json:"spiffe_id,omitempty"`
+	ManagerID string `json:"manager_id,omitempty"`
 	// ManagerEmail is the manager's, which policies read as
 	// principal.manager.email.
 	ManagerEmail string            `json:"manager_email,omitempty"`
@@ -190,18 +193,22 @@ func FindPerson(ctx context.Context, tx pgx.Tx, appID string, p Principal) (*Per
 		where, arg = `i.external_id = $2`, p.ExternalID
 	case p.Username != "":
 		where, arg = `i.id = (SELECT identity_id FROM accounts WHERE application_id = $1::uuid AND lower(username) = lower($2) AND status <> 'deleted' LIMIT 1)`, p.Username
+	case p.SpiffeID != "":
+		where, arg = `i.spiffe_id = $2`, p.SpiffeID
 	default:
-		return nil, apperr.Invalidf("principal needs one of id, email, external_id or username")
+		return nil, apperr.Invalidf("principal needs one of id, email, external_id, username or spiffe_id")
 	}
 	var (
 		person Person
 		attrs  map[string]any
 	)
 	err := tx.QueryRow(ctx, `
-		SELECT i.id, coalesce(i.email, ''), i.display_name, i.status, i.kind, coalesce(i.manager_id::text, ''), coalesce(m.email, ''), i.attributes
+		SELECT i.id, coalesce(i.email, ''), i.display_name, i.status, i.kind, coalesce(i.spiffe_id, ''),
+		       coalesce(i.manager_id::text, ''), coalesce(m.email, ''), i.attributes
 		FROM identities i LEFT JOIN identities m ON m.id = i.manager_id
 		WHERE `+where+` AND $1::text IS NOT NULL ORDER BY i.created_at LIMIT 1`, appID, arg).
-		Scan(&person.ID, &person.Email, &person.DisplayName, &person.Status, &person.Kind, &person.ManagerID, &person.ManagerEmail, &attrs)
+		Scan(&person.ID, &person.Email, &person.DisplayName, &person.Status, &person.Kind, &person.SpiffeID,
+			&person.ManagerID, &person.ManagerEmail, &attrs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -264,6 +271,7 @@ func (p *Person) entity() cedar.Entity {
 	attrs["display_name"] = cedar.String(p.DisplayName)
 	attrs["status"] = cedar.String(p.Status)
 	attrs["kind"] = cedar.String(p.Kind)
+	attrs["spiffe_id"] = cedar.String(p.SpiffeID)
 	attrs["attributes"] = cedar.NewRecord(extra)
 	attrs["roles"] = set(p.Roles)
 	attrs["entitlements"] = set(p.Entitlements)

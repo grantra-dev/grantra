@@ -10,6 +10,7 @@ import gettingStarted from "../../../docs/help/getting-started.md?raw";
 import peopleAndAudit from "../../../docs/help/people-and-audit.md?raw";
 import privilegedAccess from "../../../docs/help/privileged-access.md?raw";
 import insights from "../../../docs/help/insights.md?raw";
+import nonHuman from "../../../docs/help/non-human-identities.md?raw";
 import threats from "../../../docs/help/threats.md?raw";
 import { PlatformRole, type Me } from "@/lib/api";
 import { approves, hasRole } from "@/lib/roles";
@@ -71,6 +72,12 @@ export const helpPages: HelpPage[] = [
   ),
   page("insights", insights, "Unused access and role suggestions.", (me) =>
     hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
+  ),
+  page(
+    "non-human-identities",
+    nonHuman,
+    "Service accounts, AI agents and workloads, and what their owners do.",
+    (me) => approves(me) || hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
   ),
   page(
     "csv-files",

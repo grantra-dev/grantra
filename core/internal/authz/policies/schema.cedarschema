@@ -4,7 +4,8 @@
 // A platform role: grantra-admin, grantra-helpdesk or grantra-auditor.
 entity Role;
 
-// A person or service. Membership in a Role means holding that platform role.
+// A person, or a service, AI agent or workload whose manager is its owner.
+// Membership in a Role means holding that platform role.
 entity Identity in [Role] {
   status: String,
   kind: String,
@@ -108,6 +109,12 @@ action "identity.read" in ["read"] appliesTo {
 };
 
 action "identity.list" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Directory,
+  context: {},
+};
+
+action "identity.manage" in ["write"] appliesTo {
   principal: Identity,
   resource: Directory,
   context: {},

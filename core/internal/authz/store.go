@@ -115,8 +115,8 @@ func Grant(ctx context.Context, tx pgx.Tx, tenantID, role, identityID string, ex
 	if !IsPlatformRole(role) || !ValidID(identityID) {
 		return ErrNotFound
 	}
-	var status string
-	err := tx.QueryRow(ctx, `SELECT status FROM identities WHERE id = $1`, identityID).Scan(&status)
+	var status, kind string
+	err := tx.QueryRow(ctx, `SELECT status, kind FROM identities WHERE id = $1`, identityID).Scan(&status, &kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -125,6 +125,11 @@ func Grant(ctx context.Context, tx pgx.Tx, tenantID, role, identityID string, ex
 	}
 	if status != "active" {
 		return ErrInactive
+	}
+	if kind != "human" {
+		// Platform roles are for the people using the console; programs
+		// call Grantra with service tokens.
+		return apperr.Invalidf("platform roles are for people, not %s identities", kind)
 	}
 
 	var accountID string

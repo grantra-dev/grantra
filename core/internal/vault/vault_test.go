@@ -623,7 +623,7 @@ func TestUpdateAndDelete(t *testing.T) {
 
 func TestDiscover(t *testing.T) {
 	e := newEnv(t)
-	person, svc := e.identity("Ana", "human"), e.identity("Backup job", "service")
+	person, svc, agent := e.identity("Ana", "human"), e.identity("Backup job", "service"), e.identity("Support bot", "agent")
 	app := e.one(`INSERT INTO applications (tenant_id, name, connector) VALUES ($1, 'AD', 'vault-test') RETURNING id`, e.tenant)
 	var admins, users string
 	e.must(func(tx pgx.Tx) error {
@@ -645,10 +645,11 @@ func TestDiscover(t *testing.T) {
 		return id
 	}
 	anaAdmin := account("ana-admin", person, "active", admins)
-	account("ana", person, "active", users)               // plain user: not a finding
-	orphan := account("old-svc", "", "active", users)     // nobody's
-	backup := account("svc-backup", svc, "active", users) // a service's
-	account("gone-admin", "", "disabled", admins)         // disabled: skipped
+	account("ana", person, "active", users)                 // plain user: not a finding
+	orphan := account("old-svc", "", "active", users)       // nobody's
+	backup := account("svc-backup", svc, "active", users)   // a service's
+	bot := account("support-agent", agent, "active", users) // an AI agent's, a program too
+	account("gone-admin", "", "disabled", admins)           // disabled: skipped
 	// Accounts of the built-in application are platform roles, not targets.
 	e.exec(`INSERT INTO applications (tenant_id, name, connector) VALUES ($1, 'Grantra', 'grantra')`, e.tenant)
 
@@ -660,7 +661,7 @@ func TestDiscover(t *testing.T) {
 	for _, f := range got {
 		byAccount[f.AccountID] = f
 	}
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("findings = %+v", got)
 	}
 	if f := byAccount[anaAdmin]; strings.Join(f.Reasons, ",") != "privileged" || strings.Join(f.Entitlements, ",") != "Domain Admins" || !f.CanRotate || f.IdentityName != "Ana" {
@@ -672,9 +673,12 @@ func TestDiscover(t *testing.T) {
 	if f := byAccount[backup]; strings.Join(f.Reasons, ",") != "service" || f.VaultAccountID == "" {
 		t.Errorf("backup = %+v", f)
 	}
+	if f := byAccount[bot]; strings.Join(f.Reasons, ",") != "service" {
+		t.Errorf("support-agent = %+v", f)
+	}
 	// What is still outside the vault comes first, privileged first.
-	if got[0].AccountID != anaAdmin || got[2].AccountID != backup {
-		t.Errorf("order = %s, %s, %s", got[0].Username, got[1].Username, got[2].Username)
+	if got[0].AccountID != anaAdmin || got[3].AccountID != backup {
+		t.Errorf("order = %s, %s, %s, %s", got[0].Username, got[1].Username, got[2].Username, got[3].Username)
 	}
 }
 

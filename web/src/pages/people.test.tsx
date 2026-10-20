@@ -17,7 +17,7 @@ const person = (id: string, name: string, extra: Partial<Identity> = {}): Identi
   id,
   display_name: name,
   email: `${id}@example.com`,
-  kind: "employee",
+  kind: "human",
   status: "active",
   attributes: {},
   created_at: "2026-01-10T09:00:00Z",

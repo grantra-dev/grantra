@@ -27,6 +27,7 @@ var pages = map[Kind]string{
 	BreakGlassDue:    "/vault?tab=break-glass",
 	TokenCreatorLeft: "/settings/api-tokens",
 	ThreatDetected:   "/security/threats",
+	OwnerLeft:        "/governance/non-human-identities",
 }
 
 // pageFor is the console page a notification of kind, with data, links to:

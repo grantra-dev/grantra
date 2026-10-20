@@ -1,7 +1,7 @@
 // Package demo loads a small sample company, so Grantra can be tried in
 // minutes: an HR feed, a few applications with their entitlements, business
-// roles given by department, a manual grant and a separation of duties
-// policy. See docs/demo.md for the walkthrough it supports.
+// roles given by department, a manual grant, a service account, an AI agent
+// and a workload, and a separation of duties policy. See docs/demo.md for the walkthrough it supports.
 package demo
 
 import (
@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +24,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	"github.com/grantra-dev/grantra/core/internal/nhi"
 	"github.com/grantra-dev/grantra/core/internal/sod"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
@@ -290,6 +292,29 @@ func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
 		if _, err := access.MakeEligible(ctx, tx, tenantID, actor, people["luis.perez@example.com"],
 			access.Target{EntitlementID: office.EntitlementID}, nil, ""); err != nil {
 			return err
+		}
+	}
+
+	// A service account, an AI agent and a workload, each with its owner.
+	end := time.Now().AddDate(0, 6, 0).Format(time.DateOnly)
+	for _, n := range []struct {
+		kind, name, owner, purpose, spiffe, end, entitlement string
+	}{
+		{"service", "erp-bank-sync", "pedro.lopez@example.com", "Sends approved supplier payments from the ERP to the bank.", "", "", "ERP/Approve payments"},
+		{"agent", "support-assistant", "lucia.torres@example.com", "AI agent that answers customer emails, reading deals in the CRM.", "", end, "CRM/Sales users"},
+		{"workload", "billing-api", "luis.perez@example.com", "The billing service in production, asking Grantra who may see each invoice.", "spiffe://example.com/ns/prod/sa/billing-api", "", ""},
+	} {
+		created, err := nhi.Create(ctx, tx, tenantID, actor, nhi.Input{Kind: &n.kind, Name: &n.name, OwnerID: ptr(people[n.owner]),
+			Purpose: &n.purpose, SpiffeID: &n.spiffe, EndDate: &n.end})
+		if err != nil {
+			return err
+		}
+		if n.entitlement != "" {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO access_assignments (tenant_id, identity_id, entitlement_id, origin, granted_by) VALUES ($1, $2, $3, $4, $5)`,
+				tenantID, created.ID, ents[n.entitlement], access.OriginManual, actor); err != nil {
+				return err
+			}
 		}
 	}
 

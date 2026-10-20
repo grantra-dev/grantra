@@ -27,7 +27,9 @@ import (
 
 // Conditions say who a rule applies to: each attribute must take one of its
 // values, compared ignoring case and surrounding spaces. "kind" matches the
-// identity's kind (human, service, agent). No conditions match everyone.
+// identity's kind (human, service, agent, workload). No conditions match
+// every person. Non-human identities only match rules that name their kind,
+// so a rule for everyone never gives a service account an employee's access.
 type Conditions map[string][]string
 
 // Validate checks the conditions are usable.
@@ -53,6 +55,9 @@ func (c Conditions) Validate() error {
 
 // Match reports whether an identity with these attributes and kind matches.
 func (c Conditions) Match(attrs map[string]string, kind string) bool {
+	if _, named := c["kind"]; !named && kind != "human" {
+		return false
+	}
 	for attr, values := range c {
 		have := attrs[attr]
 		if attr == "kind" {

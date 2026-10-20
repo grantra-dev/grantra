@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { PersonSearch } from "@/components/PersonSearch";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
-import { listIdentities } from "@/lib/api";
 import {
   createVaultAccount,
   type NewVaultAccount,
@@ -134,12 +134,6 @@ function Responders({
   onChange: (ids: string[]) => void;
 }) {
   const [names, setNames] = useState(() => new Map(known.map((r) => [r.id, r.name])));
-  const [q, setQ] = useState("");
-  const found = useQuery({
-    queryKey: ["identities", "responders", q.trim()],
-    queryFn: () => listIdentities({ q: q.trim(), status: "active" }),
-    enabled: q.trim().length >= 2,
-  });
   return (
     <div className="flex flex-col gap-2 sm:col-span-2">
       <Label htmlFor="vault-responders">Responders</Label>
@@ -167,35 +161,16 @@ function Responders({
           ))}
         </ul>
       )}
-      <Input
+      <PersonSearch
         id="vault-responders"
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
         placeholder="Search people to add"
+        action="Add"
+        skip={ids}
+        onPick={(p) => {
+          setNames(new Map(names).set(p.id, p.display_name));
+          onChange([...ids, p.id]);
+        }}
       />
-      {found.data && (
-        <ul className="flex flex-col">
-          {found.data
-            .filter((p) => !ids.includes(p.id))
-            .slice(0, 8)
-            .map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className="text-sm text-brand-700 hover:underline"
-                  onClick={() => {
-                    setNames(new Map(names).set(p.id, p.display_name));
-                    onChange([...ids, p.id]);
-                    setQ("");
-                  }}
-                >
-                  Add {p.display_name}
-                </button>
-              </li>
-            ))}
-        </ul>
-      )}
     </div>
   );
 }

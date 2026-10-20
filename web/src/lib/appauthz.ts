@@ -21,7 +21,13 @@ export interface AppAuthz {
 }
 
 export interface Question {
-  principal: { id?: string; email?: string; external_id?: string; username?: string };
+  principal: {
+    id?: string;
+    email?: string;
+    external_id?: string;
+    username?: string;
+    spiffe_id?: string;
+  };
   action: string;
   resource: { type: string; id: string; attributes?: unknown };
   context?: unknown;

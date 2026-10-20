@@ -1,0 +1,11 @@
+{{define "subject"}}{{if .Data.yours}}You now own {{.Data.count}} {{plural .Data.count "service account or agent" "service accounts or agents"}}{{else}}{{.Data.count}} {{plural .Data.count "service account or agent" "service accounts or agents"}} lost {{plural .Data.count "its owner" "their owner"}}{{end}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{if .Data.yours}}Someone who left the company owned these, and as their manager you answer for them now:{{else}}Someone who left the company owned these. Each one passed to the leaver's manager, or to nobody when they had none:{{end}}
+{{range .Data.identities}}
+- {{.name}} ({{.kind}}), owned by {{.from}}, now {{if .to}}{{.to}}{{else}}nobody{{end}}{{end}}
+
+{{if .Data.yours}}Check that each one is still needed, and hand it to whoever runs it day to day. Retire the ones nothing uses any more.{{else}}Give an owner to the ones that have none, or retire them if nothing uses them any more.{{end}}
+
+{{.URL}}
+{{end}}

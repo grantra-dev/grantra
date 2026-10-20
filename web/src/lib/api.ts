@@ -314,12 +314,14 @@ export const listApplications = () =>
 
 export type IdentityStatus = "pending" | "active" | "suspended" | "terminated";
 
+export type IdentityKind = "human" | "service" | "agent" | "workload";
+
 /** A person or other identity, from GET /api/v1/identities. */
 export interface Identity {
   id: string;
   display_name: string;
   email?: string;
-  kind: string;
+  kind: IdentityKind;
   status: IdentityStatus;
   manager_id?: string;
   /** The HR source that owns the identity, and its employee id there. */
@@ -327,16 +329,25 @@ export interface Identity {
   external_id?: string;
   start_date?: string;
   end_date?: string;
+  /** For service accounts, agents and workloads, whose manager is their owner. */
+  purpose?: string;
+  spiffe_id?: string;
   attributes: Record<string, unknown>;
   created_at: string;
 }
 
 export const identitiesPageSize = 50;
 
-export function listIdentities(f: { q?: string; status?: string; after?: string }) {
+export function listIdentities(f: {
+  q?: string;
+  status?: string;
+  kind?: "human" | "non_human";
+  after?: string;
+}) {
   const params = new URLSearchParams({ limit: String(identitiesPageSize) });
   if (f.q) params.set("q", f.q);
   if (f.status) params.set("status", f.status);
+  if (f.kind) params.set("kind", f.kind);
   if (f.after) params.set("after", f.after);
   return api<{ identities: Identity[] }>(`/api/v1/identities?${params}`).then((r) => r.identities);
 }

@@ -150,6 +150,7 @@ const principalKinds = [
   ["username", "Username in this app"],
   ["external_id", "Employee ID"],
   ["id", "Grantra ID"],
+  ["spiffe_id", "SPIFFE ID (workloads)"],
 ] as const;
 
 function Playground({ appId, draft }: { appId: string; draft?: string }) {

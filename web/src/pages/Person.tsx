@@ -35,7 +35,9 @@ import {
   type Me,
   type PlatformRoleInfo,
 } from "@/lib/api";
+import { identityKindLabels } from "@/lib/nhi";
 import { formatDate, humanize } from "@/lib/utils";
+import { NonHumanCard } from "./NonHumanCard";
 import { NotFound } from "./NotFound";
 
 type Tab = "access" | "accounts" | "lifecycle" | "history";
@@ -64,6 +66,7 @@ export function Person({ me }: { me: Me }) {
   const tab = tabs.some(([k]) => k === asked) ? asked! : "access";
 
   if (isPending) return <p className="text-sm text-slate-500">Loading…</p>;
+  const nonHuman = person?.kind !== "human";
   if (error instanceof ApiError && error.status === 404) return <NotFound />;
   if (error) {
     return (
@@ -76,20 +79,30 @@ export function Person({ me }: { me: Me }) {
   return (
     <>
       <Link
-        to="/people"
+        to={nonHuman ? "/governance/non-human-identities" : "/people"}
         className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
       >
-        <ArrowLeft className="size-4" aria-hidden /> People
+        <ArrowLeft className="size-4" aria-hidden />{" "}
+        {nonHuman ? "Service accounts and agents" : "People"}
       </Link>
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{person.display_name}</h1>
         <IdentityStatusBadge status={person.status} />
+        {nonHuman && <Badge>{identityKindLabels[person.kind]}</Badge>}
         {person.email && <span className="text-slate-500">{person.email}</span>}
       </div>
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Details person={person} />
-        {readsAll && (
-          <PlatformRoles person={person} canChange={isAdmin} isMe={person.id === me.identity_id} />
+        {nonHuman ? (
+          <NonHumanCard id={person.id} canChange={isAdmin} />
+        ) : (
+          readsAll && (
+            <PlatformRoles
+              person={person}
+              canChange={isAdmin}
+              isMe={person.id === me.identity_id}
+            />
+          )
         )}
       </div>
       <Tabs
@@ -121,24 +134,39 @@ function Details({ person }: { person: Identity }) {
     enabled: !!person.manager_id,
   });
   const attributes = Object.entries(person.attributes ?? {});
-  const rows: [string, React.ReactNode][] = [
-    ["Comes from", person.source_id ? "An HR source" : "Created by hand"],
-    ["Employee id", person.external_id || "—"],
-    [
-      "Manager",
-      person.manager_id ? (
-        <Link to={`/people/${person.manager_id}`} className="text-brand-700 hover:underline">
-          {manager?.display_name ?? "…"}
-        </Link>
-      ) : (
-        "—"
-      ),
-    ],
-    ["Start date", person.start_date ? formatDate(person.start_date) : "—"],
-    ["End date", person.end_date ? formatDate(person.end_date) : "—"],
-    ["In Grantra since", formatDate(person.created_at)],
-    ...attributes.map(([k, v]): [string, React.ReactNode] => [fieldLabel(k), String(v)]),
-  ];
+  const managerLink = person.manager_id ? (
+    <Link to={`/people/${person.manager_id}`} className="text-brand-700 hover:underline">
+      {manager?.display_name ?? "…"}
+    </Link>
+  ) : (
+    "Nobody"
+  );
+  const rows: [string, React.ReactNode][] =
+    person.kind === "human"
+      ? [
+          ["Comes from", person.source_id ? "An HR source" : "Created by hand"],
+          ["Employee id", person.external_id || "—"],
+          ["Manager", person.manager_id ? managerLink : "—"],
+          ["Start date", person.start_date ? formatDate(person.start_date) : "—"],
+          ["End date", person.end_date ? formatDate(person.end_date) : "—"],
+          ["In Grantra since", formatDate(person.created_at)],
+          ...attributes.map(([k, v]): [string, React.ReactNode] => [fieldLabel(k), String(v)]),
+        ]
+      : [
+          ["Kind", identityKindLabels[person.kind]],
+          ["Owner", managerLink],
+          ["What it is for", person.purpose || "—"],
+          ...(person.spiffe_id
+            ? [
+                ["SPIFFE ID", <code key="spiffe">{person.spiffe_id}</code>] as [
+                  string,
+                  React.ReactNode,
+                ],
+              ]
+            : []),
+          ["Ends on", person.end_date ? formatDate(person.end_date) : "—"],
+          ["In Grantra since", formatDate(person.created_at)],
+        ];
   return (
     <Card>
       <CardHeader>
