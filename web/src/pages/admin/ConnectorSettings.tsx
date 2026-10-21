@@ -1,7 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { ExternalLink } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { setConnector } from "@/lib/admin";
 import {
@@ -60,13 +59,13 @@ export function ConnectorSettings({
         </p>
       )}
       <ConnectionFields connection={connection} />
-      {save.error && <Alert variant="error">{save.error.message}</Alert>}
-      <div className="flex gap-2">
-        <Button type="submit" disabled={!connection.complete || save.isPending}>
-          {save.isPending ? "Saving…" : current ? "Save settings" : "Save and continue"}
-        </Button>
+      <FormActions
+        action={save}
+        submit={save.isPending ? "Saving…" : current ? "Save settings" : "Save and continue"}
+        disabled={!connection.complete}
+      >
         {children}
-      </div>
+      </FormActions>
     </form>
   );
 }

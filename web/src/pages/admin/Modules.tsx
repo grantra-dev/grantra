@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { listModules, setModule, type ConsoleModule } from "@/lib/console";
 import { useCanManage } from "@/lib/manage";
 
@@ -48,11 +48,7 @@ function ModuleRow({ m }: { m: ConsoleModule }) {
           {m.title}
         </label>
         <p className="text-sm text-slate-500">{m.description}</p>
-        {toggle.error && (
-          <Alert variant="error" className="mt-2">
-            {toggle.error.message}
-          </Alert>
-        )}
+        <ErrorAlert error={toggle.error} className="mt-2" />
       </div>
       <input
         id={id}

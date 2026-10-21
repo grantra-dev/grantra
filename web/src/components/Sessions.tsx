@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
@@ -75,7 +75,7 @@ export function SessionList<S extends RecordedSession>(props: {
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         Only running sessions
       </label>
-      {end.error && <Alert variant="error">{end.error.message}</Alert>}
+      <ErrorAlert error={end.error} />
       <Loaded loading={isPending} error={error} empty={data?.length === 0 && "No sessions yet."}>
         <Table>
           <TableHeader>

@@ -19,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
@@ -99,11 +98,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (connector.Reade
 		if cfg.TokenURL != "" {
 			jwt.TokenURL = cfg.TokenURL
 		}
-		base := *api
-		base.Path += "/admin/directory/v1"
-		c := httpapi.New(&base, nil)
-		c.Auth = httpapi.OAuth2(jwt.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, c.HTTP)))
-		return c, nil
+		return httpapi.NewOAuth2(httpapi.At(api, "/admin/directory/v1"), jwt), nil
 	}
 	c := &Client{customer: cfg.Customer}
 	if c.read, err = client(ReadScopes); err != nil {

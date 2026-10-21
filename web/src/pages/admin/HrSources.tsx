@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { CsvHelp } from "@/components/CsvHelp";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -213,19 +214,13 @@ function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () =>
               <CsvHelp kind="hr" align="end" />
             </div>
           )}
-          {save.error && (
-            <Alert variant="error" className="md:col-span-3">
-              {save.error.message}
-            </Alert>
-          )}
-          <div className="flex gap-2 md:col-span-3">
-            <Button type="submit" disabled={!connection.complete || save.isPending}>
-              {source ? "Save" : "Add source"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions
+            action={save}
+            submit={source ? "Save" : "Add source"}
+            disabled={!connection.complete}
+            onCancel={onDone}
+            className="md:col-span-3"
+          />
         </form>
       </CardContent>
     </Card>
@@ -338,11 +333,7 @@ function Source({ source }: { source: IdentitySource }) {
           </Button>
         </Manage>
       </div>
-      {sync.error && (
-        <Alert variant="error" className="mt-3">
-          {sync.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={sync.error} className="mt-3" />
       {result && (
         <SyncOutcome
           result={result}

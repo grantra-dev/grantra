@@ -1,9 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { PersonSearch } from "@/components/PersonSearch";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import {
@@ -277,19 +276,7 @@ export function NewAccount({
             Grantra adds the access “Use {a.name || "…"}” to the catalog: people request it,
             approvers approve it, and only those who hold it can check the account out.
           </p>
-          <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" disabled={create.isPending}>
-              Add
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
-          {create.error && (
-            <Alert variant="error" className="sm:col-span-2">
-              {create.error.message}
-            </Alert>
-          )}
+          <FormActions action={create} submit="Add" onCancel={onDone} className="sm:col-span-2" />
         </form>
       </CardContent>
     </Card>

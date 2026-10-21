@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -6,7 +7,7 @@ import { CsvHelp } from "@/components/CsvHelp";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -212,7 +213,7 @@ function Connector({ app }: { app: CatalogApplication }) {
             </div>
           )}
         </Manage>
-        {read.error && <Alert variant="error">{read.error.message}</Alert>}
+        <ErrorAlert error={read.error} />
         {run && <ReadOutcome run={run} />}
       </CardContent>
     </Card>
@@ -293,7 +294,7 @@ function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => v
           Edit columns
         </Button>
       </div>
-      {upload.error && <Alert variant="error">{upload.error.message}</Alert>}
+      <ErrorAlert error={upload.error} />
       {run && <ReadOutcome run={run} fromFile />}
     </>
   );
@@ -344,15 +345,7 @@ function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () =>
               onChange={(e) => setSeparator(e.target.value)}
             />
           </div>
-          {save.error && <Alert variant="error">{save.error.message}</Alert>}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={save.isPending}>
-              Save
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions action={save} submit="Save" onCancel={onDone} />
         </form>
       </CardContent>
     </Card>
@@ -463,8 +456,8 @@ function Provisioning({ app, connected }: { app: CatalogApplication; connected: 
                 </div>
               </Manage>
             </form>
-            {save.error && <Alert variant="error">{save.error.message}</Alert>}
-            {dryRun.error && <Alert variant="error">{dryRun.error.message}</Alert>}
+            <ErrorAlert error={save.error} />
+            <ErrorAlert error={dryRun.error} />
             {plan && <Plan run={plan} />}
           </>
         )}
@@ -583,11 +576,7 @@ function Entitlements({ appId }: { appId: string }) {
               <Button type="submit" disabled={add.isPending}>
                 Add entitlement
               </Button>
-              {add.error && (
-                <Alert variant="error" className="w-full">
-                  {add.error.message}
-                </Alert>
-              )}
+              <ErrorAlert error={add.error} className="w-full" />
             </form>
           </CardContent>
         </Card>
@@ -722,7 +711,7 @@ function JustInTime({ ent }: { ent: Entitlement }) {
           Cancel
         </Button>
       </div>
-      {save.error && <Alert variant="error">{save.error.message}</Alert>}
+      <ErrorAlert error={save.error} />
     </form>
   );
 }

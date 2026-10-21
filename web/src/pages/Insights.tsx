@@ -6,7 +6,7 @@ import { Manage } from "@/components/Manage";
 import { RiskBadge } from "@/components/RiskBadge";
 import { ShowMore } from "@/components/ShowMore";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/field";
@@ -137,11 +137,7 @@ function UnusedRow({ u }: { u: UnusedAccess }) {
           <Button size="sm" variant="outline" disabled={fix.isPending} onClick={() => fix.mutate()}>
             {u.eligible ? "Remove eligibility" : "Make it just in time"}
           </Button>
-          {fix.error && (
-            <Alert variant="error" className="mt-2 text-left">
-              {fix.error.message}
-            </Alert>
-          )}
+          <ErrorAlert error={fix.error} className="mt-2 text-left" />
         </Manage>
       </TableCell>
     </TableRow>
@@ -267,7 +263,7 @@ function Suggested({ s }: { s: RoleSuggestion }) {
             </Button>
           </form>
         )}
-        {create.error && <Alert variant="error">{create.error.message}</Alert>}
+        <ErrorAlert error={create.error} />
       </Manage>
     </section>
   );

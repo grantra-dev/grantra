@@ -6,7 +6,7 @@ import { PlanSteps } from "@/components/ApprovalFlow";
 import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -301,7 +301,7 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
               <PlanSteps plan={check.data.plan} conflicts={conflicts} />
             </section>
           )}
-          {submit.error && <Alert variant="error">{submit.error.message}</Alert>}
+          <ErrorAlert error={submit.error} />
           <Button type="submit" disabled={blocked || !justification.trim() || submit.isPending}>
             {submit.isPending ? "Sending…" : "Send request"}
           </Button>

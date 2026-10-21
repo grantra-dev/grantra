@@ -5,7 +5,7 @@ import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { ShowMore } from "@/components/ShowMore";
 import { Manage } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -394,7 +394,7 @@ function Respond({ alert: a }: { alert: ThreatAlert }) {
         </Button>
       </div>
       <p className="text-xs text-slate-500">{respondHelp[current]}</p>
-      {respond.error && <Alert variant="error">{respond.error.message}</Alert>}
+      <ErrorAlert error={respond.error} />
       {respond.data && (
         <Alert variant={respond.data.error ? "warning" : "success"}>
           Done: {responseLabels[respond.data.action]}.
@@ -450,7 +450,7 @@ function CloseAlert({ alert: a }: { alert: ThreatAlert }) {
           Dismiss
         </Button>
       </div>
-      {close.error && <Alert variant="error">{close.error.message}</Alert>}
+      <ErrorAlert error={close.error} />
     </form>
   );
 }

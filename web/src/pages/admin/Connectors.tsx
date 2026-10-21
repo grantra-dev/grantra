@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Manage } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -273,7 +273,7 @@ function Wizard({
                     {test.isPending ? "Reading…" : "Test: read accounts now"}
                   </Button>
                 </div>
-                {test.error && <Alert variant="error">{test.error.message}</Alert>}
+                <ErrorAlert error={test.error} />
                 {run &&
                   (run.status === "failed" ? (
                     <Alert variant="error">

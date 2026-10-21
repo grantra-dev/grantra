@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PickPerson, type Picked } from "@/components/PersonSearch";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/field";
@@ -33,7 +33,7 @@ export function NonHumanCard({ id, canChange }: { id: string; canChange: boolean
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
-        {error && <Alert variant="error">{error.message}</Alert>}
+        <ErrorAlert error={error} />
         {n && (
           <>
             {n.flags.length > 0 ? (
@@ -123,7 +123,7 @@ function Edit({ n, onDone }: { n: NonHuman; onDone: () => void }) {
             <Input id="nhi-spiffe" value={spiffe} onChange={(e) => setSpiffe(e.target.value)} />
           </div>
         )}
-        {save.error && <Alert variant="error">{save.error.message}</Alert>}
+        <ErrorAlert error={save.error} />
         <div>
           <Button type="submit" size="sm" disabled={save.isPending}>
             Save
@@ -149,7 +149,7 @@ function Edit({ n, onDone }: { n: NonHuman; onDone: () => void }) {
           placeholder="Why, such as: replaced by billing-sync-v2"
           required
         />
-        {retire.error && <Alert variant="error">{retire.error.message}</Alert>}
+        <ErrorAlert error={retire.error} />
         <div>
           <Button type="submit" size="sm" variant="destructive" disabled={retire.isPending}>
             Retire {n.name}

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,7 +77,7 @@ export function AccountDetail({
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
         {isPending && <p className="text-slate-500">Loading…</p>}
-        {error && <Alert variant="error">{error.message}</Alert>}
+        <ErrorAlert error={error} />
         {data && (
           <>
             <p className="text-slate-500">
@@ -202,11 +202,7 @@ export function AccountDetail({
                         Cancel
                       </Button>
                     </div>
-                    {save.error && (
-                      <Alert variant="error" className="sm:col-span-2">
-                        {save.error.message}
-                      </Alert>
-                    )}
+                    <ErrorAlert error={save.error} className="sm:col-span-2" />
                   </form>
                 )}
               </div>

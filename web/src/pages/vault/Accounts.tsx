@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/field";
@@ -298,7 +298,7 @@ function CheckOut({
             Grantra changes this password once nobody has it checked out.
           </p>
         )}
-        {checkin.error && <Alert variant="error">{checkin.error.message}</Alert>}
+        <ErrorAlert error={checkin.error} />
       </div>
     );
   }
@@ -346,7 +346,7 @@ function CheckOut({
           Cancel
         </Button>
       </div>
-      {checkout.error && <Alert variant="error">{checkout.error.message}</Alert>}
+      <ErrorAlert error={checkout.error} />
     </form>
   );
 }

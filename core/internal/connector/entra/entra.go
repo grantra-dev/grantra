@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
@@ -80,11 +79,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (connector.Reade
 		TokenURL:     login.String() + "/" + url.PathEscape(cfg.TenantID) + "/oauth2/v2.0/token",
 		Scopes:       []string{graph.String() + "/.default"},
 	}
-	base := *graph
-	base.Path += "/v1.0"
-	api := httpapi.New(&base, nil)
-	api.Auth = httpapi.OAuth2(cc.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, api.HTTP)))
-	return &Client{api: api, graph: graph.String()}, nil
+	return &Client{api: httpapi.NewOAuth2(httpapi.At(graph, "/v1.0"), &cc), graph: graph.String()}, nil
 }
 
 // rolePrefix tells directory roles from groups among native ids.

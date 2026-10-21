@@ -34,6 +34,14 @@ func BaseURL(kind, field, raw string, allowHTTP bool) (*url.URL, error) {
 	return u, nil
 }
 
+// At is base with path added, leaving base as it was: the API's root under
+// the address from the config, such as /v1.0 under Microsoft Graph's.
+func At(base *url.URL, path string) *url.URL {
+	u := *base
+	u.Path += path
+	return &u
+}
+
 // Auth signs a request.
 type Auth func(ctx context.Context, req *http.Request) error
 
@@ -83,6 +91,21 @@ type Client struct {
 // New builds a client for base with a 60 second timeout per request.
 func New(base *url.URL, auth Auth) *Client {
 	return &Client{Base: base, Auth: auth, HTTP: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// Flow is an OAuth2 flow that hands out tokens, such as
+// clientcredentials.Config or a Google service account's JWT config.
+type Flow interface {
+	TokenSource(ctx context.Context) oauth2.TokenSource
+}
+
+// NewOAuth2 builds a client for base that signs in with flow. Tokens are
+// asked for through the client's own HTTP client, so they get the same
+// timeout and transport as the calls.
+func NewOAuth2(base *url.URL, flow Flow) *Client {
+	c := New(base, nil)
+	c.Auth = OAuth2(flow.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, c.HTTP)))
+	return c
 }
 
 // StatusError is an error answer from the API.

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Manage } from "@/components/Manage";
@@ -107,11 +107,7 @@ function Row({ s }: { s: Standing }) {
           ) : (
             <span className="text-slate-500">Change the rule</span>
           )}
-          {convert.error && (
-            <Alert variant="error" className="mt-2 text-left">
-              {convert.error.message}
-            </Alert>
-          )}
+          <ErrorAlert error={convert.error} className="mt-2 text-left" />
         </Manage>
       </TableCell>
     </TableRow>

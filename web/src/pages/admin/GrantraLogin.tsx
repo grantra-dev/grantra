@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Manage, ReadOnlyFields } from "@/components/Manage";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -167,7 +167,7 @@ function SignInPolicy({ current }: { current: LoginPolicy }) {
               yet: {save.data.sync_error}. Grantra tries again every few minutes.
             </Alert>
           )}
-          {save.error && <Alert variant="error">{save.error.message}</Alert>}
+          <ErrorAlert error={save.error} />
         </form>
       </CardContent>
     </Card>
@@ -197,7 +197,7 @@ function Apps({ apps }: { apps: SSOApp[] }) {
             <code className="break-all">{secret.value}</code>
           </Alert>
         )}
-        {rotate.error && <Alert variant="error">{rotate.error.message}</Alert>}
+        <ErrorAlert error={rotate.error} />
         {apps.length === 0 ? (
           <p className="text-sm text-slate-500">No apps yet.</p>
         ) : (
@@ -338,11 +338,7 @@ function NewApp({ onSecret }: { onSecret: (app: string, secret: string) => void 
           Register app
         </Button>
       </div>
-      {create.error && (
-        <Alert variant="error" className="sm:col-span-2">
-          {create.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={create.error} className="sm:col-span-2" />
     </form>
   );
 }

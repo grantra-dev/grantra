@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -109,11 +109,7 @@ function NewApplication() {
             To read its accounts, connect it from Settings, Connectors, or from its own page once it
             exists.
           </p>
-          {create.error && (
-            <Alert variant="error" className="w-full">
-              {create.error.message}
-            </Alert>
-          )}
+          <ErrorAlert error={create.error} className="w-full" />
         </form>
       </CardContent>
     </Card>

@@ -8,7 +8,7 @@ import { Eligibilities } from "@/components/Eligibilities";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -311,11 +311,7 @@ function RoleRow({
       {canChange && !member && isMe && (
         <p className="mt-2 text-sm text-slate-500">Nobody can give a Grantra role to themselves.</p>
       )}
-      {change.error && (
-        <Alert variant="error" className="mt-2">
-          {change.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={change.error} className="mt-2" />
     </div>
   );
 }

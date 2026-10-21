@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Manage } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,11 +140,7 @@ function Provider({ provider: p }: { provider: IdentityProvider }) {
             </Button>
           </form>
         </Manage>
-        {route.error && (
-          <Alert variant="error" className="mt-2">
-            {route.error.message}
-          </Alert>
-        )}
+        <ErrorAlert error={route.error} className="mt-2" />
       </TableCell>
       <TableCell className="text-right">
         <Manage>
@@ -164,11 +160,7 @@ function Provider({ provider: p }: { provider: IdentityProvider }) {
             Remove
           </Button>
         </Manage>
-        {remove.error && (
-          <Alert variant="error" className="mt-2">
-            {remove.error.message}
-          </Alert>
-        )}
+        <ErrorAlert error={remove.error} className="mt-2" />
       </TableCell>
     </TableRow>
   );
@@ -299,11 +291,7 @@ function NewProvider() {
           {create.isPending ? "Adding…" : "Add provider"}
         </Button>
       </div>
-      {create.error && (
-        <Alert variant="error" className="sm:col-span-2">
-          {create.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={create.error} className="sm:col-span-2" />
     </form>
   );
 }
@@ -361,7 +349,7 @@ export function ImportFromKeycloak() {
             Import
           </Button>
         </div>
-        {run.error && <Alert variant="error">{run.error.message}</Alert>}
+        <ErrorAlert error={run.error} />
         {plan && (
           <div className="flex flex-col gap-2 text-sm">
             {plan.applied ? (

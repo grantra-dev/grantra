@@ -74,11 +74,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (connector.Reade
 	}
 	cc := clientcredentials.Config{ClientID: cfg.ClientID, ClientSecret: secret, TokenURL: instance.String() + "/services/oauth2/token",
 		AuthStyle: oauth2.AuthStyleInParams}
-	base := *instance
-	base.Path += "/services/data/" + version
-	api := httpapi.New(&base, nil)
-	api.Auth = httpapi.OAuth2(cc.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, api.HTTP)))
-	return &Client{api: api}, nil
+	return &Client{api: httpapi.NewOAuth2(httpapi.At(instance, "/services/data/"+version), &cc)}, nil
 }
 
 // Native id prefixes of what is not a permission set.
