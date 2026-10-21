@@ -3,7 +3,7 @@ import { ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
 import { ReadOnlyFields } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/field";
@@ -189,7 +189,7 @@ function SettingRow({ s, me, secondAdmin }: { s: Setting; me: Me; secondAdmin: b
           </div>
         </div>
       )}
-      {save.error && <Alert variant="error">{save.error.message}</Alert>}
+      <ErrorAlert error={save.error} />
     </form>
   );
 }
@@ -256,11 +256,7 @@ export function PendingChange({
           )}
         </div>
       )}
-      {decide.error && (
-        <Alert variant="error" className="mt-2">
-          {decide.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={decide.error} className="mt-2" />
     </div>
   );
 }

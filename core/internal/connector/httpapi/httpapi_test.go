@@ -42,6 +42,16 @@ func TestBaseURL(t *testing.T) {
 	}
 }
 
+func TestAt(t *testing.T) {
+	base, _ := url.Parse("https://graph.example.com/root")
+	if got := httpapi.At(base, "/v1.0").String(); got != "https://graph.example.com/root/v1.0" {
+		t.Errorf("At = %s", got)
+	}
+	if base.Path != "/root" {
+		t.Errorf("At changed its base: %s", base)
+	}
+}
+
 func TestRetriesWhenBusy(t *testing.T) {
 	srv := connectortest.New(t, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer t0ken" })
 	tries := 0

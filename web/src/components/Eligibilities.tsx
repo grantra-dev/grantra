@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,11 +154,7 @@ function EligibilityRow({
           onCancel={() => setOpen(false)}
         />
       )}
-      {failed && (
-        <Alert variant="error" className="mt-2">
-          {failed.message}
-        </Alert>
-      )}
+      <ErrorAlert error={failed} className="mt-2" />
     </li>
   );
 }
@@ -237,11 +233,7 @@ function ActivateForm({
           Cancel
         </Button>
       </div>
-      {run.error && (
-        <Alert variant="error" className="sm:col-span-3">
-          {run.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={run.error} className="sm:col-span-3" />
     </form>
   );
 }
@@ -299,11 +291,7 @@ function MakeEligible({ identityId }: { identityId: string }) {
       <Button type="submit" disabled={!target || add.isPending}>
         Make eligible
       </Button>
-      {add.error && (
-        <Alert variant="error" className="sm:col-span-3">
-          {add.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={add.error} className="sm:col-span-3" />
     </form>
   );
 }

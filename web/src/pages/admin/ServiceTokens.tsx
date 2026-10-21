@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -143,7 +143,7 @@ export function ServiceTokens() {
           </TableBody>
         </Table>
       </Loaded>
-      {revoke.error && <Alert variant="error">{revoke.error.message}</Alert>}
+      <ErrorAlert error={revoke.error} />
     </div>
   );
 }
@@ -270,7 +270,7 @@ function NewToken({
               </Button>
             </div>
           </fieldset>
-          {create.error && <Alert variant="error">{create.error.message}</Alert>}
+          <ErrorAlert error={create.error} />
           <div>
             <Button type="submit" disabled={create.isPending}>
               Create token

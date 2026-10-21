@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,7 +82,7 @@ function Policies() {
         )}
       </div>
       {adding && <NewPolicy onDone={() => setAdding(false)} />}
-      {remove.error && <Alert variant="error">{remove.error.message}</Alert>}
+      <ErrorAlert error={remove.error} />
       <Loaded loading={isPending} error={error} empty={data?.length === 0 && "No policies yet."}>
         <Table>
           <TableHeader>
@@ -236,19 +237,12 @@ function NewPolicy({ onDone }: { onDone: () => void }) {
             <SidePicker id="sod-a" label="Nobody holding any of these…" value={a} onChange={setA} />
             <SidePicker id="sod-b" label="…may also hold any of these" value={b} onChange={setB} />
           </div>
-          {create.error && (
-            <Alert variant="error" className="md:col-span-3">
-              {create.error.message}
-            </Alert>
-          )}
-          <div className="flex gap-2 md:col-span-3">
-            <Button type="submit" disabled={create.isPending}>
-              Add policy
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions
+            action={create}
+            submit="Add policy"
+            onCancel={onDone}
+            className="md:col-span-3"
+          />
         </form>
       </CardContent>
     </Card>
@@ -293,7 +287,7 @@ function Violations() {
           </Manage>
         </div>
       </div>
-      {scan.error && <Alert variant="error">{scan.error.message}</Alert>}
+      <ErrorAlert error={scan.error} />
       {scan.data && (
         <Alert variant="success">
           Checked: {scan.data.detected} new, {scan.data.resolved} resolved,{" "}
@@ -412,7 +406,7 @@ function AcceptRisk({ violation }: { violation: SoDViolation }) {
           Cancel
         </Button>
       </div>
-      {accept.error && <Alert variant="error">{accept.error.message}</Alert>}
+      <ErrorAlert error={accept.error} />
     </form>
   );
 }

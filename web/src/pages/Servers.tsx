@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Loaded } from "@/components/Loaded";
@@ -6,7 +7,7 @@ import { RecordedSearch, SessionBadge, SessionList } from "@/components/Sessions
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -252,7 +253,7 @@ function GetCertificate({
           Cancel
         </Button>
       </div>
-      {issue.error && <Alert variant="error">{issue.error.message}</Alert>}
+      <ErrorAlert error={issue.error} />
     </form>
   );
 }
@@ -356,11 +357,7 @@ function TargetSettings({ t, onDone }: { t: SSHTarget; onDone: () => void }) {
           Delete
         </Button>
       </div>
-      {(save.error ?? remove.error) && (
-        <Alert variant="error" className="sm:col-span-2">
-          {(save.error ?? remove.error)!.message}
-        </Alert>
-      )}
+      <ErrorAlert error={save.error ?? remove.error} className="sm:col-span-2" />
     </form>
   );
 }
@@ -430,19 +427,12 @@ function NewTarget({ onDone }: { onDone: () => void }) {
               <option value="critical">Critical</option>
             </Select>
           </div>
-          <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" disabled={create.isPending}>
-              Add server
-            </Button>
-            <Button type="button" variant="outline" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
-          {create.error && (
-            <Alert variant="error" className="sm:col-span-2">
-              {create.error.message}
-            </Alert>
-          )}
+          <FormActions
+            action={create}
+            submit="Add server"
+            onCancel={onDone}
+            className="sm:col-span-2"
+          />
         </form>
       </CardContent>
     </Card>

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { FilterBox } from "@/components/FilterBox";
@@ -7,7 +8,6 @@ import { Manage } from "@/components/Manage";
 import { PickPerson, type Picked } from "@/components/PersonSearch";
 import { ShowMore } from "@/components/ShowMore";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -323,19 +323,13 @@ function NewNonHuman({ account, onDone }: { account?: Candidate; onDone: () => v
               />
             </div>
           )}
-          {create.error && (
-            <Alert variant="error" className="sm:col-span-2">
-              {create.error.message}
-            </Alert>
-          )}
-          <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" disabled={create.isPending || !owner || !name.trim()}>
-              Add it
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions
+            action={create}
+            submit="Add it"
+            disabled={!owner || !name.trim()}
+            onCancel={onDone}
+            className="sm:col-span-2"
+          />
         </form>
       </CardContent>
     </Card>

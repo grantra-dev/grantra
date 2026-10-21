@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormActions } from "@/components/FormActions";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { SuggestionNote } from "@/components/SuggestionNote";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -511,11 +512,7 @@ function CampaignCard({ c, canManage }: { c: Campaign; canManage: boolean }) {
           {c.on_missing === "keep" ? "kept" : "revoked"}.
         </p>
       )}
-      {close.error && (
-        <Alert variant="error" className="mt-3">
-          {close.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={close.error} className="mt-3" />
     </Card>
   );
 }
@@ -643,19 +640,13 @@ function NewCampaignForm({ onDone }: { onDone: () => void }) {
               </div>
             )}
           </fieldset>
-          {launch.error && (
-            <Alert variant="error" className="sm:col-span-2">
-              {launch.error.message}
-            </Alert>
-          )}
-          <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" disabled={!form.name.trim() || launch.isPending}>
-              {launch.isPending ? "Launching…" : "Launch campaign"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions
+            action={launch}
+            submit={launch.isPending ? "Launching…" : "Launch campaign"}
+            disabled={!form.name.trim()}
+            onCancel={onDone}
+            className="sm:col-span-2"
+          />
         </form>
       </CardContent>
     </Card>

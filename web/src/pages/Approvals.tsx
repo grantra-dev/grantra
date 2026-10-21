@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ApprovalFlow } from "@/components/ApprovalFlow";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
@@ -188,7 +188,7 @@ function ApprovalCard({
               </Select>
             </div>
           )}
-          {decide.error && <Alert variant="error">{decide.error.message}</Alert>}
+          <ErrorAlert error={decide.error} />
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"

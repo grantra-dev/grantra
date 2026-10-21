@@ -27,3 +27,19 @@ export function Alert({
     />
   );
 }
+
+/** A failed query or change, said as an error alert; nothing while there is none. */
+export function ErrorAlert({
+  error,
+  className,
+}: {
+  error: Error | null | undefined;
+  className?: string;
+}) {
+  if (!error) return null;
+  return (
+    <Alert variant="error" className={className}>
+      {error.message}
+    </Alert>
+  );
+}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
 import { ApprovalFlow } from "@/components/ApprovalFlow";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -112,11 +112,7 @@ function RequestCard({ r, me, focused }: { r: AccessRequest; me: Me; focused: bo
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
         {r.reason && <p className="mt-1 text-sm text-slate-500">{closingReason(r.reason)}</p>}
         <ApprovalFlow r={r} />
-        {cancel.error && (
-          <Alert variant="error" className="mt-3">
-            {cancel.error.message}
-          </Alert>
-        )}
+        <ErrorAlert error={cancel.error} className="mt-3" />
       </Card>
     </li>
   );

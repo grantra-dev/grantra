@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { Manage } from "@/components/Manage";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { Me } from "@/lib/api";
 import { getThreats, scanThreats, severities } from "@/lib/threats";
@@ -66,7 +66,7 @@ export function Threats({ me }: { me: Me }) {
           {scan.data.error && ` Part of it failed: ${scan.data.error}`}
         </Alert>
       )}
-      {scan.error && <Alert variant="error">{scan.error.message}</Alert>}
+      <ErrorAlert error={scan.error} />
       <Tabs
         tabs={[
           ["alerts", "Alerts"],

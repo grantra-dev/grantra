@@ -57,8 +57,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (connector.Reade
 	if err != nil {
 		return nil, err
 	}
-	org.Path += "/api/v1"
-	return &Client{api: httpapi.New(org, httpapi.Header("Authorization", "SSWS "+token)), apps: cfg.Apps == nil || *cfg.Apps}, nil
+	return &Client{api: httpapi.New(httpapi.At(org, "/api/v1"), httpapi.Header("Authorization", "SSWS "+token)), apps: cfg.Apps == nil || *cfg.Apps}, nil
 }
 
 // Native id prefixes of what is not a group.
