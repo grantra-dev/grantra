@@ -112,12 +112,9 @@ var active = map[string]bool{"STAGED": true, "PROVISIONED": true, "ACTIVE": true
 
 // Read returns every group, active application, admin role and user.
 func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
-	var (
-		b      connector.Builder
-		groups []group
-		apps   []app
-	)
-	if err := httpapi.LinkPages(ctx, c.api, "/groups?limit=200", func(g group) { groups = append(groups, g) }); err != nil {
+	var b connector.Builder
+	groups, err := httpapi.AllLinkPages[group](ctx, c.api, "/groups?limit=200")
+	if err != nil {
 		return connector.Snapshot{}, err
 	}
 	for _, g := range groups {
@@ -127,7 +124,8 @@ func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
 		}
 	}
 	if c.apps {
-		if err := httpapi.LinkPages(ctx, c.api, `/apps?limit=200&filter=status+eq+"ACTIVE"`, func(a app) { apps = append(apps, a) }); err != nil {
+		apps, err := httpapi.AllLinkPages[app](ctx, c.api, `/apps?limit=200&filter=status+eq+"ACTIVE"`)
+		if err != nil {
 			return connector.Snapshot{}, err
 		}
 		for _, a := range apps {

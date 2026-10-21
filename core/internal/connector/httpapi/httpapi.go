@@ -396,3 +396,11 @@ func LinkPages[T any](ctx context.Context, c *Client, first string, fn func(T)) 
 		return NextLink(h), nil
 	})
 }
+
+// AllLinkPages reads a whole list that pages with Link headers, for when
+// every item is needed before going on.
+func AllLinkPages[T any](ctx context.Context, c *Client, first string) ([]T, error) {
+	var all []T
+	err := LinkPages(ctx, c, first, func(item T) { all = append(all, item) })
+	return all, err
+}
