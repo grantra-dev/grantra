@@ -20,11 +20,13 @@ It works with the identity provider you already run (Entra ID, Okta, Keycloak). 
 
 For privileged access, it keeps admin passwords and keys in a vault, hands out admin rights just in time, and records every session to servers, databases, clusters, desktops and cloud consoles.
 
+To catch what slips through, it detects identity threats (leavers who still sign in, password spray, MFA fatigue, access granted outside Grantra), answers them from the alert, and shows who can reach your riskiest access and how.
+
 <p align="center">
   <img src="site/screenshots/home.png" width="800" alt="The Grantra console home page, with shortcuts to My access, Request access, Approvals, Access reviews, People, Administration and the Audit log">
 </p>
 
-> **Status:** v0.3 adds privileged access (PAM) to identity governance and Grantra Login. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
+> **Status:** v0.4 adds identity threat detection and response, attack paths and access insights, owned service accounts and AI agents, and approval flows set from the console, on top of identity governance, Grantra Login and privileged access. It is ready to try and to pilot, not yet battle-tested in production. Feedback and issues are very welcome.
 
 ## Try it in five minutes
 
@@ -98,7 +100,8 @@ Open http://localhost:8080 and sign in as `admin` / `admin`. The stack loads a s
 1. **Foundations and identity governance** *(done in v0.1)*.
 2. **Integrated IAM** *(done in v0.2)*: Grantra Login managed from the console, single sign-on and MFA policies, gradual migration from another identity provider, and authorization for your apps.
 3. **Privileged access (PAM)** *(done in v0.3)*: credential vault, just-in-time access, break glass, SSH certificates and session recording, KMS/HSM keys, a gateway for databases, Kubernetes, desktops (RDP) and cloud consoles.
-4. **Identity threat detection** *(next)* and AI-assisted recommendations.
+4. **Identity threat detection** *(done in v0.4)*: threat alerts and responses, attack paths, access insights and review suggestions, and non-human identities with owners.
+5. **Connectors and integrations** *(next)*: native connectors (Entra ID, Google Workspace, AWS, GitHub, Okta, Salesforce, Workday, BambooHR), auditor reports, SIEM export and webhooks, approvals from Slack and Teams.
 
 The plan lives in the [GitHub milestones](https://github.com/grantra-dev/grantra/milestones).
 

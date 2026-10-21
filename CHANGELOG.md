@@ -4,8 +4,14 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
-### Upgrading
+## [0.4.0] - 2026-10-21
 
+Identity threat detection and response arrives: Grantra watches sign-ins and access for leavers who still sign in, impossible travel, password spray, MFA fatigue and access granted outside it, and answers from the alert. Attack paths show who can reach the riskiest access and how, insights find unused access and suggest roles, and service accounts, AI agents and workloads become identities with an owner. Approval flows and the time limits that were built in are now set per tenant from the console, and the console itself is reorganized around what each person comes to do.
+
+### Upgrading from 0.3
+
+- Migrations 0024 to 0030 run as before (`grantra migrate`, or the Helm migration job). The notes below say what the ones that change behavior do.
+- Demo stack: run `make reset`, then `make up`. That recreates the Grantra Login realm, so the connector gets the two roles threat detection needs (below).
 - **Threat detection reads Grantra Login's sign-ins**, which needs two more `realm-management` roles on the connector's service account: `view-events` and `manage-events`. New installs have them in `deploy/keycloak/grantra-realm.json`; on an existing realm add them in Keycloak (Clients → `grantra-connector` → Service account roles), or run `make reset` in the demo. Without them Grantra still looks at access and at the sign-ins scripts send; the job logs that it cannot read Grantra Login, and **Look now** on the Threats page shows the error.
 - **Migration 0026** adds when each account last signed in. It is empty until the next read of each application (Active Directory, OpenLDAP or an account file with a `last_login` column), so unused access only shows for those applications after that read.
 - **Migration 0028** marks every grant of access already stored as looked at by threat detection, and adds indexes for who holds a role or an entitlement. On a large `access_assignments` table the indexes take a moment to build while the server starts.
@@ -143,7 +149,8 @@ The first public release: identity governance (IGA) you can run on your laptop i
 - Multi-tenant PostgreSQL with row-level security.
 - Container image and binaries signed with cosign (keyless), with an SPDX SBOM ([docs](docs/releases.md)).
 
-[Unreleased]: https://github.com/grantra-dev/grantra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/grantra-dev/grantra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.4.0
 [0.3.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.3.0
 [0.2.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.2.0
 [0.1.0]: https://github.com/grantra-dev/grantra/releases/tag/v0.1.0
