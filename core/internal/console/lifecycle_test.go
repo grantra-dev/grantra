@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/connector/connectortest"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	_ "github.com/grantra-dev/grantra/core/internal/lifecycle/bamboohr"
 )
 
 func TestIdentitySources(t *testing.T) {
@@ -180,5 +182,59 @@ func TestUpdateSource(t *testing.T) {
 		if rec := e.do(admin, http.MethodPut, tt.path, tt.body); rec.Code != tt.want {
 			t.Errorf("PUT %s %s = %d, want %d: %s", tt.path, tt.body, rec.Code, tt.want, rec.Body)
 		}
+	}
+}
+
+// TestHRSystemPull reads people from BambooHR through the console: a dry run,
+// then for real, and a token without the sync scope is refused.
+func TestHRSystemPull(t *testing.T) {
+	e := newEnv(t)
+	admin := e.identity("admin", "", authz.RoleAdmin)
+	auditor := e.identity("auditor", "", authz.RoleAuditor)
+	t.Setenv("GRANTRA_SECRET_BAMBOO_TEST", "bamboo-key")
+
+	bamboo := connectortest.New(t, func(r *http.Request) bool {
+		user, _, _ := r.BasicAuth()
+		return user == "bamboo-key"
+	})
+	bamboo.JSON("POST /api/gateway.php/acme/v1/reports/custom", map[string]any{"employees": []map[string]any{
+		{"id": "1", "employeeNumber": "E1", "firstName": "Ana", "lastName": "Ruiz", "workEmail": "ana@acme.com", "status": "Active"},
+		{"id": "2", "employeeNumber": "E2", "firstName": "Luis", "lastName": "Gil", "workEmail": "luis@acme.com", "status": "Active", "supervisorEId": "1"},
+	}})
+
+	conn := `{"company": "acme", "api_key": "env:GRANTRA_SECRET_BAMBOO_TEST", "api_url": "` + bamboo.URL + `", "allow_http": true}`
+	if rec := e.do(admin, http.MethodPost, "/api/v1/identity-sources", `{"name": "BambooHR", "kind": "bamboohr", "config": {"connection": {"company": "Acme Inc"}}}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad company = %d %s", rec.Code, rec.Body)
+	}
+	rec := e.do(admin, http.MethodPost, "/api/v1/identity-sources", `{"name": "BambooHR", "kind": "bamboohr", "config": {"connection": `+conn+`}}`)
+	src := decode[lifecycle.Source](t, rec)
+	if rec.Code != http.StatusCreated || src.Config.EveryHours != lifecycle.DefaultEveryHours {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	pulls := "/api/v1/identity-sources/" + src.ID + "/pulls"
+	if rec := e.do(auditor, http.MethodPost, pulls, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("auditor pulls = %d", rec.Code)
+	}
+	if rec := e.do(admin, http.MethodPost, "/api/v1/identity-sources/"+src.ID+"/runs", "employee_id\nE1\n"); rec.Code != http.StatusBadRequest {
+		t.Errorf("file sent to an HR system source = %d %s", rec.Code, rec.Body)
+	}
+	rec = e.do(admin, http.MethodPost, pulls+"?dry_run=true", "")
+	if res := decode[lifecycle.SyncResult](t, rec); rec.Code != http.StatusOK || res.Status != lifecycle.RunPlanned || res.Counts[lifecycle.Joiner] != 2 {
+		t.Fatalf("dry run = %d %s", rec.Code, rec.Body)
+	}
+	rec = e.do(admin, http.MethodPost, pulls, "")
+	if res := decode[lifecycle.SyncResult](t, rec); rec.Code != http.StatusOK || res.Status != lifecycle.RunApplied {
+		t.Fatalf("pull = %d %s", rec.Code, rec.Body)
+	}
+	if n := e.count(`SELECT count(*) FROM identities s JOIN identities m ON m.id = s.manager_id WHERE s.external_id = 'E2' AND m.external_id = 'E1'`); n != 1 {
+		t.Error("Luis is not Ana's report")
+	}
+
+	// A wrong key is an invalid run, and changes nobody.
+	t.Setenv("GRANTRA_SECRET_BAMBOO_TEST", "wrong")
+	rec = e.do(admin, http.MethodPost, pulls, "")
+	if res := decode[lifecycle.SyncResult](t, rec); rec.Code != http.StatusUnprocessableEntity || res.Status != lifecycle.RunInvalid ||
+		!strings.Contains(res.Errors[0].Message, "could not read the HR system") {
+		t.Errorf("wrong key = %d %s", rec.Code, rec.Body)
 	}
 }

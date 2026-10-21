@@ -1,6 +1,7 @@
 // The connector gallery: what Grantra can connect to, and the settings each
 // connector asks for. The core checks every setting again when it is saved.
 
+import { useState } from "react";
 import { send } from "./api";
 
 export interface ConnectorField {
@@ -23,17 +24,19 @@ export interface ConnectorField {
 }
 
 export interface ConnectorType {
-  /** The core's connector kind; none while it is planned. */
-  kind?: string;
+  /** The core's connector kind, or the HR source kind. */
+  kind: string;
   name: string;
   blurb: string;
   /** Two letters standing in for a logo. */
   mark: string;
   fields: ConnectorField[];
-  /** Where docs/connectors.md explains it. */
+  /** Where it is explained, under docs/: "connectors.md#okta". */
   docs: string;
-  /** A planned connector, and what to use until it exists. */
-  planned?: string;
+  /** An HR system: it is connected as an HR source, not as an application. */
+  hrSource?: boolean;
+  /** An HR system whose fields are named as its admins chose, so its columns can be mapped. */
+  mapsColumns?: boolean;
 }
 
 const secretHelp =
@@ -46,13 +49,68 @@ export const isSecretRef = (v: string) => /^(env|secret):/.test(v.trim());
 export const secretShown = (v: string) =>
   v.startsWith("secret:") ? "Kept encrypted by Grantra" : v;
 
+/** The HR systems Grantra reads people from, as HR sources. */
+export const hrSystems: ConnectorType[] = [
+  {
+    kind: "workday",
+    name: "Workday",
+    mark: "WD",
+    blurb: "Joiners, movers and leavers straight from HR, through a custom report.",
+    docs: "identity-lifecycle.md#workday",
+    mapsColumns: true,
+    fields: [
+      {
+        key: "report_url",
+        label: "Report web service address",
+        type: "url",
+        required: true,
+        placeholder:
+          "https://wd2-impl-services1.workday.com/ccx/service/customreport2/acme/ISU_Grantra/Grantra_Workers",
+        help: "A custom report shared as a web service, with one line per worker. Name its columns like Grantra's fields, or map them below.",
+      },
+      {
+        key: "username",
+        label: "Integration system user",
+        type: "text",
+        required: true,
+        placeholder: "ISU_Grantra",
+      },
+      { key: "password", label: "Its password", type: "secret", required: true, help: secretHelp },
+    ],
+  },
+  {
+    kind: "bamboohr",
+    name: "BambooHR",
+    mark: "BH",
+    blurb: "Joiners, movers and leavers straight from HR, former employees included.",
+    docs: "identity-lifecycle.md#bamboohr",
+    fields: [
+      {
+        key: "company",
+        label: "Company subdomain",
+        type: "text",
+        required: true,
+        placeholder: "acme",
+        help: "acme for acme.bamboohr.com.",
+      },
+      {
+        key: "api_key",
+        label: "API key",
+        type: "secret",
+        required: true,
+        help: "Of a user who can see every employee's job information. " + secretHelp,
+      },
+    ],
+  },
+];
+
 export const connectorTypes: ConnectorType[] = [
   {
     kind: "scim",
     name: "SCIM 2.0",
     mark: "SC",
     blurb: "Any app that speaks SCIM 2.0: Slack, Zoom, GitHub Enterprise and most SaaS tools.",
-    docs: "#scim-20",
+    docs: "connectors.md#scim-20",
     fields: [
       {
         key: "base_url",
@@ -75,7 +133,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "LDAP / Active Directory",
     mark: "AD",
     blurb: "Active Directory or OpenLDAP: who is in which directory group.",
-    docs: "#ldap-and-active-directory",
+    docs: "connectors.md#ldap-and-active-directory",
     fields: [
       {
         key: "url",
@@ -123,7 +181,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "Grantra Login",
     mark: "GL",
     blurb: "The sign-in that ships with Grantra: its users, groups and roles.",
-    docs: "#grantra-login",
+    docs: "connectors.md#grantra-login",
     fields: [
       {
         key: "url",
@@ -146,7 +204,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "Microsoft Entra ID",
     mark: "EN",
     blurb: "Users, groups and admin roles of your Microsoft tenant, with last sign-ins.",
-    docs: "#microsoft-entra-id",
+    docs: "connectors.md#microsoft-entra-id",
     fields: [
       {
         key: "tenant_id",
@@ -178,7 +236,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "Google Workspace",
     mark: "GW",
     blurb: "Users, groups and admin roles of your Google domain, with last sign-ins.",
-    docs: "#google-workspace",
+    docs: "connectors.md#google-workspace",
     fields: [
       {
         key: "admin_email",
@@ -203,7 +261,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "Okta",
     mark: "OK",
     blurb: "Users, groups, app assignments and admin roles, with last sign-ins.",
-    docs: "#okta",
+    docs: "connectors.md#okta",
     fields: [
       {
         key: "org_url",
@@ -234,7 +292,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "GitHub",
     mark: "GH",
     blurb: "Organization members, owners, teams and outside collaborators.",
-    docs: "#github",
+    docs: "connectors.md#github",
     fields: [
       {
         key: "organization",
@@ -266,7 +324,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "AWS IAM Identity Center",
     mark: "AW",
     blurb: "Who can reach which AWS accounts, and with which permission set.",
-    docs: "#aws-iam-identity-center",
+    docs: "connectors.md#aws-iam-identity-center",
     fields: [
       {
         key: "region",
@@ -297,7 +355,7 @@ export const connectorTypes: ConnectorType[] = [
     name: "Salesforce",
     mark: "SF",
     blurb: "Users, profiles, permission sets and permission set groups, with last sign-ins.",
-    docs: "#salesforce",
+    docs: "connectors.md#salesforce",
     fields: [
       {
         key: "instance_url",
@@ -327,25 +385,10 @@ export const connectorTypes: ConnectorType[] = [
     name: "CSV file",
     mark: "CS",
     blurb: "For apps with no API: upload their user list as a CSV export.",
-    docs: "#csv-files",
+    docs: "connectors.md#csv-files",
     fields: [],
   },
-  ...(
-    [
-      ["Workday", "WD", "Joiners, movers and leavers straight from HR."],
-      ["BambooHR", "BH", "Joiners, movers and leavers straight from HR."],
-    ] as const
-  ).map(([name, mark, blurb]) => ({
-    name,
-    mark,
-    blurb,
-    docs: "#scim-20",
-    fields: [],
-    planned:
-      mark === "WD" || mark === "BH"
-        ? "Meanwhile, send its export to an HR source as a CSV file, by hand or with a service token."
-        : "Meanwhile, use SCIM 2.0 if it offers it, or upload a CSV export.",
-  })),
+  ...hrSystems.map((t) => ({ ...t, hrSource: true })),
 ];
 
 /** The connector settings to save: filled-in fields only, trimmed, booleans when on. */
@@ -430,3 +473,37 @@ export async function saveableConfig(
   }
   return config;
 }
+
+/**
+ * The settings typed for a connection to an application or an HR system.
+ * saveable stores the secrets typed in and answers the config to save.
+ */
+export function useConnection(type: ConnectorType, current?: Record<string, unknown> | null) {
+  const [values, setValues] = useState(() => connectorValues(type, current ?? null));
+  return {
+    type,
+    current,
+    values,
+    setValues,
+    complete: missingFields(type, values, current).length === 0,
+    async saveable(label: string) {
+      const config = await saveableConfig(type, values, label, current);
+      // Secrets now stored are not stored again if saving fails and is tried again.
+      setValues((v) => ({ ...v, ...pickSecrets(type, config) }));
+      return config;
+    },
+  };
+}
+
+export type Connection = ReturnType<typeof useConnection>;
+
+const pickSecrets = (
+  type: ConnectorType,
+  config: Record<string, string | boolean>,
+): Record<string, string | boolean> =>
+  Object.fromEntries(
+    type.fields.flatMap((f) => {
+      const v = config[f.key];
+      return f.type === "secret" && v !== undefined ? [[f.key, v]] : [];
+    }),
+  );

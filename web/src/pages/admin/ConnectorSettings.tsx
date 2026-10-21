@@ -1,19 +1,17 @@
 import { useMutation } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
-import { useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { setConnector } from "@/lib/admin";
 import {
-  connectorValues,
-  missingFields,
-  saveableConfig,
+  useConnection,
+  type Connection,
   type ConnectorField,
   type ConnectorType,
 } from "@/lib/connectors";
 
-const docsBase = "https://github.com/grantra-dev/grantra/blob/main/docs/connectors.md";
+const docsBase = "https://github.com/grantra-dev/grantra/blob/main/docs/";
 
 /**
  * A connector's settings, for a new connection or to change one. Secrets
@@ -39,18 +37,14 @@ export function ConnectorSettings({
   /** Buttons next to Save. */
   children?: React.ReactNode;
 }) {
-  const [values, setValues] = useState(() => connectorValues(type, current ?? null));
+  const connection = useConnection(type, current);
   const save = useMutation({
     mutationFn: async () => {
       const appId = await target();
-      const config = await saveableConfig(type, values, label, current);
-      // Secrets now stored are not stored again if saving fails and is tried again.
-      setValues((v) => ({ ...v, ...pickSecrets(type, config) }));
-      await setConnector(appId, type.kind!, config);
+      await setConnector(appId, type.kind, await connection.saveable(label));
     },
     onSuccess: onSaved,
   });
-  const missing = missingFields(type, values, current);
   return (
     <form
       className="flex max-w-lg flex-col gap-4 text-sm"
@@ -59,33 +53,16 @@ export function ConnectorSettings({
         save.mutate();
       }}
     >
-      {type.fields.length === 0 ? (
+      {type.fields.length === 0 && (
         <p className="text-slate-600">
           Nothing to fill in: you upload the files from the application&apos;s page, where you can
           also say which column is which.
         </p>
-      ) : (
-        type.fields.map((f) => (
-          <Field
-            key={f.key}
-            f={f}
-            value={values[f.key]}
-            kept={f.type === "secret" && typeof current?.[f.key] === "string"}
-            onChange={(v) => setValues({ ...values, [f.key]: v })}
-          />
-        ))
       )}
-      <a
-        href={docsBase + type.docs}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1 text-brand-600"
-      >
-        Every setting, explained <ExternalLink className="size-3.5" aria-hidden />
-      </a>
+      <ConnectionFields connection={connection} />
       {save.error && <Alert variant="error">{save.error.message}</Alert>}
       <div className="flex gap-2">
-        <Button type="submit" disabled={missing.length > 0 || save.isPending}>
+        <Button type="submit" disabled={!connection.complete || save.isPending}>
           {save.isPending ? "Saving…" : current ? "Save settings" : "Save and continue"}
         </Button>
         {children}
@@ -94,16 +71,31 @@ export function ConnectorSettings({
   );
 }
 
-const pickSecrets = (
-  type: ConnectorType,
-  config: Record<string, string | boolean>,
-): Record<string, string | boolean> =>
-  Object.fromEntries(
-    type.fields.flatMap((f) => {
-      const v = config[f.key];
-      return f.type === "secret" && v !== undefined ? [[f.key, v]] : [];
-    }),
+/** The fields of a connection, and where every setting is explained. */
+export function ConnectionFields({ connection }: { connection: Connection }) {
+  const { type, current, values, setValues } = connection;
+  return (
+    <>
+      {type.fields.map((f) => (
+        <Field
+          key={f.key}
+          f={f}
+          value={values[f.key]}
+          kept={f.type === "secret" && typeof current?.[f.key] === "string"}
+          onChange={(v) => setValues({ ...values, [f.key]: v })}
+        />
+      ))}
+      <a
+        href={docsBase + type.docs}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 text-brand-600"
+      >
+        Every setting, explained <ExternalLink className="size-3.5" aria-hidden />
+      </a>
+    </>
   );
+}
 
 function Field({
   f,

@@ -76,7 +76,7 @@ export function Connectors() {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {connectorTypes.map((t) => (
-            <Card key={t.name} className={cn("flex flex-col p-4", t.planned && "bg-slate-50")}>
+            <Card key={t.name} className="flex flex-col p-4">
               <div className="flex items-start gap-3">
                 <span
                   className="flex size-10 shrink-0 items-center justify-center rounded-md bg-brand-50 text-sm font-semibold text-brand-700"
@@ -87,14 +87,16 @@ export function Connectors() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 font-medium">
                     {t.name}
-                    {t.planned && <Badge>Planned</Badge>}
+                    {t.hrSource && <Badge>HR source</Badge>}
                   </div>
                   <p className="text-sm text-slate-500">{t.blurb}</p>
                 </div>
               </div>
               <div className="mt-auto pt-3">
-                {t.planned ? (
-                  <p className="text-xs text-slate-500">{t.planned}</p>
+                {t.hrSource ? (
+                  <Link to="/settings/hr-sources" className="text-sm text-brand-600">
+                    Connect it from HR sources
+                  </Link>
                 ) : (
                   <Manage>
                     <Button

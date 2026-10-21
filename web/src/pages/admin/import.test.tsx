@@ -96,6 +96,90 @@ describe("HR source columns", () => {
   });
 });
 
+describe("HR systems", () => {
+  it("connects BambooHR with a typed key, then checks and applies it", async () => {
+    const sent: unknown[] = [];
+    const bamboo: IdentitySource = {
+      id: "bh",
+      name: "BambooHR",
+      kind: "bamboohr",
+      config: { connection: { company: "acme", api_key: "secret:k1" }, every_hours: 12 },
+      created_at: "2026-10-01T09:00:00Z",
+    };
+    const run = (dryRun: boolean) => ({
+      status: 200,
+      body: {
+        id: "r1",
+        source_id: "bh",
+        actor: "ada",
+        dry_run: dryRun,
+        status: dryRun ? "planned" : "applied",
+        counts: { joiner: 2 },
+        errors: [],
+        warnings: [],
+        created_at: "2026-10-01T09:00:00Z",
+        changes: [],
+        unchanged: 0,
+      },
+    });
+    let sources: IdentitySource[] = [];
+    serve({
+      "GET /api/v1/me": ok(admin),
+      "GET /api/v1/identity-sources": () => ({ status: 200, body: { sources } }),
+      "POST /api/v1/connector-secrets": (init) => {
+        sent.push(json(init));
+        return { status: 201, body: { ref: "secret:k1" } };
+      },
+      "POST /api/v1/identity-sources": (init) => {
+        sent.push(json(init));
+        sources = [bamboo];
+        return { status: 201, body: bamboo };
+      },
+      "POST /api/v1/identity-sources/bh/pulls?dry_run=true": () => run(true),
+      "POST /api/v1/identity-sources/bh/pulls?dry_run=false": () => run(false),
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderAt("/settings/hr-sources");
+
+    await userEvent.click(await screen.findByRole("button", { name: "New HR source" }));
+    const form = screen.getByRole("form", { name: "New HR source" });
+    await userEvent.selectOptions(within(form).getByLabelText("People come from"), "bamboohr");
+    // BambooHR names its fields itself: nothing to map, no file to send.
+    expect(within(form).queryByLabelText("Employee id")).not.toBeInTheDocument();
+    await userEvent.type(within(form).getByLabelText("Name"), "BambooHR");
+    await userEvent.type(within(form).getByLabelText("Company subdomain"), "acme");
+    await userEvent.clear(within(form).getByLabelText("Read it every (hours)"));
+    await userEvent.type(within(form).getByLabelText("Read it every (hours)"), "12");
+    const add = within(form).getByRole("button", { name: "Add source" });
+    expect(add).toBeDisabled();
+    await userEvent.type(within(form).getByLabelText("API key"), "bamboo-key");
+    await userEvent.click(add);
+
+    await waitFor(() =>
+      expect(sent).toEqual([
+        { label: "BambooHR: API key", value: "bamboo-key" },
+        {
+          name: "BambooHR",
+          kind: "bamboohr",
+          config: {
+            max_leaver_percent: 10,
+            connection: { company: "acme", api_key: "secret:k1" },
+            every_hours: 12,
+          },
+        },
+      ]),
+    );
+    expect(await screen.findByText(/BambooHR · read every 12 h/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("HR export for BambooHR")).not.toBeInTheDocument();
+    const apply = screen.getByRole("button", { name: "Apply" });
+    expect(apply).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Check BambooHR now" }));
+    expect(await screen.findByText(/Nothing has changed yet/)).toBeInTheDocument();
+    await userEvent.click(apply);
+    expect(await screen.findByText(/Applied\./)).toBeInTheDocument();
+  });
+});
+
 describe("Account files", () => {
   const app = (extra: Partial<CatalogApplication>): CatalogApplication => ({
     id: "erp",

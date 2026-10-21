@@ -71,7 +71,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.tx(func(tx pgx.Tx) error {
-		s, err := lifecycle.CreateSource(context.Background(), tx, e.tenant, "HR", lifecycle.KindCSV, lifecycle.Config{MaxLeaverPercent: 100})
+		s, err := lifecycle.CreateSource(context.Background(), tx, e.tenant, "HR", lifecycle.KindCSV, lifecycle.Config{MaxLeaverPercent: 100}, nil)
 		e.source = s.ID
 		return err
 	})

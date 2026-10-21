@@ -9,6 +9,7 @@
 package lifecycle
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,6 +60,13 @@ type Config struct {
 	// the source's active people into leavers, unless it is forced. A broken
 	// export must not offboard the company. Default 10; 100 turns it off.
 	MaxLeaverPercent int `json:"max_leaver_percent,omitempty"`
+	// Connection is how Grantra reaches an HR system it reads itself
+	// (Workday, BambooHR): its address and references to its secrets. Empty
+	// for csv sources.
+	Connection json.RawMessage `json:"connection,omitempty"`
+	// EveryHours is how often Grantra reads such a system on its own.
+	// Default 24.
+	EveryHours int `json:"every_hours,omitempty"`
 }
 
 // Validate checks the config and fills in defaults.

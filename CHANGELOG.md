@@ -7,11 +7,13 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 ### Upgrading from 0.4
 
 - **Migration 0031** adds the table for connector secrets typed in the console. Connectors set up with `env:` references keep working as they are.
+- **Migration 0032** lets HR sources be `workday` or `bamboohr` as well as `csv`.
 
 ### Added
 
 - **Native connectors for Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center and Salesforce** ([docs](docs/connectors.md)), from Settings → Connectors. Entra ID, Google Workspace and Okta read users (with their last sign-in, for unused access), groups and admin roles, and Okta also application assignments; GitHub reads members, outside collaborators, owners and teams, with SAML emails to link accounts to people; AWS IAM Identity Center reads which permission set each person has on each AWS account, through groups too; Salesforce reads users, profiles, permission sets and permission set groups. With provisioning on, all but AWS (which only reads) change memberships and enable or disable users.
 - **Connector secrets typed in the console** ([docs](docs/connectors.md#secrets)). A token, client secret or service account key typed in Settings → Connectors is sealed with the vault key and never shown again; the config keeps a `secret:` reference. `env:` references still work. `grantra vault rewrap` re-wraps them too. API: `POST /api/v1/connector-secrets`.
+- **Workday and BambooHR as HR sources** ([docs](docs/identity-lifecycle.md#hr-systems-grantra-reads-itself)). Grantra reads people straight from Workday (a custom report shared as a web service) or BambooHR (its API, former employees included), every day by default or as often as set, and on **Check now**. What it reads goes through the same rules as a file: column mapping, every check, the leaver limit, dry runs. A read that fails changes nothing and is recorded as an invalid run. Set up from Settings → HR sources, password or API key typed in and kept encrypted. API: `POST /api/v1/identity-sources/{id}/pulls`.
 - **Change a connector's settings from the console**: **Change settings** on the application's page, leaving a secret blank to keep it.
 
 ### Changed
