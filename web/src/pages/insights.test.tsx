@@ -3,15 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Me, ReviewItem } from "@/lib/api";
 import type { AttackDetail, AttackTarget, RoleSuggestion, UnusedAccess } from "@/lib/insights";
-import { ok, renderAt, serve } from "@/test-utils";
+import { adminMe, ok, renderAt, serve } from "@/test-utils";
 
-const ada: Me = {
-  identity_id: "ada",
-  display_name: "Ada Admin",
-  platform_roles: ["grantra-admin"],
-  manages_people: true,
-  owns_applications: false,
-};
+const ada: Me = { ...adminMe, manages_people: true };
 const audrey: Me = { ...ada, identity_id: "audrey", platform_roles: ["grantra-auditor"] };
 
 const domainAdmins: AttackTarget = {

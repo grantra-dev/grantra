@@ -389,9 +389,10 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			}
 			return err
 		}},
-		// Every application with a connector is read once an hour.
+		// Every application with a connector is read as often as its page
+		// says, once an hour unless changed.
 		{"aggregate applications", 5 * time.Minute, func(ctx context.Context) error {
-			runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, secrets)
+			runs, err := accounts.AggregateDue(ctx, pool, tenantID, secrets)
 			for _, r := range runs {
 				m.RecordConnectorRun(ctx, r)
 				if r.Status == accounts.RunFailed {

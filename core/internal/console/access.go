@@ -40,6 +40,47 @@ func (a *API) createApplication(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, r, http.StatusCreated, out, err)
 }
 
+// updateApplication replaces an application's name, description, owner
+// and read schedule.
+func (a *API) updateApplication(w http.ResponseWriter, r *http.Request) {
+	var body catalog.ApplicationInput
+	if !decodeBody(w, r, &body, `{"name": "CRM", "description": "Sales pipeline", "owner_id": "<identity id>", "read_every_hours": 1}`) {
+		return
+	}
+	var out catalog.Application
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
+		out, err = catalog.UpdateApplication(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), body)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, out, err)
+}
+
+// deleteApplication removes an application without history; the others are
+// retired instead.
+func (a *API) deleteApplication(w http.ResponseWriter, r *http.Request) {
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) error {
+		return catalog.DeleteApplication(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"))
+	})
+	a.noContent(w, r, err)
+}
+
+// retireApplication takes an application out of service, {"retired": true},
+// or brings it back, {"retired": false}.
+func (a *API) retireApplication(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Retired bool `json:"retired"`
+	}
+	if !decodeBody(w, r, &body, `{"retired": true}`) {
+		return
+	}
+	var out catalog.Application
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
+		out, err = catalog.Retire(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), body.Retired)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, out, err)
+}
+
 func (a *API) listEntitlements(w http.ResponseWriter, r *http.Request) {
 	var out []catalog.Entitlement
 	err := a.guarded(r, authz.ReadCatalog, func(tx pgx.Tx, _ authz.Subject) (err error) {
@@ -63,6 +104,28 @@ func (a *API) createEntitlement(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"application_id": out.ApplicationID, "name": out.Name, "native_id": out.NativeID, "risk": out.Risk})
 	})
 	a.respond(w, r, http.StatusCreated, out, err)
+}
+
+// updateEntitlement changes an entitlement's name, description and risk.
+func (a *API) updateEntitlement(w http.ResponseWriter, r *http.Request) {
+	var body catalog.EntitlementChange
+	if !decodeBody(w, r, &body, `{"name": "Sales reps", "description": "Can see every deal", "risk": "medium"}`) {
+		return
+	}
+	var out catalog.Entitlement
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
+		out, err = catalog.UpdateEntitlement(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"), body)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, out, err)
+}
+
+// deleteEntitlement removes an entitlement added by hand and never used.
+func (a *API) deleteEntitlement(w http.ResponseWriter, r *http.Request) {
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) error {
+		return catalog.DeleteEntitlement(r.Context(), tx, a.tenantID, me.Actor(), r.PathValue("id"))
+	})
+	a.noContent(w, r, err)
 }
 
 func (a *API) listRoles(w http.ResponseWriter, r *http.Request) {

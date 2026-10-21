@@ -151,8 +151,22 @@ export interface CatalogApplication {
   config: Record<string, unknown> | null;
   provisioning: Partial<ProvisioningSettings> | null;
   owner_id?: string;
+  owner_name?: string;
+  description?: string;
+  /** How often Grantra reads it through its connector; 0 only when someone asks. */
+  read_every_hours: number;
+  /** Set once retired: no new access, not read or written to. */
+  retired_at?: string;
   entitlement_count: number;
   created_at: string;
+}
+
+/** What an admin can change about an application. */
+export interface ApplicationChange {
+  name: string;
+  description: string;
+  owner_id: string;
+  read_every_hours: number;
 }
 
 export interface Entitlement {
@@ -205,6 +219,16 @@ export const listCatalogApplications = () =>
 export const createApplication = (a: { name: string; owner_id?: string }) =>
   send<CatalogApplication>("POST", "/api/v1/applications", a);
 
+export const updateApplication = (appId: string, a: ApplicationChange) =>
+  send<CatalogApplication>("PUT", `/api/v1/applications/${id(appId)}`, a);
+
+/** Only an application without history can go; the others are retired. */
+export const deleteApplication = (appId: string) =>
+  send<void>("DELETE", `/api/v1/applications/${id(appId)}`);
+
+export const retireApplication = (appId: string, retired: boolean) =>
+  send<CatalogApplication>("PUT", `/api/v1/applications/${id(appId)}/retired`, { retired });
+
 export const listEntitlements = (appId: string) =>
   api<{ entitlements: Entitlement[] }>(`/api/v1/applications/${id(appId)}/entitlements`).then(
     (r) => r.entitlements,
@@ -214,6 +238,15 @@ export const createEntitlement = (
   appId: string,
   e: { native_id: string; name: string; description?: string; risk: Risk },
 ) => send<Entitlement>("POST", `/api/v1/applications/${id(appId)}/entitlements`, e);
+
+export const updateEntitlement = (
+  entId: string,
+  e: { name: string; description: string; risk: Risk },
+) => send<Entitlement>("PUT", `/api/v1/entitlements/${id(entId)}`, e);
+
+/** Only one added by hand and never used can go. */
+export const deleteEntitlement = (entId: string) =>
+  send<void>("DELETE", `/api/v1/entitlements/${id(entId)}`);
 
 export const listRoles = () => api<{ roles: BusinessRole[] }>("/api/v1/roles").then((r) => r.roles);
 
@@ -280,6 +313,7 @@ export interface ProvisioningRun extends ConnectorRun {
 
 export interface AppAccount {
   id: string;
+  application_id: string;
   native_id: string;
   username?: string;
   status: "active" | "disabled" | "deleted";
@@ -289,6 +323,12 @@ export interface AppAccount {
   entitlements: string[];
   last_seen_at?: string;
 }
+
+/** Ties an account to a person by hand, or with null marks it as nobody's (shared or service). */
+export const linkAccount = (accountId: string, identityId: string | null) =>
+  send<AppAccount>("PUT", `/api/v1/accounts/${id(accountId)}/identity`, {
+    identity_id: identityId,
+  });
 
 export const listConnectorRuns = (appId: string) =>
   api<{ runs: ConnectorRun[] }>(`/api/v1/applications/${id(appId)}/runs?limit=20`).then(

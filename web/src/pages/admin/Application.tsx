@@ -1,17 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { CsvHelp } from "@/components/CsvHelp";
 import { FormActions } from "@/components/FormActions";
 import { Loaded } from "@/components/Loaded";
-import { RiskBadge } from "@/components/RiskBadge";
+import { RiskBadge, RiskOptions } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
 import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Manage, ReadOnlyFields } from "@/components/Manage";
+import { PersonSearch, PickPerson } from "@/components/PersonSearch";
 import { Input, Label, Select } from "@/components/ui/field";
 import {
   Table,
@@ -27,14 +28,21 @@ import {
   aggregate,
   connectorLabels,
   createEntitlement,
+  deleteApplication,
+  deleteEntitlement,
   importAccounts,
+  linkAccount,
   listAccounts,
   listCatalogApplications,
   listConnectorRuns,
   listEntitlements,
   provision,
+  retireApplication,
   setConnector,
   setProvisioning,
+  updateApplication,
+  updateEntitlement,
+  type AppAccount,
   type CatalogApplication,
   type ConnectorRun,
   type Entitlement,
@@ -87,7 +95,11 @@ export function Application() {
       >
         <ArrowLeft className="size-4" aria-hidden /> Applications
       </Link>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">{app.name}</h1>
+      <h1 className="mb-6 flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight">
+        {app.name}
+        {app.retired_at && <Badge>Retired</Badge>}
+      </h1>
+      <About key={app.id} app={app} />
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Connector app={app} />
         <Provisioning app={app} connected={connected} />
@@ -104,11 +116,225 @@ export function Application() {
         current={tab}
         onSelect={(key) => setParams(key === "entitlements" ? {} : { tab: key })}
       />
-      {tab === "entitlements" && <Entitlements appId={app.id} />}
+      {tab === "entitlements" && <Entitlements app={app} />}
       {tab === "accounts" && <Accounts appId={app.id} />}
       {tab === "runs" && <Runs appId={app.id} />}
       {tab === "authorization" && <Authorization key={app.id} appId={app.id} />}
     </>
+  );
+}
+
+/** How often the scheduled job may read an application. */
+const readChoices = [
+  [0, "Only when someone asks"],
+  [1, "Every hour"],
+  [4, "Every 4 hours"],
+  [12, "Every 12 hours"],
+  [24, "Once a day"],
+  [168, "Once a week"],
+] as const;
+
+const readLabel = (hours: number) =>
+  readChoices.find(([h]) => h === hours)?.[1] ?? `Every ${hours} hours`;
+
+/** Who answers for the application, what it is for and how often it is read; and its retirement. */
+function About({ app }: { app: CatalogApplication }) {
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const blank = {
+    name: app.name,
+    description: app.description ?? "",
+    owner: app.owner_id ? { id: app.owner_id, name: app.owner_name ?? "" } : undefined,
+    read_every_hours: app.read_every_hours,
+  };
+  const [form, setForm] = useState<typeof blank>(blank);
+  const refresh = () => client.invalidateQueries({ queryKey: ["catalog-applications"] });
+  const save = useMutation({
+    mutationFn: () =>
+      updateApplication(app.id, {
+        name: form.name,
+        description: form.description,
+        owner_id: form.owner?.id ?? "",
+        read_every_hours: form.read_every_hours,
+      }),
+    onSuccess: () => {
+      setEditing(false);
+      return refresh();
+    },
+  });
+  const retire = useMutation({
+    mutationFn: (retired: boolean) => retireApplication(app.id, retired),
+    onSuccess: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: () => deleteApplication(app.id),
+    onSuccess: async () => {
+      await refresh();
+      void navigate("/governance/applications");
+    },
+  });
+  // The choices, plus whatever the API set if it is not one of them.
+  const choices = readChoices.some(([h]) => h === form.read_every_hours)
+    ? readChoices
+    : [...readChoices, [form.read_every_hours, readLabel(form.read_every_hours)] as const];
+
+  return (
+    <Card className="mb-6">
+      <CardHeader className="flex-row items-start justify-between gap-2">
+        <CardTitle>About</CardTitle>
+        {!editing && (
+          <Manage>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setForm(blank);
+                setEditing(true);
+              }}
+            >
+              Edit
+            </Button>
+          </Manage>
+        )}
+      </CardHeader>
+      <CardContent className="text-sm">
+        {editing ? (
+          <form
+            className="grid gap-4 md:grid-cols-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate();
+            }}
+          >
+            <div>
+              <Label htmlFor="app-edit-name">Name</Label>
+              <Input
+                id="app-edit-name"
+                required
+                maxLength={200}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="app-edit-owner">Owner</Label>
+              <PickPerson
+                id="app-edit-owner"
+                value={form.owner}
+                onChange={(owner) => setForm({ ...form, owner })}
+                placeholder="Who answers for it"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="app-edit-description">Description</Label>
+              <Input
+                id="app-edit-description"
+                maxLength={2000}
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="What people use it for"
+              />
+            </div>
+            <div>
+              <Label htmlFor="app-edit-read">Read its accounts</Label>
+              <Select
+                id="app-edit-read"
+                value={form.read_every_hours}
+                onChange={(e) => setForm({ ...form, read_every_hours: Number(e.target.value) })}
+              >
+                {choices.map(([h, label]) => (
+                  <option key={h} value={h}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <FormActions
+              action={save}
+              submit="Save"
+              onCancel={() => setEditing(false)}
+              className="md:col-span-2"
+            />
+          </form>
+        ) : (
+          <dl className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <dt className="text-slate-500">Owner</dt>
+              <dd>
+                {app.owner_name ?? (
+                  <span className="text-amber-700">
+                    Nobody yet: requests that need the owner have nobody to ask
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Read its accounts</dt>
+              <dd>
+                {app.connector === "manual" ? "No connector" : readLabel(app.read_every_hours)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Description</dt>
+              <dd>{app.description || "—"}</dd>
+            </div>
+          </dl>
+        )}
+        {app.retired_at && (
+          <Alert className="mt-4">
+            Retired on {formatDate(app.retired_at)}: nobody can ask for its access, and Grantra no
+            longer reads or writes to it. What people still hold stays visible until a review or an
+            admin removes it.
+          </Alert>
+        )}
+        <Manage>
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+            {app.retired_at ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={retire.isPending}
+                onClick={() => retire.mutate(false)}
+              >
+                Bring back into service
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={retire.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Retire ${app.name}? Nobody can ask for its access, and provisioning turns off. Its history stays.`,
+                    )
+                  )
+                    retire.mutate(true);
+                }}
+              >
+                Retire
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-700"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(`Delete ${app.name}? Only an application without history can go.`)
+                )
+                  remove.mutate();
+              }}
+            >
+              Delete
+            </Button>
+            <ErrorAlert error={retire.error ?? remove.error} className="w-full" />
+          </div>
+        </Manage>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -502,7 +728,8 @@ function Plan({ run }: { run: ProvisioningRun }) {
   );
 }
 
-function Entitlements({ appId }: { appId: string }) {
+function Entitlements({ app }: { app: CatalogApplication }) {
+  const appId = app.id;
   const client = useQueryClient();
   const { data, error, isPending } = useQuery({
     queryKey: ["entitlements", appId],
@@ -567,10 +794,7 @@ function Entitlements({ appId }: { appId: string }) {
                     setForm({ ...form, risk: e.target.value as Entitlement["risk"] })
                   }
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
+                  <RiskOptions />
                 </Select>
               </div>
               <Button type="submit" disabled={add.isPending}>
@@ -596,33 +820,156 @@ function Entitlements({ appId }: { appId: string }) {
               <TableHead>Risk</TableHead>
               <TableHead>Held</TableHead>
               <TableHead>Added</TableHead>
+              <TableHead>
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data?.map((e) => (
-              <TableRow key={e.id}>
-                <TableCell>
-                  <div className="font-medium">{e.name}</div>
-                  {e.description && <div className="text-slate-500">{e.description}</div>}
-                </TableCell>
-                <TableCell className="font-mono text-xs">{e.native_id}</TableCell>
-                <TableCell>
-                  {e.risk === "low" ? (
-                    <span className="text-slate-500">Low</span>
-                  ) : (
-                    <RiskBadge risk={e.risk} />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <JustInTime ent={e} />
-                </TableCell>
-                <TableCell className="whitespace-nowrap">{formatDate(e.created_at)}</TableCell>
-              </TableRow>
+              <EntitlementRow key={e.id} ent={e} byHand={app.connector === "manual"} />
             ))}
           </TableBody>
         </Table>
       </Loaded>
     </div>
+  );
+}
+
+/**
+ * One entitlement, with its name, description and risk to change. Grantra
+ * names only the ones added by hand: a connected application names its own,
+ * and lists them, so only the hand-made ones can be deleted.
+ */
+function EntitlementRow({ ent, byHand }: { ent: Entitlement; byHand: boolean }) {
+  const client = useQueryClient();
+  const blank = { name: ent.name, description: ent.description ?? "", risk: ent.risk };
+  const [form, setForm] = useState<typeof blank | null>(null);
+  const refresh = () =>
+    client.invalidateQueries({ queryKey: ["entitlements", ent.application_id] });
+  const save = useMutation({
+    mutationFn: () => updateEntitlement(ent.id, form!),
+    onSuccess: () => {
+      setForm(null);
+      return refresh();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => deleteEntitlement(ent.id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["catalog-applications"] });
+      return refresh();
+    },
+  });
+
+  if (form) {
+    return (
+      <TableRow>
+        <TableCell colSpan={6}>
+          <form
+            className="grid gap-3 md:grid-cols-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate();
+            }}
+          >
+            <div>
+              <Label htmlFor={`ent-${ent.id}-name`}>Name</Label>
+              <Input
+                id={`ent-${ent.id}-name`}
+                required
+                maxLength={200}
+                readOnly={!byHand}
+                title={byHand ? undefined : "The application names it"}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor={`ent-${ent.id}-description`}>Description</Label>
+              <Input
+                id={`ent-${ent.id}-description`}
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="What it lets people do"
+              />
+            </div>
+            <div>
+              <Label htmlFor={`ent-${ent.id}-risk`}>Risk</Label>
+              <Select
+                id={`ent-${ent.id}-risk`}
+                value={form.risk}
+                onChange={(e) => setForm({ ...form, risk: e.target.value as Entitlement["risk"] })}
+              >
+                <RiskOptions />
+              </Select>
+            </div>
+            <p className="text-slate-500 md:col-span-3">
+              Risk decides which approval flow a request takes, the separation of duties risk step
+              and who needs a second factor to sign in.
+            </p>
+            <FormActions
+              action={save}
+              submit="Save"
+              onCancel={() => setForm(null)}
+              className="md:col-span-3"
+            />
+          </form>
+        </TableCell>
+      </TableRow>
+    );
+  }
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="font-medium">{ent.name}</div>
+        {ent.description && <div className="text-slate-500">{ent.description}</div>}
+      </TableCell>
+      <TableCell className="font-mono text-xs">{ent.native_id}</TableCell>
+      <TableCell>
+        {ent.risk === "low" ? (
+          <span className="text-slate-500">Low</span>
+        ) : (
+          <RiskBadge risk={ent.risk} />
+        )}
+      </TableCell>
+      <TableCell>
+        <JustInTime ent={ent} />
+      </TableCell>
+      <TableCell className="whitespace-nowrap">{formatDate(ent.created_at)}</TableCell>
+      <TableCell>
+        <Manage>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setForm(blank)}
+              aria-label={`Edit ${ent.name}`}
+            >
+              Edit
+            </Button>
+            {byHand && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-700"
+                disabled={remove.isPending}
+                aria-label={`Delete ${ent.name}`}
+                onClick={() => {
+                  if (
+                    window.confirm(`Delete ${ent.name}? Only one nobody holds or asked for can go.`)
+                  )
+                    remove.mutate();
+                }}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+          <ErrorAlert error={remove.error} className="mt-1" />
+        </Manage>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -764,12 +1111,19 @@ function Accounts({ appId }: { appId: string }) {
                         {a.identity_name}
                       </Link>
                       {a.correlated_by && (
-                        <div className="text-slate-500">Matched by {a.correlated_by}</div>
+                        <div className="text-slate-500">
+                          {a.correlated_by === "manual"
+                            ? "Linked by hand"
+                            : `Matched by ${a.correlated_by}`}
+                        </div>
                       )}
                     </>
                   ) : (
                     <Badge variant="amber">Nobody</Badge>
                   )}
+                  <Manage>
+                    <LinkAccount account={a} />
+                  </Manage>
                 </TableCell>
                 <TableCell>{a.status}</TableCell>
                 <TableCell>{a.entitlements.length ? a.entitlements.join(", ") : "—"}</TableCell>
@@ -782,6 +1136,65 @@ function Accounts({ appId }: { appId: string }) {
         </Table>
         <ShowMore query={list} />
       </Loaded>
+    </div>
+  );
+}
+
+/**
+ * Ties an account to its person by hand, for the ones the rules could not
+ * match, or marks it as nobody's: a shared or service login. Either way,
+ * later reads keep the choice.
+ */
+function LinkAccount({ account }: { account: AppAccount }) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const link = useMutation({
+    mutationFn: (identity: string | null) => linkAccount(account.id, identity),
+    onSuccess: () => {
+      setOpen(false);
+      return client.invalidateQueries({ queryKey: ["accounts", account.application_id] });
+    },
+  });
+  const label = account.username || account.native_id;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="block text-brand-700 hover:underline"
+        onClick={() => setOpen(true)}
+        aria-label={`Change who ${label} belongs to`}
+      >
+        {account.identity_id ? "Change" : "Link to a person"}
+      </button>
+    );
+  }
+  return (
+    <div className="mt-1 flex min-w-56 flex-col gap-1">
+      <PersonSearch
+        id={`link-${account.id}`}
+        action="Link to"
+        skip={account.identity_id ? [account.identity_id] : []}
+        onPick={(p) => link.mutate(p.id)}
+      />
+      <div className="flex gap-3">
+        {account.identity_id && (
+          <button
+            type="button"
+            className="text-brand-700 hover:underline"
+            onClick={() => link.mutate(null)}
+          >
+            Nobody&apos;s (shared or service)
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-slate-500 hover:underline"
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+      <ErrorAlert error={link.error} />
     </div>
   );
 }

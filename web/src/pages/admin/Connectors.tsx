@@ -281,7 +281,8 @@ function Wizard({
                     </Alert>
                   ) : (
                     <Alert variant="success">
-                      It works: <Counts counts={run.counts} />. Grantra reads it again every hour.
+                      It works: <Counts counts={run.counts} />. Grantra reads it again every hour;
+                      change that on its page.
                     </Alert>
                   ))}
                 <div className="flex gap-2">

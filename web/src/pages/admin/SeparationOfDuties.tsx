@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { FormActions } from "@/components/FormActions";
 import { Loaded } from "@/components/Loaded";
-import { RiskBadge } from "@/components/RiskBadge";
+import { RiskBadge, RiskOptions } from "@/components/RiskBadge";
 import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -227,10 +227,7 @@ function NewPolicy({ onDone }: { onDone: () => void }) {
               value={severity}
               onChange={(e) => setSeverity(e.target.value as NewSoDPolicy["severity"])}
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
+              <RiskOptions />
             </Select>
           </div>
           <div className="md:col-span-3 grid gap-4 md:grid-cols-2">

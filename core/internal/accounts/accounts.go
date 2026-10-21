@@ -156,11 +156,17 @@ func connectorOf(ctx context.Context, pool *pgxpool.Pool, tenantID, applicationI
 	if !db.ValidUUID(applicationID) {
 		return "", nil, apperr.ErrNotFound
 	}
+	var name string
+	var retired bool
 	err = db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT connector, config FROM applications WHERE id = $1`, applicationID).Scan(&kind, &config)
+		return tx.QueryRow(ctx, `SELECT connector, config, name, retired_at IS NOT NULL FROM applications WHERE id = $1`, applicationID).
+			Scan(&kind, &config, &name, &retired)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = apperr.ErrNotFound
+	}
+	if err == nil && retired {
+		err = apperr.Conflictf("%s is retired; bring it back to read it again", name)
 	}
 	return kind, config, err
 }
@@ -476,18 +482,21 @@ func store(ctx context.Context, tx pgx.Tx, tenantID, appID string, snap connecto
 }
 
 // AggregateDue aggregates every application with a connector whose last
-// aggregation started more than every ago, or that was never aggregated. It
-// returns the runs it made; one application failing does not stop the others.
-func AggregateDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, every time.Duration, secrets connector.SecretResolver) ([]Run, error) {
+// aggregation started more than its read_every_hours ago, or that was never
+// aggregated. Retired applications, and those read only when someone asks
+// (read_every_hours 0), are left alone. It returns the runs it made; one
+// application failing does not stop the others.
+func AggregateDue(ctx context.Context, pool *pgxpool.Pool, tenantID string, secrets connector.SecretResolver) ([]Run, error) {
 	var due []string
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT a.id FROM applications a
-			 WHERE a.connector NOT IN ($1, $2, $4)
+			 WHERE a.connector NOT IN ($1, $2, $3) AND a.retired_at IS NULL AND a.read_every_hours > 0
 			   AND NOT EXISTS (SELECT 1 FROM connector_runs r
-			                   WHERE r.application_id = a.id AND r.kind = 'aggregation' AND r.started_at > now() - make_interval(secs => $3))
+			                   WHERE r.application_id = a.id AND r.kind = 'aggregation'
+			                     AND r.started_at > now() - make_interval(hours => a.read_every_hours))
 			   AND NOT EXISTS (SELECT 1 FROM connector_runs r WHERE r.application_id = a.id AND r.status = 'running')
-			 ORDER BY a.name`, manualConnector, builtinConnector, every.Seconds(), flatfile.Kind)
+			 ORDER BY a.name`, manualConnector, builtinConnector, flatfile.Kind)
 		if err != nil {
 			return err
 		}

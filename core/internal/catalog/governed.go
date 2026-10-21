@@ -58,6 +58,14 @@ func HeldWindowSQL(identity, entitlement string) string {
 	FROM ` + fmt.Sprintf(currentAssignments, entitlement) + ` AND x.identity_id = ` + identity
 }
 
+// RequestableSQL is an SQL condition, true when the entitlement ent of the
+// application app (table aliases) is in the catalog people ask from:
+// outside the built-in application and retired ones, and still listed by
+// its application.
+func RequestableSQL(app, ent string) string {
+	return app + `.connector <> '` + builtinConnector + `' AND ` + app + `.retired_at IS NULL AND ` + ent + `.missing_since IS NULL`
+}
+
 // RiskySQL is an SQL condition, true when the risk risk (an SQL
 // expression, such as e.risk) is high or critical: the access attack
 // paths, the vault and threat detection care about.

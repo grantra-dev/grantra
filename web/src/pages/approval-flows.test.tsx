@@ -3,15 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { AccessRequest, Assignment, Identity, Me } from "@/lib/api";
 import type { ApprovalPolicy, Plan } from "@/lib/approvals";
-import { ok, renderAt, serve, step, type Handler } from "@/test-utils";
+import { adminMe as ada, ok, renderAt, serve, step, type Handler } from "@/test-utils";
 
-const ada: Me = {
-  identity_id: "ada",
-  display_name: "Ada Admin",
-  platform_roles: ["grantra-admin"],
-  manages_people: false,
-  owns_applications: false,
-};
 const audrey: Me = { ...ada, identity_id: "audrey", platform_roles: ["grantra-auditor"] };
 
 const payroll: ApprovalPolicy = {

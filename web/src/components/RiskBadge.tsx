@@ -9,3 +9,12 @@ export function RiskBadge({ risk }: { risk: Requestable["risk"] }) {
   if (!risk || risk === "low") return null;
   return <Badge variant={variants[risk]}>{capitalize(risk)} risk</Badge>;
 }
+
+/** The four risk levels, lowest first, as options of a Select. */
+export function RiskOptions() {
+  return (["low", "medium", "high", "critical"] as const).map((r) => (
+    <option key={r} value={r}>
+      {capitalize(r)}
+    </option>
+  ));
+}

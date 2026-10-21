@@ -1023,8 +1023,8 @@ func ListRequestable(ctx context.Context, tx pgx.Tx) ([]Requestable, error) {
 		 UNION ALL
 		 SELECT 'entitlement', e.id, e.name, coalesce(e.description, ''), a.name, e.risk, e.jit_only
 		 FROM entitlements e JOIN applications a ON a.id = e.application_id
-		 WHERE a.connector <> $1 AND e.missing_since IS NULL
-		 ORDER BY 1 DESC, 5, 3`, authz.BuiltinConnector)
+		 WHERE `+catalog.RequestableSQL("a", "e")+`
+		 ORDER BY 1 DESC, 5, 3`)
 	if err != nil {
 		return nil, err
 	}

@@ -82,12 +82,17 @@ func SetSettings(ctx context.Context, tx pgx.Tx, applicationID string, s Setting
 		kind   string
 		config json.RawMessage
 	)
-	err := tx.QueryRow(ctx, `SELECT connector, config FROM applications WHERE id = $1 FOR UPDATE`, applicationID).Scan(&kind, &config)
+	var retired bool
+	err := tx.QueryRow(ctx, `SELECT connector, config, retired_at IS NOT NULL FROM applications WHERE id = $1 FOR UPDATE`, applicationID).
+		Scan(&kind, &config, &retired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, apperr.ErrNotFound
 	}
 	if err != nil {
 		return s, err
+	}
+	if retired && s.Mode == ModeOn {
+		return s, apperr.Conflictf("this application is retired; bring it back before turning provisioning on")
 	}
 	if s.Mode == ModeOn {
 		if _, err := writer(kind, config, secrets); err != nil {
