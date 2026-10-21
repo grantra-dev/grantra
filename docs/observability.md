@@ -27,7 +27,7 @@ With the Helm chart, put them under `extraEnv`. Logs keep going to stdout as JSO
 | `grantra.lifecycle.events` | counter | | Joiner, mover and leaver events turned into access changes |
 | `grantra.access.changes` | counter | `change` (added, removed) | Birthright access added or removed |
 | `grantra.access_requests.pending` | gauge | | Requests waiting for a decision |
-| `grantra.access_requests.closed` | counter | `outcome` (expired, cancelled, access_ended) | Requests closed without a decision, and access ended at its end date |
+| `grantra.access_requests.closed` | counter | `outcome` (expired, rejected, escalated, cancelled, access_ended) | Requests closed without a decision (rejected when the approval flow says so), steps escalated to the approvers' managers, and access ended at its end date |
 | `grantra.sod.violations` | gauge | `status` (open, excepted) | Separation of duties violations |
 | `grantra.notifications` | counter | `result` (sent, retried, failed, skipped) | Notification emails |
 | `grantra.notifications.queued` | gauge | | Emails waiting to be sent |

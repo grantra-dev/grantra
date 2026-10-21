@@ -9,7 +9,7 @@ someone already decided it.
 
 | Kind | Who gets it | When |
 |---|---|---|
-| `approval_needed` | The approver of the step, or every admin when the step has nobody else to ask | An access request starts waiting for them |
+| `approval_needed` | The approvers of the step who have not approved yet, or every admin when the step has nobody else to ask | An access request starts waiting for them, or a step that nobody decided in time is escalated to them |
 | `request_expiring` | The same people | Once, when the step they have not decided expires within 24 hours (set under [Settings → General](settings.md)) |
 | `request_decided` | The requester and the person the access is for | The request is approved, rejected (with who rejected it and their comment) or expired |
 | `review_assigned` | Each reviewer, with how many items they have; admins also count the items with nobody else to review them | A review campaign is launched |

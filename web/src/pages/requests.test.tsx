@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { AccessRequest, Me, Requestable } from "@/lib/api";
-import { ok, renderAt, serve, type Handler } from "@/test-utils";
+import type { Plan } from "@/lib/approvals";
+import { ok, renderAt, serve, step, type Handler } from "@/test-utils";
 
 const me: Me = {
   identity_id: "me",
@@ -53,22 +54,40 @@ const pendingRequest: AccessRequest = {
   status: "pending",
   created_at: "2026-10-10T09:00:00Z",
   steps: [
+    step({ position: 1, kind: "manager", status: "pending", due_at: "2026-10-17T09:00:00Z" }, [
+      "m",
+      "Marta Ruiz",
+    ]),
+    step({ position: 2, kind: "owner", status: "waiting" }, ["o", "Luis Pérez"]),
+  ],
+};
+
+// Who approves, as the preview says before sending.
+const plan: Plan = {
+  risk: "low",
+  steps: [
     {
-      position: 1,
       kind: "manager",
-      approver_id: "m",
-      approver_name: "Marta Ruiz",
-      status: "pending",
-      due_at: "2026-10-17T09:00:00Z",
+      approvers: [{ id: "m", name: "Marta Ruiz" }],
+      required: 1,
+      on_timeout: "expire",
     },
     {
-      position: 2,
-      kind: "owner",
-      approver_id: "o",
-      approver_name: "Luis Pérez",
-      status: "waiting",
+      kind: "people",
+      label: "Sales leads",
+      approvers: [
+        { id: "p1", name: "Pia" },
+        { id: "p2", name: "Pablo" },
+        { id: "p3", name: "Paz" },
+      ],
+      required: 2,
+      timeout_hours: 48,
+      on_timeout: "escalate",
     },
   ],
+  policy_id: "pol1",
+  policy_name: "Sales",
+  policy_version: 3,
 };
 
 function base(requests: AccessRequest[] = []): Record<string, Handler> {
@@ -86,7 +105,7 @@ describe("Request access", () => {
     const created = { ...pendingRequest, target_id: "r1", target_name: "Sales team", type: "role" };
     serve({
       ...base(),
-      "POST /api/v1/access-requests/preview": ok({ sod_conflicts: [] }),
+      "POST /api/v1/access-requests/preview": ok({ sod_conflicts: [], plan }),
       "POST /api/v1/access-requests": (init) => {
         sent = JSON.parse(init!.body as string);
         return { status: 201, body: created };
@@ -98,6 +117,14 @@ describe("Request access", () => {
     expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Why do you need it?"), "Joining sales");
     await userEvent.selectOptions(screen.getByLabelText("For how long?"), "d:90");
+    // Before sending, it says who will approve it.
+    const who = await screen.findByRole("region", { name: "Who approves it" });
+    expect(within(who).getByText("Marta Ruiz")).toBeInTheDocument();
+    expect(within(who).getByText("2 of Pia, Pablo, Paz")).toBeInTheDocument();
+    expect(
+      within(who).getByText(/48 hours to decide, then it goes to the approvers' managers/),
+    ).toBeInTheDocument();
+    expect(within(who).getByText("Approval policy “Sales”, version 3")).toBeInTheDocument();
     await waitFor(() => expect(send).toBeEnabled());
     await userEvent.click(send);
     expect(await screen.findByText(/sent\. It now waits/)).toBeInTheDocument();
@@ -112,12 +139,17 @@ describe("Request access", () => {
   it("warns about a separation of duties conflict and says an admin must accept it", async () => {
     serve({
       ...base(),
-      "POST /api/v1/access-requests/preview": ok({ sod_conflicts: ["Payments"] }),
+      "POST /api/v1/access-requests/preview": ok({ sod_conflicts: ["Payments"], plan }),
     });
     renderAt("/request");
     expect(await screen.findByText("High risk")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Request Approve payments" }));
     const warning = await screen.findByText(/this access breaks the separation of duties/);
+    expect(
+      await screen.findByText(
+        "Breaks Payments: an admin accepts the risk, with a reason and an end date.",
+      ),
+    ).toBeInTheDocument();
     expect(warning).toHaveTextContent("Payments");
     expect(warning).toHaveTextContent("a Grantra admin has to accept the risk");
     await userEvent.type(screen.getByLabelText("Why do you need it?"), "Covering a leave");
@@ -140,7 +172,10 @@ describe("My requests", () => {
     });
     renderAt("/requests");
     expect(await screen.findByText("Billing read-only")).toBeInTheDocument();
-    expect(screen.getByText("Manager: Marta Ruiz")).toBeInTheDocument();
+    const flow = screen.getByRole("list", { name: "Approval flow" });
+    expect(within(flow).getByText("Manager")).toBeInTheDocument();
+    expect(within(flow).getByText("Marta Ruiz")).toBeInTheDocument();
+    expect(screen.getByText(/Built-in approval flow/)).toBeInTheDocument();
     expect(screen.getByText(/deciding now/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Withdraw" }));
     await waitFor(() =>

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { PlanSteps } from "@/components/ApprovalFlow";
 import { FilterBox } from "@/components/FilterBox";
 import { PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
@@ -57,7 +58,7 @@ export function RequestAccess({ me }: { me: Me }) {
     <>
       <PageHeader
         title="Request access"
-        description="Find what you need and say why. Your manager and the owner approve it."
+        description="Find what you need and say why. You see who approves it before you send it."
       />
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <Card>
@@ -185,23 +186,23 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
   const queryClient = useQueryClient();
   const target = targetOf(item);
 
+  const [unit, n] = duration.split(":");
+  const asked = {
+    ...target,
+    kind,
+    duration_days: unit === "d" ? Number(n) : undefined,
+    duration_hours: unit === "h" ? Number(n) : undefined,
+  };
+  // Who approves can depend on the kind of request and how long it is for.
   const check = useQuery({
-    queryKey: ["request-preview", item.id],
-    queryFn: () => previewRequest(target),
+    queryKey: ["request-preview", item.id, kind, duration],
+    queryFn: () => previewRequest(asked),
+    placeholderData: (previous) => previous,
   });
-  const conflicts = check.data ?? [];
+  const conflicts = check.data?.sod_conflicts ?? [];
 
   const submit = useMutation({
-    mutationFn: () => {
-      const [unit, n] = duration.split(":");
-      return createRequest({
-        ...target,
-        kind,
-        justification: justification.trim(),
-        duration_days: unit === "d" ? Number(n) : undefined,
-        duration_hours: unit === "h" ? Number(n) : undefined,
-      });
-    },
+    mutationFn: () => createRequest({ ...asked, justification: justification.trim() }),
     onSuccess: async (req) => {
       await queryClient.invalidateQueries({ queryKey: ["my-requests"] });
       navigate("/requests", { state: { created: req.target_name } });
@@ -230,7 +231,7 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
         >
           {check.error && (
             <Alert variant="error">
-              Could not check separation of duties: {check.error.message}
+              Could not check who approves it and separation of duties: {check.error.message}
             </Alert>
           )}
           {conflicts.length > 0 && (
@@ -294,6 +295,12 @@ function RequestForm({ item, onClose }: { item: Requestable; onClose: () => void
               ))}
             </Select>
           </div>
+          {check.data && (
+            <section aria-label="Who approves it">
+              <h3 className="mb-2 text-sm font-medium">Who approves it</h3>
+              <PlanSteps plan={check.data.plan} conflicts={conflicts} />
+            </section>
+          )}
           {submit.error && <Alert variant="error">{submit.error.message}</Alert>}
           <Button type="submit" disabled={blocked || !justification.trim() || submit.isPending}>
             {submit.isPending ? "Sending…" : "Send request"}

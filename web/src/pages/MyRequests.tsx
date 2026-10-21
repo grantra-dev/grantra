@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router";
 import { PageHeader } from "@/components/PageHeader";
-import { RequestSteps } from "@/components/RequestSteps";
+import { ApprovalFlow } from "@/components/ApprovalFlow";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,7 @@ function RequestCard({ r, me, focused }: { r: AccessRequest; me: Me; focused: bo
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
         {r.reason && <p className="mt-1 text-sm text-slate-500">{closingReason(r.reason)}</p>}
-        <RequestSteps steps={r.steps} createdAt={r.created_at} />
+        <ApprovalFlow r={r} />
         {cancel.error && (
           <Alert variant="error" className="mt-3">
             {cancel.error.message}

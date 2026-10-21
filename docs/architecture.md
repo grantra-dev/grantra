@@ -84,6 +84,7 @@ All endpoints need a signed-in session and answer JSON. `403` means the policies
 | `/api/v1/non-human-identities`, `/summary`, `/candidates`, `/{id}`, `/{id}/retire` | Service accounts, AI agents and workloads, see [non-human-identities.md](non-human-identities.md) |
 | `/api/v1/attack-paths`, `/api/v1/attack-paths/{id}`, `/api/v1/identities/{id}/reach`, `/api/v1/unused-access`, `/api/v1/role-suggestions` | Attack paths, unused access and role suggestions, see [access-insights.md](access-insights.md) |
 | `/api/v1/requestable-access`, `/api/v1/access-requests` | Access requests and approvals, see [access-requests.md](access-requests.md) |
+| `/api/v1/approval-policies`, `/order`, `/simulate` | Who approves what, see [approval-flows.md](approval-flows.md) |
 | `/api/v1/review-campaigns`, `/api/v1/review-items` | Access reviews, see [access-reviews.md](access-reviews.md) |
 | `/api/v1/sod-policies`, `/api/v1/sod-violations` | Separation of duties, see [separation-of-duties.md](separation-of-duties.md) |
 | `/api/v1/vault/...` | Credential vault: accounts, check-outs, break glass, rotation and discovery, see [vault.md](vault.md) |

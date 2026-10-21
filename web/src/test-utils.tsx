@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 import { App } from "@/App";
+import type { ApprovalStep } from "@/lib/api";
 
 export type Handler = (init?: RequestInit) => { status: number; body: unknown };
 
@@ -31,4 +32,21 @@ export function renderAt(path: string) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+/**
+ * An approval step as the API sends it, asking one person (approver: their
+ * id and name) or, without one, the admins.
+ */
+export function step(
+  s: Pick<ApprovalStep, "position" | "kind" | "status"> & Partial<ApprovalStep>,
+  approver?: [id: string, name: string],
+): ApprovalStep {
+  return {
+    approvers: approver ? [{ id: approver[0], name: approver[1], active: true }] : [],
+    required: 1,
+    approvals: [],
+    on_timeout: "expire",
+    ...s,
+  };
 }

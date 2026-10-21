@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { Fragment, useState } from "react";
+import { RequestFlow } from "@/components/ApprovalFlow";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -62,9 +64,13 @@ export function IdentityStatusBadge({ status }: { status: IdentityStatus }) {
   return <Badge variant={statusVariants[status]}>{statusLabels[status]}</Badge>;
 }
 
-/** Someone's access: what, why they have it ("you" or "they"), since and until when. */
+/**
+ * Someone's access: what, why they have it ("you" or "they"), since and
+ * until when. Access granted by a request opens the request's approval flow.
+ */
 export function AccessTable({ rows, who }: { rows: Assignment[]; who: "you" | "they" }) {
   const [now] = useState(() => Date.now());
+  const [open, setOpen] = useState<string>();
   return (
     <Table>
       <TableHeader>
@@ -77,21 +83,45 @@ export function AccessTable({ rows, who }: { rows: Assignment[]; who: "you" | "t
       </TableHeader>
       <TableBody>
         {rows.map((a) => (
-          <TableRow key={a.id}>
-            <TableCell>
-              <div className="font-medium">{a.name}</div>
-              <div className="text-slate-500">
-                {a.type === "role" ? "Role" : a.application || "Entitlement"}
-              </div>
-            </TableCell>
-            <TableCell>
-              <Origin a={a} />
-            </TableCell>
-            <TableCell className="whitespace-nowrap">{formatDate(a.granted_at)}</TableCell>
-            <TableCell className="whitespace-nowrap">
-              <Expiry at={a.expires_at} now={now} />
-            </TableCell>
-          </TableRow>
+          <Fragment key={a.id}>
+            <TableRow>
+              <TableCell>
+                <div className="font-medium">{a.name}</div>
+                <div className="text-slate-500">
+                  {a.type === "role" ? "Role" : a.application || "Entitlement"}
+                </div>
+              </TableCell>
+              <TableCell>
+                <Origin a={a} />
+                {a.request_id && (
+                  <button
+                    type="button"
+                    className="mt-1 flex items-center gap-1 text-xs text-brand-700 hover:underline"
+                    aria-expanded={open === a.id}
+                    onClick={() => setOpen(open === a.id ? undefined : a.id)}
+                  >
+                    {open === a.id ? (
+                      <ChevronDown className="size-3.5" aria-hidden />
+                    ) : (
+                      <ChevronRight className="size-3.5" aria-hidden />
+                    )}
+                    How it was approved
+                  </button>
+                )}
+              </TableCell>
+              <TableCell className="whitespace-nowrap">{formatDate(a.granted_at)}</TableCell>
+              <TableCell className="whitespace-nowrap">
+                <Expiry at={a.expires_at} now={now} />
+              </TableCell>
+            </TableRow>
+            {open === a.id && a.request_id && (
+              <TableRow>
+                <TableCell colSpan={4} className="bg-slate-50">
+                  <RequestFlow id={a.request_id} />
+                </TableCell>
+              </TableRow>
+            )}
+          </Fragment>
         ))}
       </TableBody>
     </Table>

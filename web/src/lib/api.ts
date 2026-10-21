@@ -1,5 +1,6 @@
 // Client for the Grantra core API. The browser holds only the HttpOnly
 // session cookie; no tokens are ever handled here.
+import type { Plan } from "./approvals";
 import type { Suggestion } from "./insights";
 
 export class ApiError extends Error {
@@ -75,6 +76,8 @@ export interface Assignment {
   expires_at?: string;
   /** Why an activation was made. */
   justification?: string;
+  /** The request it was granted by, whose approval flow says why they have it. */
+  request_id?: string;
 }
 
 export const getMe = () => api<Me>("/api/v1/me");
@@ -103,13 +106,41 @@ export type RequestKind = "access" | "eligibility" | "activation";
 
 export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled" | "expired";
 
+/** Who decides a step: see lib/approvals for the policies that pick them. */
+export type StepKind = "manager" | "owner" | "people" | "holders" | "admin" | "risk";
+
+/** What happens to a step nobody decides in time. */
+export type OnTimeout = "expire" | "escalate" | "reject";
+
+export interface StepApprover {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface StepApproval {
+  identity_id: string;
+  name: string;
+  comment?: string;
+  at: string;
+}
+
 export interface ApprovalStep {
   position: number;
-  kind: "manager" | "owner" | "admin" | "risk";
-  approver_id?: string;
-  approver_name?: string;
+  kind: StepKind;
+  /** The step's name in its approval policy. */
+  label?: string;
+  /** Who the step asks; none means any Grantra admin decides. */
+  approvers: StepApprover[];
+  /** How many approvals the step needs. */
+  required: number;
+  approvals: StepApproval[];
   status: "waiting" | "pending" | "approved" | "rejected" | "skipped";
   due_at?: string;
+  on_timeout: OnTimeout;
+  /** Who the step asked before nobody decided in time and it was escalated. */
+  escalated_from?: string[];
+  escalated_at?: string;
   decided_by?: string;
   decided_at?: string;
   comment?: string;
@@ -135,6 +166,10 @@ export interface AccessRequest {
   reason?: string;
   created_at: string;
   closed_at?: string;
+  /** The approval policy the request followed; none means the built-in flow. */
+  policy_id?: string;
+  policy_name?: string;
+  policy_version?: number;
   steps: ApprovalStep[];
   /** The policies the access breaks, while an admin has to accept the risk. */
   sod_conflicts?: string[];
@@ -198,10 +233,17 @@ export async function fetchAllPages<T extends { id: string }>(
   }
 }
 
-export const previewRequest = (target: Pick<NewRequest, "role_id" | "entitlement_id">) =>
-  post<{ sod_conflicts: string[] }>("/api/v1/access-requests/preview", target).then(
-    (r) => r.sod_conflicts,
-  );
+/** Who would approve a request, and the separation of duties policies it would break. */
+export interface RequestPreview {
+  plan: Plan;
+  sod_conflicts: string[];
+}
+
+export const previewRequest = (req: Omit<NewRequest, "justification">) =>
+  post<RequestPreview>("/api/v1/access-requests/preview", req);
+
+export const getRequest = (id: string) =>
+  api<AccessRequest>(`/api/v1/access-requests/${encodeURIComponent(id)}`);
 
 export const createRequest = (req: NewRequest) =>
   post<AccessRequest>("/api/v1/access-requests", req);

@@ -46,23 +46,25 @@ func mailData(r Request) map[string]any {
 	return d
 }
 
-// approvers returns who decides the step a request waits on: its approver,
-// or the admins when it has none or they are no longer active. Nobody is
-// asked about their own access.
+// approvers returns who decides the step a request waits on: its approvers
+// who may still approve it, and the admins when it waits on them too (see
+// Step.Deciders). Nobody is asked about their own access.
 func approvers(ctx context.Context, tx pgx.Tx, r Request) ([]string, error) {
 	s := r.Current()
 	if s == nil {
 		return nil, nil
 	}
-	var to []string
-	if s.ApproverID != "" && s.approverActive {
-		to = []string{s.ApproverID}
-	} else {
-		admins, err := notify.Admins(ctx, tx)
+	to, admins := s.Deciders()
+	if admins {
+		list, err := notify.Admins(ctx, tx)
 		if err != nil {
 			return nil, err
 		}
-		to = admins
+		for _, id := range list {
+			if !slices.Contains(to, id) {
+				to = append(to, id)
+			}
+		}
 	}
 	return slices.DeleteFunc(to, func(id string) bool { return id == r.BeneficiaryID }), nil
 }

@@ -1,6 +1,6 @@
 # Approvals and reviews
 
-You see these pages when someone reports to you, when you own an application, or when you are a Grantra admin or auditor.
+You see these pages when someone reports to you, when you own an application, when an approval flow names you, or when you are a Grantra admin or auditor.
 
 ## Approvals
 
@@ -9,7 +9,7 @@ You see these pages when someone reports to you, when you own an application, or
 - **Approve** sends it to the next step, or gives the access when you are the last one.
 - **Reject** needs a comment, which the person sees.
 
-A manager decides first, then the application's owner. A request nobody decides in 7 days expires. When a request conflicts with access the person already holds, an admin has to accept the risk on the request itself, with a reason and for how long.
+Who decides, and in which order, is set by your admins (Governance → Approval flows); by default a manager decides first, then the application's owner. Some steps ask several people: the request says how many of them must approve and who already has. A step nobody decides in time expires the request, rejects it, or goes to the approvers' managers, as the flow says; the request shows which and by when. When a request conflicts with access the person already holds, an admin has to accept the risk on the request itself, with a reason and for how long.
 
 ## Access reviews
 

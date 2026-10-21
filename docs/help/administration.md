@@ -28,6 +28,12 @@ Each application's page shows its accounts, the ones nobody owns (orphans), past
 
 Business roles bundle entitlements; birthright rules give them by job ("Engineering gets the Engineer role"). They are listed here and edited through the API.
 
+## Approval flows
+
+**Governance → Approval flows** says who approves what people ask for. Each policy has conditions (applications, business roles, risk, the kind of request, the department of the person, people or service accounts, for how long) and steps in order: the manager or a manager further up, the owner, named people, the holders of a business role, or the admins. A step can need one, some or all of its people, and says what happens when nobody decides in time: the request expires, is rejected, or goes to the approvers' managers.
+
+The first policy that fits a request decides; change the order with the arrows. When none fits, the manager decides, then the owner. **Try it** shows who would approve a request before you save. Some rules hold whatever a policy says: nobody approves their own access, only low risk access can go with no approval, and a separation of duties risk always needs an admin.
+
 ## Separation of duties
 
 Policies say which access must not be held together. Grantra checks every 30 minutes, or on request. In *prevent* mode, a request that would break a policy needs an admin to accept the risk. A violation's risk can be accepted for a set time with a reason.

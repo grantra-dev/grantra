@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { AccessRequest, Me } from "@/lib/api";
-import { ok, renderAt, serve } from "@/test-utils";
+import { ok, renderAt, serve, step } from "@/test-utils";
 
 const marta: Me = {
   identity_id: "marta",
@@ -28,21 +28,11 @@ const request: AccessRequest = {
   status: "pending",
   created_at: "2026-10-10T09:00:00Z",
   steps: [
-    {
-      position: 1,
-      kind: "manager",
-      approver_id: "marta",
-      approver_name: "Marta Ruiz",
-      status: "pending",
-      due_at: "2026-10-17T09:00:00Z",
-    },
-    {
-      position: 2,
-      kind: "owner",
-      approver_id: "luis",
-      approver_name: "Luis Pérez",
-      status: "waiting",
-    },
+    step({ position: 1, kind: "manager", status: "pending", due_at: "2026-10-17T09:00:00Z" }, [
+      "marta",
+      "Marta Ruiz",
+    ]),
+    step({ position: 2, kind: "owner", status: "waiting" }, ["luis", "Luis Pérez"]),
   ],
 };
 
@@ -103,15 +93,11 @@ describe("Approvals", () => {
       ...request,
       sod_conflicts: ["Payments"],
       steps: [
-        {
-          position: 1,
-          kind: "manager",
-          approver_id: "marta",
-          approver_name: "Marta Ruiz",
-          status: "approved",
-          decided_at: "2026-10-11T09:00:00Z",
-        },
-        { position: 2, kind: "risk", status: "pending", due_at: "2026-10-18T09:00:00Z" },
+        step(
+          { position: 1, kind: "manager", status: "approved", decided_at: "2026-10-11T09:00:00Z" },
+          ["marta", "Marta Ruiz"],
+        ),
+        step({ position: 2, kind: "risk", status: "pending", due_at: "2026-10-18T09:00:00Z" }),
       ],
     };
     serve({

@@ -6,11 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/grantra-dev/grantra/core/internal/approvals"
 	"github.com/grantra-dev/grantra/core/internal/authz"
-	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/requests"
-	"github.com/grantra-dev/grantra/core/internal/sod"
 )
 
 // listRequestable lists what people can ask for, with how many people on
@@ -54,39 +53,29 @@ func (a *API) createRequest(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, r, http.StatusCreated, out, err)
 }
 
-// previewRequest tells, before asking, which prevent-mode separation of
-// duties policies the request would break: the same body as createRequest,
-// without the justification.
+// previewRequest tells, before asking, who would approve the request and
+// which prevent-mode separation of duties policies it would break: the same
+// body as createRequest, without the justification.
 func (a *API) previewRequest(w http.ResponseWriter, r *http.Request) {
 	var in requests.Input
 	if !decodeBody(w, r, &in, `{"entitlement_id": "<entitlement id>"}`) {
 		return
 	}
-	if (in.RoleID == "") == (in.EntitlementID == "") {
-		httpjson.Error(w, http.StatusBadRequest, "ask for exactly one of role_id and entitlement_id")
-		return
-	}
-	var conflicts []string
+	var (
+		plan      approvals.Plan
+		conflicts []string
+	)
 	err := a.inTenant(r, func(tx pgx.Tx, me authz.Subject) (err error) {
 		if in.BeneficiaryID == "" {
 			in.BeneficiaryID = me.ID
 		}
-		target, err := a.checkIdentity(r, tx, me, authz.CreateRequest, in.BeneficiaryID)
-		if err != nil {
+		if _, err := a.checkIdentity(r, tx, me, authz.CreateRequest, in.BeneficiaryID); err != nil {
 			return err
 		}
-		if in.RoleID != "" {
-			err = catalog.CheckRoles(r.Context(), tx, []string{in.RoleID})
-		} else {
-			err = catalog.CheckEntitlements(r.Context(), tx, []string{in.EntitlementID})
-		}
-		if err != nil {
-			return err
-		}
-		conflicts, err = sod.Conflicts(r.Context(), tx, target.ID, in.RoleID, in.EntitlementID)
+		plan, conflicts, err = requests.Preview(r.Context(), tx, me.ID, in, nil)
 		return err
 	})
-	a.respond(w, r, http.StatusOK, map[string]any{"sod_conflicts": httpjson.NonNil(conflicts)}, err)
+	a.respond(w, r, http.StatusOK, map[string]any{"sod_conflicts": httpjson.NonNil(conflicts), "plan": plan}, err)
 }
 
 // listRequests lists requests: ?scope=mine (asked by or for you, the
