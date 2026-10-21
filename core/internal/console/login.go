@@ -25,7 +25,7 @@ func (a *API) openLogin(r *http.Request, action authz.Action) (login.App, *grant
 	)
 	err := a.guardedOn(r, action, authz.LoginResource(), func(tx pgx.Tx, s authz.Subject) (err error) {
 		me = s
-		app, c, err = login.Open(r.Context(), tx, a.secrets)
+		app, c, err = login.Open(r.Context(), tx, a.Secrets.Resolve)
 		return err
 	})
 	return app, c, me, err
@@ -163,7 +163,7 @@ func (a *API) setLoginPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"policy": p}
 	if p.MFA == grantralogin.MFASensitive {
-		sync, err := login.SyncMFA(r.Context(), a.pool, a.tenantID, a.secrets)
+		sync, err := login.SyncMFA(r.Context(), a.pool, a.tenantID, a.Secrets.Resolve)
 		if err != nil {
 			// The policy is set; the job retries the sync.
 			a.log.WarnContext(r.Context(), "MFA role sync failed", "err", err)

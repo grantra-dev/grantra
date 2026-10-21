@@ -41,12 +41,14 @@ import {
   type ProvisioningRun,
   type ProvisioningSettings,
 } from "@/lib/admin";
+import { connectorTypes, secretShown } from "@/lib/connectors";
 import { cleanColumns } from "@/lib/csv";
 import { setEntitlementJIT, type JITSettings } from "@/lib/jit";
 import { formatDate, formatTime } from "@/lib/utils";
 import { NotFound } from "../NotFound";
 import { Authorization } from "./Authorization";
 import { ColumnMapping } from "./ColumnMapping";
+import { ConnectorSettings } from "./ConnectorSettings";
 import { Counts, RunStatus } from "./shared";
 import { usePages } from "@/lib/hooks";
 import { ShowMore } from "@/components/ShowMore";
@@ -113,6 +115,8 @@ function Connector({ app }: { app: CatalogApplication }) {
   const client = useQueryClient();
   const [run, setRun] = useState<ConnectorRun | null>(null);
   const [settingUp, setSettingUp] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const type = connectorTypes.find((t) => t.kind === app.connector && t.fields.length > 0);
   const read = useMutation({
     mutationFn: () => aggregate(app.id),
     onSuccess: (r) => {
@@ -123,6 +127,32 @@ function Connector({ app }: { app: CatalogApplication }) {
     },
   });
   if (settingUp) return <FileConnector app={app} onDone={() => setSettingUp(false)} />;
+  if (editing && type) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Change the {type.name} connector</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ConnectorSettings
+            type={type}
+            label={app.name}
+            current={app.config}
+            target={() => Promise.resolve(app.id)}
+            onSaved={() => {
+              setEditing(false);
+              void client.invalidateQueries({ queryKey: ["catalog-applications"] });
+            }}
+          >
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </ConnectorSettings>
+        </CardContent>
+      </Card>
+    );
+  }
+  const secrets = new Set(type?.fields.filter((f) => f.type === "secret").map((f) => f.key));
   const settings = Object.entries(app.config ?? {});
   return (
     <Card>
@@ -141,7 +171,11 @@ function Connector({ app }: { app: CatalogApplication }) {
               <div key={k} className="contents">
                 <dt className="text-slate-500">{k}</dt>
                 <dd className="font-mono text-xs break-all">
-                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                  {typeof v === "object"
+                    ? JSON.stringify(v)
+                    : secrets.has(k)
+                      ? secretShown(String(v))
+                      : String(v)}
                 </dd>
               </div>
             ))}
@@ -150,9 +184,9 @@ function Connector({ app }: { app: CatalogApplication }) {
         {app.connector === "manual" && (
           <>
             <p className="text-slate-500">
-              Nothing to read: access to this application is managed by hand. Connect it to SCIM or
-              LDAP from Settings, Connectors. An application with no API can load its accounts from
-              a CSV export.
+              Nothing to read: access to this application is managed by hand. Connect it from
+              Settings, Connectors. An application with no API can load its accounts from a CSV
+              export.
             </p>
             <Manage>
               <div>
@@ -166,10 +200,15 @@ function Connector({ app }: { app: CatalogApplication }) {
         <Manage>
           {app.connector === "csv" && <AccountFile app={app} onEdit={() => setSettingUp(true)} />}
           {app.connector !== "manual" && app.connector !== "csv" && (
-            <div>
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" disabled={read.isPending} onClick={() => read.mutate()}>
                 {read.isPending ? "Reading…" : "Read accounts now"}
               </Button>
+              {type && (
+                <Button variant="ghost" onClick={() => setEditing(true)}>
+                  Change settings
+                </Button>
+              )}
             </div>
           )}
         </Manage>

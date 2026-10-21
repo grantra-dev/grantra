@@ -3,6 +3,7 @@
 
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, ApiError, send, type IdentityStatus, type Requestable } from "./api";
+import { connectorTypes } from "./connectors";
 
 export type Risk = NonNullable<Requestable["risk"]>;
 
@@ -208,11 +209,8 @@ export const listAccessRules = () =>
 /** How each connector kind reads in the console. */
 export const connectorLabels: Record<string, string> = {
   manual: "None, managed by hand",
-  scim: "SCIM",
-  ldap: "LDAP / Active Directory",
-  "grantra-login": "Grantra Login",
-  csv: "CSV file",
   grantra: "Built in",
+  ...Object.fromEntries(connectorTypes.flatMap((t) => (t.kind ? [[t.kind, t.name]] : []))),
 };
 
 /** How an application with the csv connector reads its files. */

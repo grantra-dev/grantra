@@ -4,6 +4,20 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ## [Unreleased]
 
+### Upgrading from 0.4
+
+- **Migration 0031** adds the table for connector secrets typed in the console. Connectors set up with `env:` references keep working as they are.
+
+### Added
+
+- **Microsoft Entra ID, Google Workspace and Okta connectors** ([docs](docs/connectors.md)). Each reads users (with their last sign-in, for unused access), groups and admin roles (Entra directory roles, Google admin roles, Okta admin roles), and Okta also who is assigned to each application. With provisioning on, they add and remove group members and enable or disable users.
+- **Connector secrets typed in the console** ([docs](docs/connectors.md#secrets)). A token, client secret or service account key typed in Settings → Connectors is sealed with the vault key and never shown again; the config keeps a `secret:` reference. `env:` references still work. `grantra vault rewrap` re-wraps them too. API: `POST /api/v1/connector-secrets`.
+- **Change a connector's settings from the console**: **Change settings** on the application's page, leaving a secret blank to keep it.
+
+### Changed
+
+- Connectors that call a web API (SCIM and the new ones) wait and try again when the service says it is busy (`429`, `Retry-After`), and reads also on `502`, `503` and `504`.
+
 ## [0.4.0] - 2026-10-21
 
 Identity threat detection and response arrives: Grantra watches sign-ins and access for leavers who still sign in, impossible travel, password spray, MFA fatigue and access granted outside it, and answers from the alert. Attack paths show who can reach the riskiest access and how, insights find unused access and suggest roles, and service accounts, AI agents and workloads become identities with an owner. Approval flows and the time limits that were built in are now set per tenant from the console, and the console itself is reorganized around what each person comes to do.

@@ -18,7 +18,7 @@ The format of the file, a template and what each error means are in [CSV files](
 
 Add applications and their entitlements (roles, groups). Applications connect in one of three ways:
 
-- **SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Secrets are never typed in: you give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN`, and the secret lives in the server's environment. Grantra reads the accounts, and can write changes back once provisioning is on. Changing an existing connector's settings is done through the API.
+- **Microsoft Entra ID, Google Workspace, Okta, SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Type the token or secret in: Grantra keeps it encrypted with the vault key and never shows it again (or give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN` to a variable in the server's environment). Grantra reads the accounts every hour, and can write changes back once provisioning is on. **Change settings** on the application's page changes them later; leave a secret blank to keep the one saved.
 - **Account files**, for applications with no API: **Load accounts from a file**, map the columns, then **Check file** and **Import**. See [CSV files](csv-files.md).
 - **By hand**: Grantra keeps the catalog, and someone makes the changes in the application.
 

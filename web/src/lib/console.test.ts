@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewItem } from "./api";
-import { connectorConfig, connectorTypes, missingFields } from "./connectors";
+import { serve } from "@/test-utils";
+import {
+  connectorConfig,
+  connectorTypes,
+  connectorValues,
+  missingFields,
+  saveableConfig,
+} from "./connectors";
 import { filterReviewItems, sortReviewItems } from "./reviews";
 import { hitLink } from "./search";
 import { hasWords } from "./utils";
@@ -103,12 +110,36 @@ describe("connector settings", () => {
     ]);
   });
 
-  it("asks for secret references, never secrets", () => {
-    for (const t of connectorTypes) {
-      for (const f of t.fields.filter((f) => f.type === "secret")) {
-        expect(f.placeholder).toMatch(/^env:GRANTRA_SECRET_/);
-      }
-    }
+  it("stores typed secrets on the server and saves only their references", async () => {
+    const stored: unknown[] = [];
+    serve({
+      "POST /api/v1/connector-secrets": (init) => {
+        stored.push(JSON.parse(init!.body as string));
+        return { status: 201, body: { ref: "secret:s1" } };
+      },
+    });
+    const okta = connectorTypes.find((t) => t.kind === "okta")!;
+    const org = "https://acme.okta.com";
+    expect(
+      await saveableConfig(okta, { org_url: org, token: " 00abc ", apps: false }, "Okta"),
+    ).toEqual({ org_url: org, token: "secret:s1", apps: false });
+    expect(stored).toEqual([{ label: "Okta: API token", value: "00abc" }]);
+    // References go as they are, and a secret left blank keeps the saved one.
+    expect(
+      await saveableConfig(
+        okta,
+        { org_url: org, token: "env:GRANTRA_SECRET_OKTA", apps: true },
+        "Okta",
+      ),
+    ).toEqual({ org_url: org, token: "env:GRANTRA_SECRET_OKTA", apps: true });
+    const kept = { org_url: org, token: "secret:old" };
+    expect(await saveableConfig(okta, connectorValues(okta, kept), "Okta", kept)).toEqual({
+      org_url: org,
+      token: "secret:old",
+      apps: true,
+    });
+    expect(missingFields(okta, connectorValues(okta, kept), kept)).toEqual([]);
+    expect(stored).toHaveLength(1);
   });
 });
 

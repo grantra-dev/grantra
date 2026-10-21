@@ -2,7 +2,80 @@
 
 A connector is how Grantra talks to an application. An *aggregation* **reads** the application's entitlements (groups, roles) and accounts, with who holds what, and stores them as the actual state next to the assignments (the desired state, see [access.md](access.md)). *Provisioning* **writes**: it changes the application so the actual state matches the desired one.
 
-In the console, **Settings → Connectors** connects an application in three steps (which application, its settings, a first read to test them) for SCIM, LDAP / Active Directory, Grantra Login and CSV files, and lists the connectors still planned. It saves the same config as the API calls below, which also cover the optional settings and changing a connector later.
+In the console, **Settings → Connectors** connects an application in three steps (which application, its settings, a first read to test them) for Microsoft Entra ID, Google Workspace, Okta, SCIM, LDAP / Active Directory, Grantra Login and CSV files, and lists the connectors still planned. **Change settings** on the application's page changes a connector later (a new client secret when the old one expires, say). Both save the same config as the API calls below, which also cover the optional settings.
+
+## Secrets
+
+A connector needs a credential: an API token, a client secret, a service account key. There are two ways to give it:
+
+- **Type it in the console.** Grantra seals it with the [vault key](vault.md) (AES-256-GCM under its own data key, which the vault key or KMS wraps), stores it in the database and puts a reference such as `secret:7c9d…` in the connector config. Nobody can read it back, from the console or the API; it can only be replaced. This needs a vault key: without one, the console says so and asks for an environment reference instead. `grantra vault rewrap` re-wraps these secrets too when the vault key changes. From the API: `POST /api/v1/connector-secrets` with `{"label": "Okta API token", "value": "..."}` answers `{"ref": "secret:..."}`.
+- **Keep it in the server's environment** and give a reference, `env:NAME`, where `NAME` must start with `GRANTRA_SECRET_`. The prefix keeps a connector config from naming the server's own settings (such as `GRANTRA_DATABASE_URL`) and sending them to an outside URL.
+
+Either way the config holds only a reference, so it is safe to show and to write in the audit log.
+
+## Microsoft Entra ID
+
+The `entra-id` connector reads a Microsoft Entra ID (Azure AD) tenant through Microsoft Graph. Groups (security and Microsoft 365) and the **directory roles** someone holds (Global Administrator, Privileged Role Administrator...) become entitlements; users become accounts, guests included.
+
+1. In the Entra admin center, **App registrations → New registration** (single tenant, no redirect URI).
+2. **API permissions → Add → Microsoft Graph → Application permissions**: `User.Read.All`, `GroupMember.Read.All`, `RoleManagement.Read.Directory` and, for last sign-ins, `AuditLog.Read.All`. **Grant admin consent**.
+3. **Certificates & secrets → New client secret**. Note when it expires: change it before then from the application's page.
+
+```sh
+curl -b cookies -X PUT localhost:8080/api/v1/applications/$APP/connector -d '{
+  "kind": "entra-id",
+  "config": {"tenant_id": "contoso.onmicrosoft.com", "client_id": "<application id>", "client_secret": "secret:..."}
+}'
+```
+
+| Config | Meaning |
+|---|---|
+| `tenant_id` | The directory (tenant) id, or a verified domain |
+| `client_id` | The app registration's application (client) id |
+| `client_secret` | The client secret (see [Secrets](#secrets)) |
+| `graph_url`, `login_url` | For national clouds, e.g. `https://graph.microsoft.us` and `https://login.microsoftonline.us`. Default the global cloud |
+
+Accounts bring the user principal name (username), `mail` (or the UPN), `employeeId` for correlation, `accountEnabled`, `jobTitle`, `department` and `userType` (`Member` or `Guest`). **Last sign-in** (`signInActivity`, for [unused access](access-insights.md)) needs an Entra ID P1 licence and `AuditLog.Read.All`; without them the read goes on without it. Group members that are not users (devices, nested groups, service principals) are left out: a person holds the groups they were put in directly. Directory roles show up with "(directory role)" after their name, so give them the risk they deserve in the catalog.
+
+To provision, add `GroupMember.ReadWrite.All` (groups), `RoleManagement.ReadWrite.Directory` (directory roles) and `User.EnableDisableAccount.All` with `User.Read.All` (enable and disable). Grantra adds and removes members and blocks or unblocks sign-in; it does not create users, which come from HR through your usual onboarding. Dynamic groups and groups synced from on-premises AD cannot be changed through Graph: the action fails with Graph's reason.
+
+## Google Workspace
+
+The `google-workspace` connector reads a Google Workspace through the Admin SDK Directory API. Groups and **admin roles** (Super Admin and the others) become entitlements; users become accounts.
+
+1. In Google Cloud, create a project and a **service account**, enable the **Admin SDK API**, and create a JSON key for the service account.
+2. In the Google Admin console, **Security → Access and data control → API controls → Domain-wide delegation → Add new**: the service account's client id and these scopes: `https://www.googleapis.com/auth/admin.directory.user.readonly`, `https://www.googleapis.com/auth/admin.directory.group.readonly`, `https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly`.
+3. Pick an administrator for the service account to act as (a dedicated one with a read-only admin role is best).
+
+| Config | Meaning |
+|---|---|
+| `admin_email` | The administrator the service account acts as |
+| `service_account_key` | The service account's JSON key (see [Secrets](#secrets)) |
+| `customer` | The Workspace customer id. Default `my_customer`, the administrator's own |
+
+Accounts bring the primary email (username and email), the `organization` external id (the employee id, for correlation), suspended or archived (disabled), the primary organization's title and department, the org unit and the **last sign-in**. Only users that are direct members of a group hold it.
+
+To provision, also allow `https://www.googleapis.com/auth/admin.directory.user` and `https://www.googleapis.com/auth/admin.directory.group.member` for the service account. Grantra asks for them only when it changes something, so a read-only setup never needs them. It adds and removes group members and suspends or restores users; it does not create users or change admin roles.
+
+## Okta
+
+The `okta` connector reads an Okta organization through its management API. Groups, **application assignments** and **admin roles** become entitlements; users become accounts, deactivated ones included (as disabled).
+
+Create an API token (**Security → API → Tokens**) signed in as an administrator with the **Read-only Administrator** role; Okta tokens act with the permissions of whoever created them.
+
+| Config | Meaning |
+|---|---|
+| `org_url` | The Okta organization, e.g. `https://acme.okta.com` |
+| `token` | The API token (see [Secrets](#secrets)) |
+| `apps` | Default `true`: also read who is assigned to each active application, as entitlements named "Salesforce (application)". Each application costs one more call per read; `false` leaves them out |
+
+Accounts bring the login (username), email, `employeeNumber` for correlation, title, department, user type, Okta status and the **last sign-in**. Users who are active, staged, provisioned, locked out or in password recovery count as active; suspended and deactivated ones as disabled.
+
+To provision, the token's administrator needs to manage the groups Grantra changes (Group Administrator for them, or more). Grantra adds and removes group members and suspends or unsuspends users; deactivated users are reactivated in Okta, by a person. It does not change application assignments or admin roles directly: assign applications to groups in Okta and govern the groups.
+
+## Rate limits
+
+Every connector that calls a web API waits and tries again, up to five times, when the service says it is busy (`429 Too Many Requests`, or GitHub's `403` with its limit used up), as long as the service asks (`Retry-After`) or with a growing pause. Reads also try again on `502`, `503` and `504`. A wait longer than a minute fails the read instead, which changes nothing; the next hourly read tries again.
 
 ## SCIM 2.0
 
@@ -20,12 +93,12 @@ curl -b cookies -X POST localhost:8080/api/v1/applications/$APP/aggregations
 | Config | Meaning |
 |---|---|
 | `base_url` | The SCIM endpoint. Must be https; `allow_http: true` is for labs only |
-| `token` | A **reference** to the bearer token, `env:NAME`, where `NAME` must start with `GRANTRA_SECRET_`. Secrets never go in the config, so the config is safe to show and audit. The prefix keeps a connector config from naming the server's own settings (such as `GRANTRA_DATABASE_URL`) and sending them to an outside URL |
+| `token` | The bearer token: typed in the console, or a reference to the server's environment (see [Secrets](#secrets)) |
 | `page_size` | Resources per request, default 100 |
 
 Groups become entitlements. Membership comes from each group's `members` and each user's `groups`. Users bring `userName`, primary email, `externalId` (or the enterprise `employeeNumber`), `active`, `title` and `department`.
 
-The config is checked when it is saved (URL, token reference present in the environment), so mistakes show up before the first aggregation. Only admins configure connectors; they point the server at URLs of their choosing, so treat that permission accordingly.
+The config is checked when it is saved (URL, token reference that resolves), so mistakes show up before the first aggregation. Only admins configure connectors; they point the server at URLs of their choosing, so treat that permission accordingly.
 
 ## LDAP and Active Directory
 
@@ -194,6 +267,10 @@ With provisioning on, Grantra provisions every application on its own every five
 
 The SCIM connector writes with `POST /Users` (`userName`, `displayName`, primary work email, `externalId`), `PATCH /Users/{id}` (`active`) and `PATCH /Groups/{id}` (`add` / `remove` `members`). The token needs write access to users and groups.
 
+### Entra ID, Google Workspace and Okta
+
+They add and remove group members and enable or disable users, with the permissions in their sections above. None of them creates accounts: people get those from HR through the directory's own onboarding, and the next aggregation links them.
+
 ### LDAP
 
 The LDAP connector adds and removes the user's DN in the group's `member` attribute, and disables or enables accounts: the disable flag of `userAccountControl` in Active Directory, `pwdAccountLockedTime` in OpenLDAP. It does not create accounts, which directories usually get from their own onboarding. An OpenLDAP `groupOfNames` must keep one member, so removing its last one fails with a message saying so; give such groups a placeholder member.
@@ -206,7 +283,8 @@ The Grantra Login connector creates users (username and verified email from HR, 
 
 | Endpoint | Action |
 |---|---|
-| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "scim", "ldap", "grantra-login" or "csv", "config": {...}}`; `"kind": "manual"` removes it |
+| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "entra-id", "google-workspace", "okta", "scim", "ldap", "grantra-login" or "csv", "config": {...}}`; `"kind": "manual"` removes it |
+| `POST /api/v1/connector-secrets` | `catalog.manage`: `{"label": "...", "value": "..."}`, `201` with `{"ref": "secret:..."}` to put in a config; `409` without a vault key |
 | `POST /api/v1/applications/{id}/aggregations` | `catalog.manage`: `200` with the run, `502` if the application could not be read |
 | `POST /api/v1/applications/{id}/account-imports?dry_run=` | `catalog.manage`, or a service token with `application.import_accounts`: the CSV file is the body (32 MiB max). `200` with the run (`planned` for a dry run), `422` with the run when the file is refused |
 | `PUT /api/v1/applications/{id}/provisioning` | `catalog.manage`: `{"mode": "on", "remove_unassigned": false, "max_change_percent": 10}` |
@@ -218,4 +296,4 @@ The Grantra Login connector creates users (username and verified email from HR, 
 
 ## Writing a connector
 
-Implement `connector.Reader` (`Read(ctx) (Snapshot, error)`) in a package under `core/internal/connector/`, register a `Factory` in `init`, and import the package in `cmd/grantra`. The factory must reject unknown config fields and resolve secrets through the `SecretResolver` it is given. `Read` must fail rather than return a partial snapshot. To provision, also implement `connector.Writer` (`SetActive`, `AddMember`, `RemoveMember`, all safe to repeat), and `connector.AccountCreator` (`CreateAccount`) if the application can create accounts. Connectors that can set passwords implement `connector.PasswordSetter` (`SetPassword`) and call `connector.RegisterPasswordSetter` in `init`, which lets the [vault](vault.md#rotation) rotate passwords through them. See `connector/scim` and `connector/ldap` for examples with a fake server in their tests.
+Implement `connector.Reader` (`Read(ctx) (Snapshot, error)`) in a package under `core/internal/connector/`, register a `Factory` in `init`, and import the package in `cmd/grantra`. The factory must reject unknown config fields and resolve secrets through the `SecretResolver` it is given. `Read` must fail rather than return a partial snapshot. To provision, also implement `connector.Writer` (`SetActive`, `AddMember`, `RemoveMember`, all safe to repeat), and `connector.AccountCreator` (`CreateAccount`) if the application can create accounts. Connectors that can set passwords implement `connector.PasswordSetter` (`SetPassword`) and call `connector.RegisterPasswordSetter` in `init`, which lets the [vault](vault.md#rotation) rotate passwords through them. Connectors for web APIs share `connector/httpapi` (address checks, sign-in with a token or OAuth, waiting when the service is busy, error messages, paging by link or token), `connector.DecodeConfig` and `connector.Secret` for the config, and `connector.Builder` to put a snapshot together from lists of members; their tests fake the API with `connector/connectortest`. See `connector/okta` for a short example, and `connector/ldap` for one that is not a web API.
