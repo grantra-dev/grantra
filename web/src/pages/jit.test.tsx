@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PlatformRole, type AccessRequest, type Me } from "@/lib/api";
 import type { Eligibility, Standing } from "@/lib/jit";
 import type { VaultAccount, VaultCheckout } from "@/lib/vault";
-import { ok, renderAt, serve } from "@/test-utils";
+import { ok, renderAt, serve, step } from "@/test-utils";
 
 const ana: Me = {
   identity_id: "ana",
@@ -111,7 +111,20 @@ describe("Just-in-time access", () => {
       "GET /api/v1/identities/ana/access": ok({ assignments: [] }),
       "GET /api/v1/identities/ana/eligibilities": ok({ eligibilities: [] }),
       "GET /api/v1/access-requests?scope=mine&limit=200": ok({ requests: [] }),
-      "POST /api/v1/access-requests/preview": ok({ sod_conflicts: [] }),
+      "POST /api/v1/access-requests/preview": ok({
+        sod_conflicts: [],
+        plan: {
+          risk: "high",
+          steps: [
+            {
+              kind: "owner",
+              approvers: [{ id: "adm", name: "Ada Admin" }],
+              required: 1,
+              on_timeout: "expire",
+            },
+          ],
+        },
+      }),
       "POST /api/v1/access-requests": (init) => {
         sent = body(init);
         return { status: 201, body: { target_name: "Org admins" } };
@@ -155,7 +168,7 @@ describe("Just-in-time access", () => {
       duration_hours: 2,
       status: "pending",
       created_at: "2026-10-16T09:00:00Z",
-      steps: [{ position: 1, kind: "owner", approver_id: "adm", status: "pending" }],
+      steps: [step({ position: 1, kind: "owner", status: "pending" }, ["adm", "Ada Admin"])],
     };
     serve({
       "GET /api/v1/me": ok(admin),

@@ -145,7 +145,7 @@ func TestRequestFlow(t *testing.T) {
 	if r.Status != Pending || r.Justification != "I sell things" || !equal(kinds(r), []string{"manager:pending", "owner:waiting"}) {
 		t.Fatalf("request = %+v", r)
 	}
-	if c := r.Current(); c == nil || c.ApproverID != boss || c.DueAt == nil {
+	if c := r.Current(); c == nil || len(c.Approvers) != 1 || c.Approvers[0].ID != boss || c.Approvers[0].Name != "Boss" || c.DueAt == nil {
 		t.Errorf("current step = %+v", c)
 	}
 	var conflict *apperr.Conflict

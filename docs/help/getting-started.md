@@ -8,17 +8,17 @@ Grantra is where you see and ask for access to the company's applications. Your 
 
 ## What you can access
 
-**My access** lists everything you hold: each application and role, why you have it and until when. Access that ends on a date shows that date. Access you are *eligible* for is listed too: you turn it on yourself when you need it, for a few hours, with a reason.
+**My access** lists everything you hold: each application and role, why you have it and until when. For access you asked for, **How it was approved** shows who approved it and when. Access that ends on a date shows that date. Access you are *eligible* for is listed too: you turn it on yourself when you need it, for a few hours, with a reason.
 
 ## Asking for access
 
 1. Open **Request access** and search the catalog for the application or role. When your team has three or more people, each item says how many of your teammates hold it, which helps when a name says little. If it has no description, ask its owner before requesting it.
 2. Say why you need it. You can ask for it for a set number of hours or days.
-3. Send it. Your manager decides first, then the application's owner when it has one.
+3. Before you send it, **Who approves it** shows who will decide, in order. Usually your manager decides first, then the application's owner, but your admins can set other approvers for some access.
 
 If what you ask for conflicts with access you already hold (the same person should not, say, both create and approve payments), Grantra tells you before you send it, and an admin has to accept the risk.
 
-**My requests** shows where each request is: who decides now, how long it has waited and until when. You can withdraw a request while it is pending. A request nobody decides in 7 days expires; ask again if you still need it.
+**My requests** shows where each request is: who decides now, how long it has waited and until when. You can withdraw a request while it is pending. A request nobody decides in time expires (7 days unless your admins changed it); ask again if you still need it.
 
 ## Emails
 

@@ -397,16 +397,18 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			}
 			return err
 		}},
-		// Requests nobody decided in time, or for people who left, close;
-		// access whose time is up ends.
+		// Requests nobody decided in time close or are escalated, requests
+		// for people who left close, and access whose time is up ends.
 		{"expire access requests", 5 * time.Minute, func(ctx context.Context) error {
 			h, err := requests.ExpireDue(ctx, pool, tenantID)
 			m.RequestsClosed.Add(ctx, int64(h.Expired), metric.WithAttributes(attribute.String("outcome", "expired")))
+			m.RequestsClosed.Add(ctx, int64(h.Rejected), metric.WithAttributes(attribute.String("outcome", "rejected")))
+			m.RequestsClosed.Add(ctx, int64(h.Escalated), metric.WithAttributes(attribute.String("outcome", "escalated")))
 			m.RequestsClosed.Add(ctx, int64(h.Cancelled), metric.WithAttributes(attribute.String("outcome", "cancelled")))
 			m.RequestsClosed.Add(ctx, int64(h.AccessEnded), metric.WithAttributes(attribute.String("outcome", "access_ended")))
-			if h.Expired+h.Cancelled+h.AccessEnded > 0 {
-				log.InfoContext(ctx, "closed access requests and ended expired access",
-					"expired", h.Expired, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
+			if h.Expired+h.Rejected+h.Escalated+h.Cancelled+h.AccessEnded > 0 {
+				log.InfoContext(ctx, "closed or escalated access requests and ended expired access",
+					"expired", h.Expired, "rejected", h.Rejected, "escalated", h.Escalated, "cancelled", h.Cancelled, "access_ended", h.AccessEnded)
 			}
 			return err
 		}},

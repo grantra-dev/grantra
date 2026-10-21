@@ -1,15 +1,18 @@
 // Package requests lets people ask for access. A request names a business
 // role or an entitlement, who it is for (the requester or one of their
-// reports) and why. Approvers decide in order: the person's manager, then the
-// owner of the role or of the entitlement's application. Once every step is
-// approved the request becomes an assignment with origin "request", which
-// provisioning carries to the application.
+// reports) and why. Approvers decide in order, following the tenant's
+// approval policy for the request (package approvals), copied into the
+// request when it is made: by default the person's manager, then the owner
+// of the role or of the entitlement's application. A step may ask several
+// people and need one, some or all of them. Once every step is approved the
+// request becomes an assignment with origin "request", which provisioning
+// carries to the application.
 //
-// Steps with nobody to ask (no manager, no owner, or an approver who would be
-// approving their own access) go to the admins. A step the requester would
-// approve themselves, such as a manager asking for a report, counts as
-// approved: asking is the approval. Steps not decided in time (the tenant's
-// settings.RequestStepTimeoutHours) expire the request.
+// Steps with nobody to ask go to the admins. An approval the requester would
+// give themselves, such as a manager asking for a report, is given by
+// asking. A step not decided in time (its policy's, or the tenant's
+// settings.RequestStepTimeoutHours) expires the request, rejects it or is
+// escalated once to the approvers' managers, as its policy says.
 //
 // Access that would break a prevent-mode separation of duties policy adds a
 // last "risk" step: an admin other than the person getting the access
@@ -30,6 +33,7 @@ import (
 
 	"github.com/grantra-dev/grantra/core/internal/access"
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/approvals"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
@@ -67,32 +71,72 @@ const (
 	StepSkipped  = "skipped"
 )
 
-// Step kinds.
+// Step kinds: who decides (see package approvals).
 const (
-	KindManager = "manager"
-	KindOwner   = "owner"
-	KindAdmin   = "admin"
+	KindManager = approvals.Manager
+	KindOwner   = approvals.Owner
+	KindPeople  = approvals.People
+	KindHolders = approvals.Holders
+	KindAdmin   = approvals.Admin
 	// KindRisk is decided by admins: approving it accepts a separation of
 	// duties risk.
 	KindRisk = "risk"
 )
 
+// Approver is someone a step asks.
+type Approver struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+// Approval is someone's approval of a step.
+type Approval struct {
+	IdentityID string    `json:"identity_id"`
+	Name       string    `json:"name"`
+	Comment    string    `json:"comment,omitempty"`
+	At         time.Time `json:"at"`
+}
+
 // Step is one approval a request needs.
 type Step struct {
 	Position int    `json:"position"`
 	Kind     string `json:"kind"`
-	// ApproverID is empty when any admin decides.
-	ApproverID   string     `json:"approver_id,omitempty"`
-	ApproverName string     `json:"approver_name,omitempty"`
-	Status       string     `json:"status"`
-	DueAt        *time.Time `json:"due_at,omitempty"`
-	DecidedBy    string     `json:"decided_by,omitempty"`
-	DecidedAt    *time.Time `json:"decided_at,omitempty"`
-	Comment      string     `json:"comment,omitempty"`
+	// Label is the step's name in its policy, if it has one.
+	Label string `json:"label,omitempty"`
+	// Approvers are who the step asks; none means any admin decides.
+	Approvers []Approver `json:"approvers"`
+	// Required is how many approvals the step needs.
+	Required  int        `json:"required"`
+	Approvals []Approval `json:"approvals"`
+	Status    string     `json:"status"`
+	DueAt     *time.Time `json:"due_at,omitempty"`
+	// OnTimeout is what happens at DueAt: expire, escalate or reject.
+	OnTimeout string `json:"on_timeout"`
+	// EscalatedFrom names who the step asked before it was escalated.
+	EscalatedFrom []string   `json:"escalated_from,omitempty"`
+	EscalatedAt   *time.Time `json:"escalated_at,omitempty"`
+	DecidedBy     string     `json:"decided_by,omitempty"`
+	DecidedAt     *time.Time `json:"decided_at,omitempty"`
+	Comment       string     `json:"comment,omitempty"`
 	// ExceptionDays is how long an accepted risk lasts (risk steps).
 	ExceptionDays *int `json:"exception_days,omitempty"`
+}
 
-	approverActive bool
+func (s Step) approved(identity string) bool {
+	return slices.ContainsFunc(s.Approvals, func(a Approval) bool { return a.IdentityID == identity })
+}
+
+// Deciders returns the approvers who may still approve the step: active,
+// and not approved yet. admins says the step also waits on the admins,
+// because it asks nobody or too few are left to give the approvals it needs.
+func (s Step) Deciders() (ids []string, admins bool) {
+	for _, a := range s.Approvers {
+		if a.Active && !s.approved(a.ID) {
+			ids = append(ids, a.ID)
+		}
+	}
+	return ids, len(s.Approvers) == 0 || len(ids) < s.Required-len(s.Approvals)
 }
 
 // Request is an access request with its approval steps.
@@ -116,7 +160,12 @@ type Request struct {
 	Reason        string     `json:"reason,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ClosedAt      *time.Time `json:"closed_at,omitempty"`
-	Steps         []Step     `json:"steps"`
+	// PolicyID, PolicyName and PolicyVersion are the approval policy the
+	// request followed; with none, the built-in flow.
+	PolicyID      string `json:"policy_id,omitempty"`
+	PolicyName    string `json:"policy_name,omitempty"`
+	PolicyVersion *int   `json:"policy_version,omitempty"`
+	Steps         []Step `json:"steps"`
 	// SoDConflicts names, while a risk step is undecided, the policies the
 	// access would break.
 	SoDConflicts []string `json:"sod_conflicts,omitempty"`
@@ -136,12 +185,12 @@ func (r Request) Current() *Step {
 func (r Request) Resource() authz.Resource {
 	var approvers, current []string
 	for _, s := range r.Steps {
-		if s.ApproverID != "" {
-			approvers = append(approvers, s.ApproverID)
+		for _, a := range s.Approvers {
+			approvers = append(approvers, a.ID)
 		}
 	}
-	if c := r.Current(); c != nil && c.ApproverID != "" && c.approverActive {
-		current = []string{c.ApproverID}
+	if c := r.Current(); c != nil {
+		current, _ = c.Deciders()
 	}
 	return authz.AccessRequestResource(r.ID, r.RequesterID, r.BeneficiaryID, approvers, current)
 }
@@ -223,25 +272,11 @@ func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	if err := in.check(); err != nil {
 		return Request{}, err
 	}
-	var owner, manager, status string
-	var err error
-	if in.RoleID != "" {
-		if err = catalog.CheckRoles(ctx, tx, []string{in.RoleID}); err != nil {
-			return Request{}, err
-		}
-		err = tx.QueryRow(ctx, `SELECT coalesce(owner_id::text, '') FROM roles WHERE id = $1`, in.RoleID).Scan(&owner)
-	} else {
-		if err = catalog.CheckEntitlements(ctx, tx, []string{in.EntitlementID}); err != nil {
-			return Request{}, err
-		}
-		err = tx.QueryRow(ctx,
-			`SELECT coalesce(a.owner_id::text, '') FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1`,
-			in.EntitlementID).Scan(&owner)
-	}
-	if err != nil {
+	if err := checkTarget(ctx, tx, in); err != nil {
 		return Request{}, err
 	}
-	err = tx.QueryRow(ctx, `SELECT status, coalesce(manager_id::text, '') FROM identities WHERE id = $1`, in.BeneficiaryID).Scan(&status, &manager)
+	var status string
+	err := tx.QueryRow(ctx, `SELECT status FROM identities WHERE id = $1`, in.BeneficiaryID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Request{}, apperr.ErrNotFound
 	}
@@ -283,14 +318,22 @@ func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	if err != nil {
 		return Request{}, err
 	}
+	plan, err := approvals.Resolve(ctx, tx, in.approvalRequest(requesterID))
+	if err != nil {
+		return Request{}, err
+	}
 
 	var id string
+	var version *int
+	if plan.PolicyID != "" {
+		version = &plan.PolicyVersion
+	}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO access_requests (tenant_id, requester_id, beneficiary_id, role_id, entitlement_id, justification,
-		                             kind, duration_days, duration_hours)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		                             kind, duration_days, duration_hours, policy_id, policy_name, policy_version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
 		tenantID, requesterID, in.BeneficiaryID, db.Nullable(in.RoleID), db.Nullable(in.EntitlementID), in.Justification,
-		in.Kind, in.DurationDays, in.DurationHours).Scan(&id)
+		in.Kind, in.DurationDays, in.DurationHours, db.Nullable(plan.PolicyID), db.Nullable(plan.PolicyName), version).Scan(&id)
 	if db.IsUniqueViolation(err) {
 		return Request{}, apperr.Conflictf("there is already an open request for this access")
 	}
@@ -298,41 +341,37 @@ func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 		return Request{}, err
 	}
 
-	// The chain: manager, then owner. Nobody approves their own access, and
-	// the same person is asked once.
-	type plan struct{ kind, approver string }
-	var steps []plan
-	for _, s := range []plan{{KindManager, manager}, {KindOwner, owner}} {
-		if s.approver == in.BeneficiaryID {
-			s.approver = ""
-		}
-		if s.approver == "" {
-			s.kind = KindAdmin
-		}
-		if len(steps) > 0 && steps[len(steps)-1].approver == s.approver {
-			continue
-		}
-		steps = append(steps, s)
-	}
+	// The steps of the plan, then the separation of duties risk. An
+	// approval the requester would give is given by asking.
+	steps := plan.Steps
 	if len(conflicts) > 0 {
-		steps = append(steps, plan{KindRisk, ""})
+		steps = append(steps, approvals.Planned{Kind: KindRisk, Approvers: []approvals.Person{}, Required: 1, OnTimeout: approvals.Expire})
 	}
 	for n, s := range steps {
 		st, decidedBy, comment := StepWaiting, "", ""
-		if s.approver != "" && s.approver == requesterID {
+		if s.RequesterApproves && s.Required == 1 {
 			st, decidedBy, comment = StepApproved, db.IdentityActor(requesterID), "asked for it"
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO access_request_steps (tenant_id, request_id, position, kind, approver_id, status, decided_by, decided_at, comment)
-			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), CASE WHEN $7 = '' THEN NULL ELSE now() END, nullif($8, ''))`,
-			tenantID, id, n+1, s.kind, db.Nullable(s.approver), st, decidedBy, comment); err != nil {
+			`INSERT INTO access_request_steps (tenant_id, request_id, position, kind, approver_ids, required, label, timeout_hours, on_timeout,
+			                                   status, decided_by, decided_at, comment)
+			 VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), nullif($8, 0), $9,
+			         $10, nullif($11, ''), CASE WHEN $11 = '' THEN NULL ELSE now() END, nullif($12, ''))`,
+			tenantID, id, n+1, s.Kind, s.IDs(), s.Required, s.Label, s.TimeoutHours, s.OnTimeout,
+			st, decidedBy, comment); err != nil {
 			return Request{}, err
+		}
+		if s.RequesterApproves {
+			if err := addApproval(ctx, tx, tenantID, id, n+1, requesterID, "asked for it"); err != nil {
+				return Request{}, err
+			}
 		}
 	}
 	actor := db.IdentityActor(requesterID)
 	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.created", "access_request", id,
 		map[string]any{"beneficiary_id": in.BeneficiaryID, "role_id": in.RoleID, "entitlement_id": in.EntitlementID,
-			"kind": in.Kind, "duration_days": in.DurationDays, "duration_hours": in.DurationHours, "sod_conflicts": conflicts}); err != nil {
+			"kind": in.Kind, "duration_days": in.DurationDays, "duration_hours": in.DurationHours, "sod_conflicts": conflicts,
+			"policy_id": plan.PolicyID, "policy_name": plan.PolicyName, "policy_version": plan.PolicyVersion}); err != nil {
 		return Request{}, err
 	}
 	if err := advance(ctx, tx, tenantID, actor, id); err != nil {
@@ -340,6 +379,56 @@ func create(ctx context.Context, tx pgx.Tx, tenantID, requesterID string, in Inp
 	}
 	return Get(ctx, tx, id, false)
 }
+
+// checkTarget checks that the role or entitlement in asks for exists.
+func checkTarget(ctx context.Context, tx pgx.Tx, in Input) error {
+	if in.RoleID != "" {
+		return catalog.CheckRoles(ctx, tx, []string{in.RoleID})
+	}
+	return catalog.CheckEntitlements(ctx, tx, []string{in.EntitlementID})
+}
+
+func (in *Input) approvalRequest(requesterID string) approvals.Request {
+	return approvals.Request{Kind: in.Kind, RoleID: in.RoleID, EntitlementID: in.EntitlementID, RequesterID: requesterID,
+		BeneficiaryID: in.BeneficiaryID, DurationDays: in.DurationDays, DurationHours: in.DurationHours}
+}
+
+// Preview tells, before asking, who would approve what in asks for and
+// which prevent-mode separation of duties policies it would break (which
+// adds a step for an admin), as Create would work it out for requesterID.
+// draft, when given, is a policy being edited, tried before the saved ones.
+func Preview(ctx context.Context, tx pgx.Tx, requesterID string, in Input, draft *approvals.Policy) (approvals.Plan, []string, error) {
+	if in.BeneficiaryID == "" {
+		in.BeneficiaryID = requesterID
+	}
+	if (in.RoleID == "") == (in.EntitlementID == "") {
+		return approvals.Plan{}, nil, apperr.Invalidf("ask for exactly one of role_id and entitlement_id")
+	}
+	if in.Kind == "" {
+		in.Kind = KindAccess
+	}
+	if err := checkTarget(ctx, tx, in); err != nil {
+		return approvals.Plan{}, nil, err
+	}
+	plan, err := approvals.ResolveWith(ctx, tx, in.approvalRequest(requesterID), draft)
+	if err != nil {
+		return plan, nil, err
+	}
+	conflicts, err := sod.Conflicts(ctx, tx, in.BeneficiaryID, in.RoleID, in.EntitlementID)
+	return plan, conflicts, err
+}
+
+// addApproval records identity's approval of a step.
+func addApproval(ctx context.Context, tx pgx.Tx, tenantID, request string, position int, identity, comment string) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO access_request_approvals (tenant_id, request_id, position, identity_id, comment) VALUES ($1, $2, $3, $4, nullif($5, ''))`,
+		tenantID, request, position, identity, comment)
+	return err
+}
+
+// dueAt is when a step starting now must be decided, as SQL on the step's
+// row: in its policy's time, or the tenant's.
+var dueAt = `now() + make_interval(hours => coalesce(timeout_hours, ` + settings.SQL(settings.RequestStepTimeoutHours) + `))`
 
 // advance moves a pending request to its next undecided step, or grants it
 // when there is none. A risk step whose conflict went away meanwhile is
@@ -371,7 +460,7 @@ func advance(ctx context.Context, tx pgx.Tx, tenantID, actor, id string) error {
 		}
 	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE access_request_steps SET status = 'pending', due_at = now() + make_interval(hours => `+settings.SQL(settings.RequestStepTimeoutHours)+`)
+		`UPDATE access_request_steps SET status = 'pending', due_at = `+dueAt+`
 		 WHERE request_id = $1 AND position = (
 		   SELECT min(position) FROM access_request_steps WHERE request_id = $1 AND status = 'waiting')
 		   AND NOT EXISTS (SELECT 1 FROM access_request_steps WHERE request_id = $1 AND status = 'pending')`,
@@ -558,7 +647,8 @@ type Decision struct {
 }
 
 // Decide approves or rejects the step a request waits on. The caller has
-// checked that actor may decide it. Approving a risk step accepts the risk:
+// checked that actor may decide it. A step that needs several approvals is
+// approved once it has them all; one rejection rejects the request. Approving a risk step accepts the risk:
 // it needs a reason (the comment) and 1 to 365 exception days.
 func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, d Decision) (Request, error) {
 	comment := strings.TrimSpace(d.Comment)
@@ -587,6 +677,22 @@ func Decide(ctx context.Context, tx pgx.Tx, tenantID, actor string, r Request, d
 	}
 	if step.Kind == KindRisk && actor == db.IdentityActor(r.BeneficiaryID) {
 		return r, apperr.Conflictf("nobody accepts their own separation of duties risk")
+	}
+	// Each approval counts once; a step that needs more waits for them.
+	if me, ok := strings.CutPrefix(actor, "identity:"); ok && d.Approve {
+		if step.approved(me) {
+			return r, apperr.Conflictf("you already approved this step; it waits for %d more", step.Required-len(step.Approvals))
+		}
+		if err := addApproval(ctx, tx, tenantID, r.ID, step.Position, me, comment); err != nil {
+			return r, err
+		}
+		if n := len(step.Approvals) + 1; n < step.Required {
+			if err := db.Audit(ctx, tx, tenantID, actor, "access_request.approval_added", "access_request", r.ID,
+				map[string]any{"position": step.Position, "kind": step.Kind, "comment": comment, "approvals": n, "required": step.Required}); err != nil {
+				return r, err
+			}
+			return Get(ctx, tx, r.ID, false)
+		}
 	}
 	st := StepRejected
 	if d.Approve {
@@ -650,7 +756,8 @@ const selectRequests = `
 	SELECT r.id, r.requester_id, rq.display_name, r.beneficiary_id, b.display_name,
 	       CASE WHEN r.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 	       coalesce(r.role_id, r.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''),
-	       r.justification, r.kind, r.duration_days, r.duration_hours, r.status, coalesce(r.reason, ''), r.created_at, r.closed_at
+	       r.justification, r.kind, r.duration_days, r.duration_hours, r.status, coalesce(r.reason, ''), r.created_at, r.closed_at,
+	       coalesce(r.policy_id::text, ''), coalesce(r.policy_name, ''), r.policy_version
 	FROM access_requests r
 	JOIN identities rq ON rq.id = r.requester_id
 	JOIN identities b ON b.id = r.beneficiary_id
@@ -662,7 +769,8 @@ func scan(row pgx.CollectableRow) (Request, error) {
 	var r Request
 	err := row.Scan(&r.ID, &r.RequesterID, &r.RequesterName, &r.BeneficiaryID, &r.BeneficiaryName,
 		&r.Type, &r.TargetID, &r.TargetName, &r.Application,
-		&r.Justification, &r.Kind, &r.DurationDays, &r.DurationHours, &r.Status, &r.Reason, &r.CreatedAt, &r.ClosedAt)
+		&r.Justification, &r.Kind, &r.DurationDays, &r.DurationHours, &r.Status, &r.Reason, &r.CreatedAt, &r.ClosedAt,
+		&r.PolicyID, &r.PolicyName, &r.PolicyVersion)
 	r.Steps = []Step{}
 	return r, err
 }
@@ -698,11 +806,20 @@ func loadSteps(ctx context.Context, tx pgx.Tx, list []Request) error {
 		ids[i] = list[i].ID
 		byID[list[i].ID] = &list[i]
 	}
+	// Approvers and approvals come as JSON arrays, in the order they were
+	// asked and given.
 	rows, err := tx.Query(ctx,
-		`SELECT s.request_id, s.position, s.kind, coalesce(s.approver_id::text, ''), coalesce(i.display_name, ''),
-		        coalesce(i.status = 'active', false), s.status, s.due_at, coalesce(s.decided_by, ''), s.decided_at, coalesce(s.comment, ''),
-		        s.exception_days
-		 FROM access_request_steps s LEFT JOIN identities i ON i.id = s.approver_id
+		`SELECT s.request_id, s.position, s.kind, coalesce(s.label, ''), s.required, s.status, s.due_at, s.on_timeout,
+		        coalesce((SELECT array_agg(i.display_name ORDER BY i.display_name) FROM identities i WHERE i.id = ANY(s.escalated_from)), '{}'),
+		        s.escalated_at, coalesce(s.decided_by, ''), s.decided_at, coalesce(s.comment, ''), s.exception_days,
+		        coalesce((SELECT json_agg(json_build_object('id', u.id, 'name', coalesce(i.display_name, ''), 'active', coalesce(i.status = 'active', false))
+		                                  ORDER BY u.n)
+		                  FROM unnest(s.approver_ids) WITH ORDINALITY u(id, n) LEFT JOIN identities i ON i.id = u.id), '[]'),
+		        coalesce((SELECT json_agg(json_build_object('identity_id', ap.identity_id, 'name', i.display_name, 'comment', coalesce(ap.comment, ''),
+		                                                    'at', ap.approved_at) ORDER BY ap.approved_at)
+		                  FROM access_request_approvals ap JOIN identities i ON i.id = ap.identity_id
+		                  WHERE ap.request_id = s.request_id AND ap.position = s.position), '[]')
+		 FROM access_request_steps s
 		 WHERE s.request_id = ANY($1) ORDER BY s.request_id, s.position`, ids)
 	if err != nil {
 		return err
@@ -713,8 +830,9 @@ func loadSteps(ctx context.Context, tx pgx.Tx, list []Request) error {
 			req string
 			s   Step
 		)
-		if err := rows.Scan(&req, &s.Position, &s.Kind, &s.ApproverID, &s.ApproverName, &s.approverActive,
-			&s.Status, &s.DueAt, &s.DecidedBy, &s.DecidedAt, &s.Comment, &s.ExceptionDays); err != nil {
+		if err := rows.Scan(&req, &s.Position, &s.Kind, &s.Label, &s.Required, &s.Status, &s.DueAt, &s.OnTimeout,
+			&s.EscalatedFrom, &s.EscalatedAt, &s.DecidedBy, &s.DecidedAt, &s.Comment, &s.ExceptionDays,
+			&s.Approvers, &s.Approvals); err != nil {
 			return err
 		}
 		byID[req].Steps = append(byID[req].Steps, s)
@@ -766,17 +884,34 @@ type Filter struct {
 	After string
 }
 
+// approvedBy is an SQL condition on the step s, true when who (an SQL
+// expression) approved it.
+func approvedBy(who string) string {
+	return `EXISTS (SELECT 1 FROM access_request_approvals ap
+	                WHERE ap.request_id = s.request_id AND ap.position = s.position AND ap.identity_id = ` + who + `)`
+}
+
+// approvalsGiven is how many approvals the step s has, as SQL.
+const approvalsGiven = `(SELECT count(*) FROM access_request_approvals ap WHERE ap.request_id = s.request_id AND ap.position = s.position)`
+
+// stuck is an SQL condition on the step s, true when it waits on the
+// admins: the active approvers who have not approved are too few to give
+// the approvals it still needs (which includes asking nobody). See
+// Step.Deciders.
+var stuck = `(SELECT count(*) FROM identities a WHERE a.id = ANY(s.approver_ids) AND a.status = 'active' AND NOT ` + approvedBy("a.id") + `)
+	< s.required - ` + approvalsGiven
+
 // waitingOn is an SQL condition on the request r, true when it waits on
-// the decision of me (an SQL expression): the approver of its current step,
-// or an admin (admin) when that step has nobody else to ask. Nobody decides
-// on their own access.
+// the decision of me (an SQL expression): an approver of its current step
+// who has not approved it yet, or an admin (admin) when that step waits on
+// the admins. Nobody decides on their own access.
 func waitingOn(me string, admin bool) string {
-	cond := "s.approver_id = " + me + " AND a.status = 'active'"
+	cond := me + " = ANY(s.approver_ids) AND NOT " + approvedBy(me)
 	if admin {
-		cond = "(" + cond + ") OR s.approver_id IS NULL OR a.status <> 'active'"
+		cond = "(" + cond + ") OR " + stuck
 	}
 	return `r.status = 'pending' AND r.beneficiary_id <> ` + me + ` AND EXISTS (
-		SELECT 1 FROM access_request_steps s LEFT JOIN identities a ON a.id = s.approver_id
+		SELECT 1 FROM access_request_steps s
 		WHERE s.request_id = r.id AND s.status = 'pending' AND (` + cond + `))`
 }
 
@@ -951,44 +1086,60 @@ func TeamHolders(ctx context.Context, tx pgx.Tx, identity string) (size int, hel
 // Housekeeping counts what ExpireDue did.
 type Housekeeping struct {
 	Expired     int `json:"expired"`
+	Rejected    int `json:"rejected"`
+	Escalated   int `json:"escalated"`
 	Cancelled   int `json:"cancelled"`
 	AccessEnded int `json:"access_ended"`
 }
 
-// ExpireDue closes requests nobody decided in time and requests for people
-// who are no longer active, and removes access whose time is up.
+// ExpireDue closes requests for people who are no longer active, does what
+// the step says with steps nobody decided in time (expire the request,
+// reject it, or escalate the step), and removes access whose time is up.
 func ExpireDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (Housekeeping, error) {
 	var h Housekeeping
 	const actor = "system:requests"
 	err := db.InTenant(ctx, pool, tenantID, func(tx pgx.Tx) error {
-		type due struct{ id, status, reason string }
+		type due struct {
+			id, onTimeout string
+			gone          bool
+			position      *int
+			admins        bool
+		}
 		rows, err := tx.Query(ctx,
-			`SELECT r.id, CASE WHEN b.status <> 'active' THEN 'cancelled' ELSE 'expired' END,
-			        CASE WHEN b.status <> 'active' THEN 'the person is no longer active'
-			             ELSE 'nobody decided in time' END
+			`SELECT r.id, b.status <> 'active', s.position, coalesce(s.on_timeout, ''), coalesce(cardinality(s.approver_ids) = 0, false)
 			 FROM access_requests r JOIN identities b ON b.id = r.beneficiary_id
-			 WHERE r.status = 'pending' AND (b.status <> 'active' OR EXISTS (
-			   SELECT 1 FROM access_request_steps s WHERE s.request_id = r.id AND s.status = 'pending' AND s.due_at <= now()))
+			 LEFT JOIN access_request_steps s ON s.request_id = r.id AND s.status = 'pending' AND s.due_at <= now()
+			 WHERE r.status = 'pending' AND (b.status <> 'active' OR s.request_id IS NOT NULL)
 			 FOR UPDATE OF r SKIP LOCKED`)
 		if err != nil {
 			return err
 		}
 		list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (due, error) {
 			var d due
-			err := row.Scan(&d.id, &d.status, &d.reason)
+			err := row.Scan(&d.id, &d.gone, &d.position, &d.onTimeout, &d.admins)
 			return d, err
 		})
 		if err != nil {
 			return err
 		}
 		for _, d := range list {
-			if err := closeRequest(ctx, tx, tenantID, actor, d.id, d.status, d.reason); err != nil {
-				return err
-			}
-			if d.status == Expired {
-				h.Expired++
-			} else {
+			switch {
+			case d.gone:
 				h.Cancelled++
+				err = closeRequest(ctx, tx, tenantID, actor, d.id, Cancelled, "the person is no longer active")
+			case d.onTimeout == approvals.Reject:
+				h.Rejected++
+				err = closeRequest(ctx, tx, tenantID, actor, d.id, Rejected, "nobody decided in time, so the approval flow rejects it")
+			// A step the admins decide has nobody to escalate to.
+			case d.onTimeout == approvals.Escalate && !d.admins:
+				h.Escalated++
+				err = escalate(ctx, tx, tenantID, actor, d.id, *d.position)
+			default:
+				h.Expired++
+				err = closeRequest(ctx, tx, tenantID, actor, d.id, Expired, "nobody decided in time")
+			}
+			if err != nil {
+				return err
 			}
 		}
 
@@ -1027,6 +1178,38 @@ func ExpireDue(ctx context.Context, pool *pgxpool.Pool, tenantID string) (Housek
 		return nil
 	})
 	return h, err
+}
+
+// escalate asks the managers of the approvers of a step nobody decided in
+// time instead, or the admins when they have none, with the step's time
+// again. A step is escalated once: when it times out again it expires.
+func escalate(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, position int) error {
+	var managers []string
+	var done, required int
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce((SELECT array_agg(DISTINCT m.id::text) FROM identities a JOIN identities m ON m.id = a.manager_id
+		                  WHERE a.id = ANY(s.approver_ids) AND m.status = 'active' AND m.kind = 'human'
+		                    AND m.id <> r.beneficiary_id AND NOT m.id = ANY(s.approver_ids)), '{}'),
+		        `+approvalsGiven+`,
+		        s.required
+		 FROM access_request_steps s JOIN access_requests r ON r.id = s.request_id
+		 WHERE s.request_id = $1 AND s.position = $2`, id, position).Scan(&managers, &done, &required); err != nil {
+		return err
+	}
+	// The approvals already given still count; the managers give the rest,
+	// as many as there are of them.
+	required = done + min(required-done, max(len(managers), 1))
+	if _, err := tx.Exec(ctx,
+		`UPDATE access_request_steps SET escalated_from = approver_ids, approver_ids = $3, required = $4, escalated_at = now(),
+		        on_timeout = 'expire', reminded_at = NULL, due_at = `+dueAt+`
+		 WHERE request_id = $1 AND position = $2`, id, position, managers, required); err != nil {
+		return err
+	}
+	if err := db.Audit(ctx, tx, tenantID, actor, "access_request.step_escalated", "access_request", id,
+		map[string]any{"position": position, "approver_ids": managers}); err != nil {
+		return err
+	}
+	return notifyApprovers(ctx, tx, tenantID, id, notify.ApprovalNeeded)
 }
 
 // ActivationResult is what activating an eligibility did: gave the access at

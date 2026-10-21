@@ -36,6 +36,9 @@ type Assignment struct {
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	// Justification is why an activation was made.
 	Justification string `json:"justification,omitempty"`
+	// RequestID is the access request it was granted by, whose approval
+	// flow says why the person has it.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // IdentityAccess lists the assignments of one identity.
@@ -44,7 +47,7 @@ func IdentityAccess(ctx context.Context, tx pgx.Tx, identityID string) ([]Assign
 		`SELECT x.id, CASE WHEN x.role_id IS NULL THEN 'entitlement' ELSE 'role' END,
 		        coalesce(x.role_id, x.entitlement_id), coalesce(ro.name, e.name), coalesce(app.name, ''),
 		        x.origin, coalesce(x.rule_id::text, ''), coalesce(r.name, ''), x.granted_by, x.granted_at, x.expires_at,
-		        coalesce(x.justification, '')
+		        coalesce(x.justification, ''), coalesce(x.request_id::text, '')
 		 FROM access_assignments x
 		 LEFT JOIN roles ro ON ro.id = x.role_id
 		 LEFT JOIN entitlements e ON e.id = x.entitlement_id
@@ -58,7 +61,7 @@ func IdentityAccess(ctx context.Context, tx pgx.Tx, identityID string) ([]Assign
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Assignment, error) {
 		var a Assignment
 		err := row.Scan(&a.ID, &a.Type, &a.TargetID, &a.Name, &a.Application, &a.Origin, &a.RuleID, &a.RuleName,
-			&a.GrantedBy, &a.GrantedAt, &a.ExpiresAt, &a.Justification)
+			&a.GrantedBy, &a.GrantedAt, &a.ExpiresAt, &a.Justification, &a.RequestID)
 		return a, err
 	})
 }

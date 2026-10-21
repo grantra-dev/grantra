@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useAccessOptions } from "@/lib/admin";
 
 const runVariants: Record<string, "green" | "amber" | "red" | "brand" | "default"> = {
   applied: "green",
@@ -61,4 +62,37 @@ export function Counts({ counts }: { counts: Record<string, number | undefined> 
     return label ? label[n === 1 ? 0 : 1] : k.replace(/_/g, " ");
   };
   return <span>{parts.map(([k, n]) => `${n} ${word(k, n)}`).join(", ")}</span>;
+}
+
+/**
+ * Every business role and entitlement as select options, by application,
+ * valued "role:<id>" and "entitlement:<id>" (see refOf in lib/admin).
+ */
+export function AccessOptions() {
+  const { roles, entitlements } = useAccessOptions();
+  const byApp = new Map<string, typeof entitlements>();
+  for (const e of entitlements)
+    byApp.set(e.application_name, [...(byApp.get(e.application_name) ?? []), e]);
+  return (
+    <>
+      {roles.length > 0 && (
+        <optgroup label="Business roles">
+          {roles.map((r) => (
+            <option key={r.id} value={`role:${r.id}`}>
+              {r.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {[...byApp].map(([app, list]) => (
+        <optgroup key={app} label={app}>
+          {list.map((e) => (
+            <option key={e.id} value={`entitlement:${e.id}`}>
+              {e.name}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
 }

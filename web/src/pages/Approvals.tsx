@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { RequestSteps } from "@/components/RequestSteps";
+import { ApprovalFlow } from "@/components/ApprovalFlow";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { decideRequest, durationText, listApprovals, type AccessRequest, type Me } from "@/lib/api";
 import { focusRing, useFocusParam } from "@/lib/focus";
-import { kindLabels } from "@/lib/requests";
+import { stepTitle, whoText } from "@/lib/approvals";
 import { exceptionChoices, SettingKey, useSetting } from "@/lib/settings";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -108,11 +108,13 @@ function ApprovalCard({
     },
   });
   const as =
-    step?.kind === "admin" || risk || step?.approver_id !== me.identity_id
+    !step || risk || !step.approvers.some((a) => a.id === me.identity_id)
       ? "a Grantra admin"
       : step.kind === "manager"
         ? `${r.beneficiary_name}'s manager`
-        : "the owner";
+        : step.kind === "owner"
+          ? "the owner"
+          : stepTitle(step);
   const conflicts = r.sod_conflicts?.join(", ") || "a policy in prevent mode";
 
   return (
@@ -140,7 +142,7 @@ function ApprovalCard({
           )}
         </div>
         <p className="mt-2 text-sm text-slate-700">“{r.justification}”</p>
-        <RequestSteps steps={r.steps} createdAt={r.created_at} />
+        <ApprovalFlow r={r} />
         {risk && (
           <Alert variant="warning" className="mt-3">
             Together with what {r.beneficiary_name} already has, this access breaks separation of
@@ -221,6 +223,8 @@ function outcomeText(r: AccessRequest, decision: "approve" | "reject", risk: boo
   const next = r.steps.find((s) => s.status === "pending");
   if (next?.kind === "risk")
     return `You approved ${what}. It breaks separation of duties, so it now waits for a Grantra admin to accept the risk.`;
-  const who = next?.kind === "admin" ? kindLabels.admin : next?.approver_name;
-  return `You approved ${what}. It now waits for ${who ?? "the next approver"}.`;
+  if (!next) return `You approved ${what}.`;
+  const done = new Set(next.approvals.map((a) => a.identity_id));
+  const left = next.approvers.filter((a) => !done.has(a.id)).map((a) => a.name);
+  return `You approved ${what}. It now waits for ${whoText(left, next.required - next.approvals.length)}.`;
 }

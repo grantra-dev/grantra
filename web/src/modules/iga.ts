@@ -12,6 +12,7 @@ import {
   ShoppingBag,
   Timer,
   UserPlus,
+  Workflow,
 } from "lucide-react";
 import { PlatformRole } from "@/lib/api";
 import { pendingReviews } from "@/lib/console";
@@ -139,6 +140,18 @@ export const iga: NavItem[] = [
     visible: governs,
     manages: true,
     page: lazyPage(() => import("@/pages/Insights"), "Insights"),
+    header: true,
+  },
+  {
+    path: "/governance/approval-flows",
+    title: "Approval flows",
+    description: "Who approves what people ask for: policies by application, risk and team.",
+    icon: Workflow,
+    module: "iga",
+    group: "governance",
+    visible: governs,
+    manages: true,
+    page: lazyPage(() => import("@/pages/admin/ApprovalFlows"), "ApprovalFlows"),
     header: true,
   },
   {

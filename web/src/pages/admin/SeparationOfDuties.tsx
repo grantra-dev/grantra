@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
@@ -21,11 +21,9 @@ import {
   createSoDPolicy,
   deleteSoDPolicy,
   exceptSoDViolation,
-  listCatalogApplications,
-  listEntitlements,
-  listRoles,
   listSoDPolicies,
   listSoDViolations,
+  refOf,
   scanSoD,
   type NewSoDPolicy,
   type SoDPolicy,
@@ -33,6 +31,7 @@ import {
   type SoDViolation,
 } from "@/lib/admin";
 import { exceptionChoices, SettingKey, useSetting } from "@/lib/settings";
+import { AccessOptions } from "./shared";
 import { formatDate } from "@/lib/utils";
 
 export function SeparationOfDuties() {
@@ -140,24 +139,6 @@ function Policies() {
   );
 }
 
-/** Every role and entitlement, to pick the two sides of a policy from. */
-function useAccessOptions() {
-  const apps = useQuery({ queryKey: ["catalog-applications"], queryFn: listCatalogApplications });
-  const roles = useQuery({ queryKey: ["roles"], queryFn: listRoles });
-  const ents = useQueries({
-    queries: (apps.data ?? [])
-      .filter((a) => a.connector !== "grantra")
-      .map((a) => ({
-        queryKey: ["entitlements", a.id],
-        queryFn: () => listEntitlements(a.id),
-      })),
-  });
-  return {
-    roles: roles.data ?? [],
-    entitlements: ents.flatMap((q) => q.data ?? []),
-  };
-}
-
 function SidePicker({
   id,
   label,
@@ -169,10 +150,6 @@ function SidePicker({
   value: string[];
   onChange: (v: string[]) => void;
 }) {
-  const { roles, entitlements } = useAccessOptions();
-  const byApp = new Map<string, typeof entitlements>();
-  for (const e of entitlements)
-    byApp.set(e.application_name, [...(byApp.get(e.application_name) ?? []), e]);
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
@@ -184,35 +161,14 @@ function SidePicker({
         onChange={(e) => onChange(Array.from(e.target.selectedOptions, (o) => o.value))}
         className="h-40 w-full rounded-md border border-slate-300 bg-white p-1 text-sm focus:outline-2 focus:outline-brand-600"
       >
-        {roles.length > 0 && (
-          <optgroup label="Business roles">
-            {roles.map((r) => (
-              <option key={r.id} value={`role:${r.id}`}>
-                {r.name}
-              </option>
-            ))}
-          </optgroup>
-        )}
-        {[...byApp].map(([app, list]) => (
-          <optgroup key={app} label={app}>
-            {list.map((e) => (
-              <option key={e.id} value={`entitlement:${e.id}`}>
-                {e.name}
-              </option>
-            ))}
-          </optgroup>
-        ))}
+        <AccessOptions />
       </select>
       <p className="mt-1 text-xs text-slate-500">Hold Ctrl or ⌘ to pick several.</p>
     </div>
   );
 }
 
-const toRefs = (picked: string[]): SoDRef[] =>
-  picked.map((p) => {
-    const [kind, id] = p.split(":");
-    return kind === "role" ? { role_id: id } : { entitlement_id: id };
-  });
+const toRefs = (picked: string[]): SoDRef[] => picked.map(refOf);
 
 function NewPolicy({ onDone }: { onDone: () => void }) {
   const client = useQueryClient();

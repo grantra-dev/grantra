@@ -32,7 +32,8 @@ type Metrics struct {
 	LifecycleEvents metric.Int64Counter
 	AccessChanges   metric.Int64Counter
 	// RequestsClosed counts access requests closed without a decision
-	// (expired, cancelled) and access ended because its time was up.
+	// (expired, rejected or cancelled), steps escalated because nobody
+	// decided them in time, and access ended because its time was up.
 	RequestsClosed metric.Int64Counter
 	// Notifications counts emails by result (sent, retried, failed, skipped).
 	Notifications metric.Int64Counter
@@ -50,7 +51,7 @@ func NewMetrics() (*Metrics, error) {
 	out.ConnectorChanges, errs[3] = m.Int64Counter("grantra.connector.changes", metric.WithDescription("Counts reported by connector runs."))
 	out.LifecycleEvents, errs[4] = m.Int64Counter("grantra.lifecycle.events", metric.WithDescription("Joiner, mover and leaver events processed."))
 	out.AccessChanges, errs[5] = m.Int64Counter("grantra.access.changes", metric.WithDescription("Birthright access added or removed."))
-	out.RequestsClosed, errs[6] = m.Int64Counter("grantra.access_requests.closed", metric.WithDescription("Access requests closed without a decision, and access ended at its end date."))
+	out.RequestsClosed, errs[6] = m.Int64Counter("grantra.access_requests.closed", metric.WithDescription("Access requests closed or escalated without a decision, and access ended at its end date."))
 	out.Notifications, errs[7] = m.Int64Counter("grantra.notifications", metric.WithDescription("Notification emails by result."))
 	return &out, errors.Join(errs[:]...)
 }

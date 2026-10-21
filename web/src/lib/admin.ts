@@ -1,6 +1,7 @@
 // Client for the administration endpoints: HR sources, the catalog,
 // connectors and provisioning, and separation of duties.
 
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, ApiError, send, type IdentityStatus, type Requestable } from "./api";
 
 export type Risk = NonNullable<Requestable["risk"]>;
@@ -434,3 +435,27 @@ export const createServiceToken = (t: {
 
 export const revokeServiceToken = (tokenId: string) =>
   send<void>("DELETE", `/api/v1/service-tokens/${id(tokenId)}`);
+
+/** Every role and entitlement, to pick from: separation of duties sides, approval flows. */
+export function useAccessOptions() {
+  const apps = useQuery({ queryKey: ["catalog-applications"], queryFn: listCatalogApplications });
+  const roles = useQuery({ queryKey: ["roles"], queryFn: listRoles });
+  const ents = useQueries({
+    queries: (apps.data ?? [])
+      .filter((a) => a.connector !== "grantra")
+      .map((a) => ({
+        queryKey: ["entitlements", a.id],
+        queryFn: () => listEntitlements(a.id),
+      })),
+  });
+  return {
+    roles: roles.data ?? [],
+    entitlements: ents.flatMap((q) => q.data ?? []),
+  };
+}
+
+/** The role or entitlement an AccessOptions value names. */
+export function refOf(value: string): { role_id?: string; entitlement_id?: string } {
+  const [kind, id] = value.split(":");
+  return kind === "role" ? { role_id: id } : { entitlement_id: id };
+}

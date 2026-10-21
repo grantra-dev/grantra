@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/grantra-dev/grantra/core/internal/approvals"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/requests"
@@ -33,7 +34,13 @@ func TestAccessRequests(t *testing.T) {
 		t.Errorf("no justification = %d", rec.Code)
 	}
 	preview := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{"entitlement_id": "`+ent.ID+`"}`)
-	if preview.Code != http.StatusOK || preview.Body.String() != `{"sod_conflicts":[]}`+"\n" {
+	// The preview says who will approve: ana's manager, then the owner.
+	p := decode[struct {
+		SoDConflicts []string       `json:"sod_conflicts"`
+		Plan         approvals.Plan `json:"plan"`
+	}](t, preview)
+	if preview.Code != http.StatusOK || p.SoDConflicts == nil || len(p.SoDConflicts) != 0 || len(p.Plan.Steps) != 2 ||
+		p.Plan.Steps[0].Approvers[0].Name != "boss" || p.Plan.Steps[1].Approvers[0].Name != "luis" {
 		t.Errorf("preview = %d %q", preview.Code, preview.Body)
 	}
 	if rec := e.do(ana, http.MethodPost, "/api/v1/access-requests/preview", `{}`); rec.Code != http.StatusBadRequest {

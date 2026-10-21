@@ -26,23 +26,22 @@ curl -b cookies -X POST localhost:8080/api/v1/access-requests -d '{
 
 A request is refused when the person already has that access, already has an open request for it, or is not active.
 
-Access that would break a `prevent` [separation of duties](separation-of-duties.md) policy can still be asked for, but it needs an admin to accept the risk (see [Separation of duties risk](#separation-of-duties-risk)). To warn people before they write a justification, `POST /api/v1/access-requests/preview` takes the same body without `justification` and answers the `prevent` policies the access would break, as `{"sod_conflicts": ["Payments"]}`. The console uses it on the request form.
+Access that would break a `prevent` [separation of duties](separation-of-duties.md) policy can still be asked for, but it needs an admin to accept the risk (see [Separation of duties risk](#separation-of-duties-risk)). To warn people before they write a justification, `POST /api/v1/access-requests/preview` takes the same body without `justification` and answers who would approve it and the `prevent` policies the access would break, as `{"plan": {...}, "sod_conflicts": ["Payments"]}` (the plan is described in [approval-flows.md](approval-flows.md)). The console uses it on the request form.
 
 ## Approvals
 
-Each request goes through up to two approvals, in order:
+Who approves a request is set up in the console, under Governance → Approval flows (see [approval-flows.md](approval-flows.md)). The first approval policy that fits the request decides its steps; when none does, the built-in flow asks:
 
 1. The **manager** of the person who would get the access.
 2. The **owner** of the role, or of the entitlement's application.
 
-How the chain is built:
-- When the manager and the owner are the same person, they are asked once.
-- Nobody approves their own access, not even an admin. A step whose approver would be the person getting the access goes to the admins instead.
-- Steps with nobody to ask also go to the admins. That covers people without a manager, applications without an owner, and approvers who are no longer active.
-- A step the requester would approve counts as approved. A manager asking for a report has already said yes by asking.
+A step can ask one person or several: any one of them, a number of them, or all. Whatever the policy says:
+- Nobody approves their own access, not even an admin. Steps with nobody else to ask go to the admins. That covers people without a manager, applications without an owner, and approvers who are no longer active.
+- The same approvers are not asked twice in a row, for example when the manager is also the owner.
+- When the requester is one of a step's approvers, asking counts as their approval. A manager asking for a report has already said yes by asking.
 - Admins can decide any step. Every decision is audited with who made it.
 
-A rejection closes the request, and later steps are skipped. Once every step is approved, the access is granted.
+A rejection closes the request, and later steps are skipped. Once every step is approved, the access is granted. Each request keeps the steps and the policy (name and version) it started with.
 
 ## Separation of duties risk
 
@@ -64,7 +63,7 @@ When the access would break a `prevent` separation of duties policy, the request
 ## Timers
 
 A background job runs every five minutes:
-- **Expires** requests whose current step has waited more than 7 days without a decision.
+- **Times out** steps nobody decided in time (the step's own time, or the tenant's *time to decide each request step*, 7 days by default): the request expires, is rejected, or the step goes once to the approvers' managers, as the [policy](approval-flows.md#steps) says.
 - **Cancels** open requests for people who are no longer active, for example leavers.
 - **Removes** assignments whose `expires_at` has passed (requests with a `duration_days`, or any time-bound assignment). Provisioning then takes the access out of the application.
 
@@ -74,7 +73,7 @@ The approval flow is kept as state in Postgres. A workflow engine (Temporal) wil
 
 The audit log records each request as it moves:
 - `access_request.created`
-- `access_request.step_approved` and `access_request.step_rejected`. On a risk step, the approval also records `exception_days` and the policies
+- `access_request.step_approved` and `access_request.step_rejected`; `access_request.approval_added` when a step that needs several approvals gets one, and `access_request.step_escalated`. On a risk step, the approval also records `exception_days` and the policies
 - `access_request.risk_review`, when a conflict found at the last approval sends the request to the admins
 - `access_request.approved`, `access_request.rejected`, `access_request.cancelled` and `access_request.expired`
 
