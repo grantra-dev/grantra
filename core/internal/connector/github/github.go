@@ -88,12 +88,10 @@ type team struct {
 // Read returns the organization's teams, owners, members and outside
 // collaborators.
 func (c *Client) Read(ctx context.Context) (connector.Snapshot, error) {
-	var (
-		b     connector.Builder
-		teams []team
-	)
+	var b connector.Builder
 	b.Entitlement(connector.Entitlement{NativeID: Owner, Name: "Organization owner", Description: "Full control of the organization"})
-	if err := httpapi.LinkPages(ctx, c.api, c.org+"/teams?per_page=100", func(t team) { teams = append(teams, t) }); err != nil {
+	teams, err := httpapi.AllLinkPages[team](ctx, c.api, c.org+"/teams?per_page=100")
+	if err != nil {
 		return connector.Snapshot{}, err
 	}
 	for _, t := range teams {
