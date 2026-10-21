@@ -52,6 +52,26 @@ func fakeSecrets(ref string) (string, error) {
 	return "t", nil
 }
 
+func TestText(t *testing.T) {
+	for _, tc := range []struct {
+		in   any
+		want string
+		ok   bool
+	}{
+		{" Ana ", "Ana", true},
+		{float64(1000000), "1000000", true},
+		{12.5, "12.5", true},
+		{true, "true", true},
+		{nil, "", false},
+		{[]any{"a"}, "", false},
+		{map[string]any{"id": "1"}, "", false},
+	} {
+		if got, ok := Text(tc.in); got != tc.want || ok != tc.ok {
+			t.Errorf("Text(%v) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestRowsToCSV(t *testing.T) {
 	got, err := rowsToCSV([]map[string]string{{"b": "1", "a": "x,y"}, {"c": "3"}})
 	if err != nil {

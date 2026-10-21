@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,21 @@ type Feed interface {
 	// Rows returns every person, or an error: a partial list would look
 	// like leavers.
 	Rows(ctx context.Context) ([]map[string]string, error)
+}
+
+// Text is a value from an HR system's JSON as a file would hold it: text
+// trimmed, numbers as written (1000000, not 1e+06), true or false. Nulls,
+// lists and objects have no such text, and ok is false.
+func Text(v any) (text string, ok bool) {
+	switch v := v.(type) {
+	case string:
+		return strings.TrimSpace(v), true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case bool:
+		return strconv.FormatBool(v), true
+	}
+	return "", false
 }
 
 // FeedFactory builds a Feed from a source's connection settings. Like a

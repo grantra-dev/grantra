@@ -9,10 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
@@ -65,10 +62,7 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (lifecycle.Feed,
 	if err != nil {
 		return nil, err
 	}
-	api := httpapi.New(u, func(_ context.Context, r *http.Request) error {
-		r.SetBasicAuth(c.Username, password)
-		return nil
-	})
+	api := httpapi.New(u, httpapi.Basic(c.Username, password))
 	q := "format=json"
 	for p := range strings.SplitSeq(query, "&") {
 		if p != "" && !strings.HasPrefix(p, "format=") {
@@ -86,7 +80,7 @@ var workdayDate = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})[-+]\d{2}:\d{2}$`)
 // (lists, nested objects) are left out: give the report single values.
 func (r *Report) Rows(ctx context.Context) ([]map[string]string, error) {
 	var report struct {
-		Entries []map[string]json.RawMessage `json:"Report_Entry"`
+		Entries []map[string]any `json:"Report_Entry"`
 	}
 	if _, err := r.api.Get(ctx, r.url, &report); err != nil {
 		return nil, err
@@ -94,22 +88,15 @@ func (r *Report) Rows(ctx context.Context) ([]map[string]string, error) {
 	rows := make([]map[string]string, 0, len(report.Entries))
 	for _, e := range report.Entries {
 		row := map[string]string{}
-		for k, raw := range e {
-			var v any
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("field %s: %w", k, err)
+		for k, v := range e {
+			text, ok := lifecycle.Text(v)
+			if !ok {
+				continue
 			}
-			switch v := v.(type) {
-			case string:
-				if m := workdayDate.FindStringSubmatch(v); m != nil {
-					v = m[1]
-				}
-				row[k] = v
-			case float64:
-				row[k] = strconv.FormatFloat(v, 'f', -1, 64)
-			case bool:
-				row[k] = strconv.FormatBool(v)
+			if m := workdayDate.FindStringSubmatch(text); m != nil {
+				text = m[1]
 			}
+			row[k] = text
 		}
 		rows = append(rows, row)
 	}

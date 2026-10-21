@@ -8,11 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
-	"strings"
 
 	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/connector/httpapi"
@@ -60,12 +57,8 @@ func New(raw json.RawMessage, secrets connector.SecretResolver) (lifecycle.Feed,
 	if err != nil {
 		return nil, err
 	}
-	u.Path += "/api/gateway.php/" + url.PathEscape(c.Company) + "/v1"
 	// BambooHR takes the API key as the user name, with any password.
-	return &Client{api: httpapi.New(u, func(_ context.Context, r *http.Request) error {
-		r.SetBasicAuth(key, "x")
-		return nil
-	})}, nil
+	return &Client{api: httpapi.New(httpapi.At(u, "/api/gateway.php/"+c.Company+"/v1"), httpapi.Basic(key, "x"))}, nil
 }
 
 // fields are what the report asks for, and the Grantra field each becomes.
@@ -101,13 +94,8 @@ func (c *Client) Rows(ctx context.Context) ([]map[string]string, error) {
 		return nil, err
 	}
 	str := func(e map[string]any, k string) string {
-		switch v := e[k].(type) {
-		case string:
-			return strings.TrimSpace(v)
-		case float64:
-			return fmt.Sprint(v)
-		}
-		return ""
+		v, _ := lifecycle.Text(e[k])
+		return v
 	}
 	employeeID := map[string]string{} // BambooHR id -> employee id
 	for _, e := range report.Employees {
