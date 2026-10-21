@@ -226,10 +226,7 @@ func (c *Client) RemoveMember(ctx context.Context, entitlementID, accountID stri
 		return err
 	}
 	_, err = c.api.Do(ctx, http.MethodDelete, "/groups/"+g+"/users/"+url.PathEscape(accountID), nil, nil)
-	if httpapi.HasStatus(err, http.StatusNotFound) {
-		return nil
-	}
-	return err
+	return httpapi.Ignore(err, http.StatusNotFound)
 }
 
 // SetActive suspends a user, or lifts the suspension. Deactivated users are

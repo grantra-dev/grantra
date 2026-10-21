@@ -274,10 +274,7 @@ func (c *Client) AddMember(ctx context.Context, entitlementID, accountID string)
 	}
 	_, err := c.write.Do(ctx, http.MethodPost, "/groups/"+url.PathEscape(entitlementID)+"/members",
 		map[string]string{"id": accountID, "role": "MEMBER"}, nil)
-	if httpapi.HasStatus(err, http.StatusConflict) {
-		return nil
-	}
-	return err
+	return httpapi.Ignore(err, http.StatusConflict)
 }
 
 // RemoveMember takes a user out of a group.
@@ -286,10 +283,7 @@ func (c *Client) RemoveMember(ctx context.Context, entitlementID, accountID stri
 		return errRoles
 	}
 	_, err := c.write.Do(ctx, http.MethodDelete, "/groups/"+url.PathEscape(entitlementID)+"/members/"+url.PathEscape(accountID), nil, nil)
-	if httpapi.HasStatus(err, http.StatusNotFound) {
-		return nil
-	}
-	return err
+	return httpapi.Ignore(err, http.StatusNotFound)
 }
 
 // SetActive suspends a user, or lifts the suspension.

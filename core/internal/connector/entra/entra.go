@@ -219,10 +219,7 @@ func (c *Client) AddMember(ctx context.Context, entitlementID, accountID string)
 // RemoveMember takes a user out of a group or directory role.
 func (c *Client) RemoveMember(ctx context.Context, entitlementID, accountID string) error {
 	_, err := c.api.Do(ctx, http.MethodDelete, membersPath(entitlementID)+"/"+url.PathEscape(accountID)+"/$ref", nil, nil)
-	if httpapi.HasStatus(err, http.StatusNotFound) {
-		return nil
-	}
-	return err
+	return httpapi.Ignore(err, http.StatusNotFound)
 }
 
 // SetActive lets a user sign in, or blocks them.

@@ -116,6 +116,16 @@ func HasStatus(err error, statuses ...int) bool {
 	return false
 }
 
+// Ignore returns nil when err is an error answer with one of the statuses,
+// and err otherwise: removing what is already gone (404) or adding what is
+// already there (409) is not an error for a connector.
+func Ignore(err error, statuses ...int) error {
+	if HasStatus(err, statuses...) {
+		return nil
+	}
+	return err
+}
+
 // tries is how many times a call is made when the service is busy.
 const tries = 5
 

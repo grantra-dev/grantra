@@ -10,7 +10,7 @@ All notable changes to Grantra are listed here. Versions follow [Semantic Versio
 
 ### Added
 
-- **Microsoft Entra ID, Google Workspace and Okta connectors** ([docs](docs/connectors.md)). Each reads users (with their last sign-in, for unused access), groups and admin roles (Entra directory roles, Google admin roles, Okta admin roles), and Okta also who is assigned to each application. With provisioning on, they add and remove group members and enable or disable users.
+- **Native connectors for Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center and Salesforce** ([docs](docs/connectors.md)), from Settings → Connectors. Entra ID, Google Workspace and Okta read users (with their last sign-in, for unused access), groups and admin roles, and Okta also application assignments; GitHub reads members, outside collaborators, owners and teams, with SAML emails to link accounts to people; AWS IAM Identity Center reads which permission set each person has on each AWS account, through groups too; Salesforce reads users, profiles, permission sets and permission set groups. With provisioning on, all but AWS (which only reads) change memberships and enable or disable users.
 - **Connector secrets typed in the console** ([docs](docs/connectors.md#secrets)). A token, client secret or service account key typed in Settings → Connectors is sealed with the vault key and never shown again; the config keeps a `secret:` reference. `env:` references still work. `grantra vault rewrap` re-wraps them too. API: `POST /api/v1/connector-secrets`.
 - **Change a connector's settings from the console**: **Change settings** on the application's page, leaving a secret blank to keep it.
 

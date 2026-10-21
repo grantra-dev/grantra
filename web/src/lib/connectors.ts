@@ -230,6 +230,99 @@ export const connectorTypes: ConnectorType[] = [
     ],
   },
   {
+    kind: "github",
+    name: "GitHub",
+    mark: "GH",
+    blurb: "Organization members, owners, teams and outside collaborators.",
+    docs: "#github",
+    fields: [
+      {
+        key: "organization",
+        label: "Organization",
+        type: "text",
+        required: true,
+        placeholder: "acme",
+      },
+      {
+        key: "token",
+        label: "Token",
+        type: "secret",
+        required: true,
+        help:
+          "Of an organization owner, with read:org (admin:org to also read SAML emails). " +
+          secretHelp,
+      },
+      {
+        key: "api_url",
+        label: "GitHub Enterprise Server API",
+        type: "url",
+        placeholder: "https://github.example.com/api/v3",
+        help: "Only for GitHub Enterprise Server. Leave it empty for github.com.",
+      },
+    ],
+  },
+  {
+    kind: "aws-identity-center",
+    name: "AWS IAM Identity Center",
+    mark: "AW",
+    blurb: "Who can reach which AWS accounts, and with which permission set.",
+    docs: "#aws-iam-identity-center",
+    fields: [
+      {
+        key: "region",
+        label: "Region of Identity Center",
+        type: "text",
+        required: true,
+        placeholder: "eu-west-1",
+      },
+      {
+        key: "access_key_id",
+        label: "Access key id",
+        type: "text",
+        placeholder: "AKIA...",
+        help: "Of an IAM user with the read-only policy in the docs. Leave both keys empty to use the server's own AWS role.",
+      },
+      { key: "secret_access_key", label: "Secret access key", type: "secret", help: secretHelp },
+      {
+        key: "role_arn",
+        label: "Role to assume",
+        type: "text",
+        placeholder: "arn:aws:iam::111111111111:role/grantra-read",
+        help: "Optional, such as a read-only role in the management account.",
+      },
+    ],
+  },
+  {
+    kind: "salesforce",
+    name: "Salesforce",
+    mark: "SF",
+    blurb: "Users, profiles, permission sets and permission set groups, with last sign-ins.",
+    docs: "#salesforce",
+    fields: [
+      {
+        key: "instance_url",
+        label: "My Domain address",
+        type: "url",
+        required: true,
+        placeholder: "https://acme.my.salesforce.com",
+      },
+      {
+        key: "client_id",
+        label: "Consumer key",
+        type: "text",
+        required: true,
+        help: "Of the external client app with the client credentials flow on.",
+      },
+      {
+        key: "client_secret",
+        label: "Consumer secret",
+        type: "secret",
+        required: true,
+        help: secretHelp,
+      },
+    ],
+  },
+  {
     kind: "csv",
     name: "CSV file",
     mark: "CS",
@@ -239,9 +332,6 @@ export const connectorTypes: ConnectorType[] = [
   },
   ...(
     [
-      ["AWS IAM Identity Center", "AW", "Who can reach which AWS accounts, and how."],
-      ["GitHub", "GH", "Organization members, teams and repository roles."],
-      ["Salesforce", "SF", "Users, profiles and permission sets."],
       ["Workday", "WD", "Joiners, movers and leavers straight from HR."],
       ["BambooHR", "BH", "Joiners, movers and leavers straight from HR."],
     ] as const

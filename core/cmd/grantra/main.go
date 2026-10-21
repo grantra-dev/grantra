@@ -29,12 +29,15 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/connector"
+	_ "github.com/grantra-dev/grantra/core/internal/connector/awsidc"          // registers the aws-identity-center connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/entra"           // registers the entra-id connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/flatfile"        // registers the csv connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/github"          // registers the github connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/googleworkspace" // registers the google-workspace connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/grantralogin"    // registers the grantra-login connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap"            // registers the ldap connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/okta"            // registers the okta connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/salesforce"      // registers the salesforce connector
 	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"            // registers the scim connector
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"

@@ -2,7 +2,7 @@
 
 A connector is how Grantra talks to an application. An *aggregation* **reads** the application's entitlements (groups, roles) and accounts, with who holds what, and stores them as the actual state next to the assignments (the desired state, see [access.md](access.md)). *Provisioning* **writes**: it changes the application so the actual state matches the desired one.
 
-In the console, **Settings → Connectors** connects an application in three steps (which application, its settings, a first read to test them) for Microsoft Entra ID, Google Workspace, Okta, SCIM, LDAP / Active Directory, Grantra Login and CSV files, and lists the connectors still planned. **Change settings** on the application's page changes a connector later (a new client secret when the old one expires, say). Both save the same config as the API calls below, which also cover the optional settings.
+In the console, **Settings → Connectors** connects an application in three steps (which application, its settings, a first read to test them) for Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center, Salesforce, SCIM, LDAP / Active Directory, Grantra Login and CSV files, and lists the connectors still planned. **Change settings** on the application's page changes a connector later (a new client secret when the old one expires, say). Both save the same config as the API calls below, which also cover the optional settings.
 
 ## Secrets
 
@@ -72,6 +72,70 @@ Create an API token (**Security → API → Tokens**) signed in as an administra
 Accounts bring the login (username), email, `employeeNumber` for correlation, title, department, user type, Okta status and the **last sign-in**. Users who are active, staged, provisioned, locked out or in password recovery count as active; suspended and deactivated ones as disabled.
 
 To provision, the token's administrator needs to manage the groups Grantra changes (Group Administrator for them, or more). Grantra adds and removes group members and suspends or unsuspends users; deactivated users are reactivated in Okta, by a person. It does not change application assignments or admin roles directly: assign applications to groups in Okta and govern the groups.
+
+## GitHub
+
+The `github` connector reads a GitHub organization, on github.com or GitHub Enterprise Server. Teams and the **organization owner** role become entitlements; members and **outside collaborators** become accounts (the attribute `membership` says which).
+
+Create a token as an organization owner: a classic token with `read:org`, or a fine-grained token for the organization with read access to **Members**. With `admin:org` (classic), Grantra also reads the organization's **SAML identities**, and each account gets the email its person signs in with, so it links to them; without SAML, GitHub accounts have no work email and are linked by hand once (the link stays).
+
+| Config | Meaning |
+|---|---|
+| `organization` | The organization's login, e.g. `acme` |
+| `token` | The token (see [Secrets](#secrets)) |
+| `api_url` | For GitHub Enterprise Server, e.g. `https://github.example.com/api/v3`. Default `https://api.github.com` |
+
+Accounts are named by the GitHub user id, which survives a change of login. A team's members include the members of its child teams, as on GitHub. GitHub does not say when someone last signed in.
+
+To provision, the token needs `admin:org` (classic) or write access to **Members** (fine-grained). Grantra adds and removes team members, makes members owners or plain members, and **removes leavers from the organization** (members and outside collaborators): GitHub accounts belong to their people, so that is how their access ends. It does not invite people.
+
+## AWS IAM Identity Center
+
+The `aws-identity-center` connector reads who can reach which AWS account, and how, from AWS IAM Identity Center (formerly AWS SSO). Groups and **account assignments** (a permission set on an account, such as "AdministratorAccess on 111111111111") become entitlements; Identity Center users become accounts. An assignment to a group counts for each of its members: they can all reach the account.
+
+Give Grantra an IAM identity in the account that holds Identity Center (the management account, or the delegated administrator) with this policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "sso:ListInstances", "sso:ListPermissionSets", "sso:DescribePermissionSet",
+      "sso:ListAccountsForProvisionedPermissionSet", "sso:ListAccountAssignments",
+      "identitystore:ListUsers", "identitystore:ListGroups", "identitystore:ListGroupMemberships"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+| Config | Meaning |
+|---|---|
+| `region` | Where the Identity Center instance lives, e.g. `eu-west-1` |
+| `instance_arn` | Only when the account sees more than one instance |
+| `access_key_id`, `secret_access_key` | An IAM user's keys (the secret as in [Secrets](#secrets)). Leave both out to use the server's own AWS identity: environment, IAM roles for service accounts on EKS, or the instance's role |
+| `role_arn` | Optional role to assume first, e.g. a read-only role in the management account |
+
+Accounts bring the username, display name, primary email, title and whether the user is enabled. AWS accounts are shown by their id. The connector **only reads**: people and groups usually come into Identity Center from your identity provider (Entra ID, Okta, Google), where Grantra changes them; provisioning cannot be turned on for it.
+
+## Salesforce
+
+The `salesforce` connector reads a Salesforce org through its REST API. **Profiles**, **permission sets** and **permission set groups** become entitlements; users become accounts, with their last sign-in.
+
+1. In Setup, create an **External Client App** (or a connected app) with OAuth on, the `api` scope and the **client credentials flow** enabled, and pick the user it runs as: an integration user who can **View Setup and Configuration** and **View All Users** (to provision, **Manage Users** and **Assign Permission Sets**).
+2. Copy its consumer key and secret.
+
+| Config | Meaning |
+|---|---|
+| `instance_url` | The org's My Domain address, e.g. `https://acme.my.salesforce.com` |
+| `client_id` | The consumer key |
+| `client_secret` | The consumer secret (see [Secrets](#secrets)) |
+| `api_version` | Default `v62.0` |
+
+Accounts bring the username, email, name, `EmployeeNumber` for correlation, the federation id (often the corporate email), title, department, user type, whether the user is active and the **last sign-in**. Every user holds their profile. The permission sets that profiles and permission set groups keep behind the scenes are left out.
+
+To provision, Grantra assigns and removes permission sets and permission set groups, gives users another profile (a profile cannot be taken away, only replaced), and activates or deactivates users; Salesforce never deletes users. It does not create users.
 
 ## Rate limits
 
@@ -267,9 +331,9 @@ With provisioning on, Grantra provisions every application on its own every five
 
 The SCIM connector writes with `POST /Users` (`userName`, `displayName`, primary work email, `externalId`), `PATCH /Users/{id}` (`active`) and `PATCH /Groups/{id}` (`add` / `remove` `members`). The token needs write access to users and groups.
 
-### Entra ID, Google Workspace and Okta
+### Entra ID, Google Workspace, Okta, GitHub and Salesforce
 
-They add and remove group members and enable or disable users, with the permissions in their sections above. None of them creates accounts: people get those from HR through the directory's own onboarding, and the next aggregation links them.
+They add and remove members of groups, teams or permission sets and enable or disable users (GitHub removes leavers from the organization), with the permissions in their sections above. None of them creates accounts: people get those from HR through the directory's own onboarding, and the next aggregation links them. AWS IAM Identity Center only reads.
 
 ### LDAP
 
@@ -283,7 +347,7 @@ The Grantra Login connector creates users (username and verified email from HR, 
 
 | Endpoint | Action |
 |---|---|
-| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "entra-id", "google-workspace", "okta", "scim", "ldap", "grantra-login" or "csv", "config": {...}}`; `"kind": "manual"` removes it |
+| `PUT /api/v1/applications/{id}/connector` | `catalog.manage`: `{"kind": "entra-id", "google-workspace", "okta", "github", "aws-identity-center", "salesforce", "scim", "ldap", "grantra-login" or "csv", "config": {...}}`; `"kind": "manual"` removes it |
 | `POST /api/v1/connector-secrets` | `catalog.manage`: `{"label": "...", "value": "..."}`, `201` with `{"ref": "secret:..."}` to put in a config; `409` without a vault key |
 | `POST /api/v1/applications/{id}/aggregations` | `catalog.manage`: `200` with the run, `502` if the application could not be read |
 | `POST /api/v1/applications/{id}/account-imports?dry_run=` | `catalog.manage`, or a service token with `application.import_accounts`: the CSV file is the body (32 MiB max). `200` with the run (`planned` for a dry run), `422` with the run when the file is refused |
