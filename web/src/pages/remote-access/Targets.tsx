@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
@@ -196,11 +196,7 @@ function TargetRow({
           )}
         </div>
       </div>
-      {err && (
-        <Alert variant="error" className="mt-3">
-          {err.message}
-        </Alert>
-      )}
+      <ErrorAlert error={err} className="mt-3" />
       {token && usesToken(t.kind) && (
         <TokenPanel
           t={t}

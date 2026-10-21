@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Alert } from "@/components/ui/alert";
+import { FormActions } from "@/components/FormActions";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
@@ -380,11 +381,7 @@ export function TargetSettings({ t, onDone }: { t: GatewayTarget; onDone: () => 
           Delete
         </Button>
       </div>
-      {(save.error ?? remove.error) && (
-        <Alert variant="error" className="sm:col-span-2">
-          {(save.error ?? remove.error)!.message}
-        </Alert>
-      )}
+      <ErrorAlert error={save.error ?? remove.error} className="sm:col-span-2" />
     </form>
   );
 }
@@ -563,19 +560,7 @@ export function NewTarget({ onDone }: { onDone: () => void }) {
               duration must be at least as long as sessions here.
             </p>
           )}
-          <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" disabled={create.isPending}>
-              Add
-            </Button>
-            <Button type="button" variant="outline" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
-          {create.error && (
-            <Alert variant="error" className="sm:col-span-2">
-              {create.error.message}
-            </Alert>
-          )}
+          <FormActions action={create} submit="Add" onCancel={onDone} className="sm:col-span-2" />
         </form>
       </CardContent>
     </Card>

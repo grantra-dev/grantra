@@ -29,10 +29,16 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/config"
 	"github.com/grantra-dev/grantra/core/internal/connector"
-	_ "github.com/grantra-dev/grantra/core/internal/connector/flatfile"     // registers the csv connector
-	_ "github.com/grantra-dev/grantra/core/internal/connector/grantralogin" // registers the grantra-login connector
-	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap"         // registers the ldap connector
-	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"         // registers the scim connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/awsidc"          // registers the aws-identity-center connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/entra"           // registers the entra-id connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/flatfile"        // registers the csv connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/github"          // registers the github connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/googleworkspace" // registers the google-workspace connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/grantralogin"    // registers the grantra-login connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/ldap"            // registers the ldap connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/okta"            // registers the okta connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/salesforce"      // registers the salesforce connector
+	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"            // registers the scim connector
 	"github.com/grantra-dev/grantra/core/internal/console"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/demo"
@@ -46,6 +52,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
+	"github.com/grantra-dev/grantra/core/internal/secretstore"
 	"github.com/grantra-dev/grantra/core/internal/server"
 	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sod"
@@ -162,16 +169,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("vault key: %w", err)
 	}
+	// Connector secrets typed in the console are sealed with the vault key;
+	// without one only env: references work.
+	secrets := &secretstore.Store{Pool: pool, TenantID: tenantID, Keys: keys}
 	var (
 		vlt    *vault.Vault
 		sshSvc *sshaccess.Service
 	)
 	if keys != nil {
-		vlt = vault.New(keys, connector.EnvSecrets)
+		vlt = vault.New(keys, secrets.Resolve)
 		sshSvc = sshaccess.New(keys)
 		log.Info("credential vault enabled", "key", keys.KeyID())
 	} else {
-		vlt = vault.New(nil, connector.EnvSecrets)
+		vlt = vault.New(nil, secrets.Resolve)
 		sshSvc = sshaccess.New(nil)
 		log.Warn("credential vault and SSH certificates are off: " + vault.KeyEnv + " is not set")
 	}
@@ -210,7 +220,7 @@ func run() error {
 
 	gw := gateways.New(keys)
 	consoles := &cloud.Consoles{Pool: pool, TenantID: tenantID, Gateways: gw, Issuer: cfg.PublicURL, Log: log}
-	startJobs(ctx, log, pool, tenantID, sender, vlt, consoles, metrics)
+	startJobs(ctx, log, pool, tenantID, sender, vlt, consoles, metrics, secrets.Resolve)
 
 	// Desktops run in this process, which the browser reaches: it relays
 	// them to guacd.
@@ -243,6 +253,7 @@ func run() error {
 		api = console.New(pool, tenantID, az, log)
 		api.EmailEnabled = cfg.SMTP.Enabled()
 		api.Vault = vlt
+		api.Secrets = secrets
 		api.SSH = sshSvc
 		api.GatewayAddress = cfg.Gateway.PublicAddress
 		api.Gateways = gw
@@ -338,7 +349,7 @@ type job struct {
 // until ctx ends. With several replicas, each pass runs on whichever replica
 // takes the job's lock first; the others skip it.
 func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenantID string, sender *notify.Sender, vlt *vault.Vault,
-	consoles *cloud.Consoles, m *telemetry.Metrics) {
+	consoles *cloud.Consoles, m *telemetry.Metrics, secrets connector.SecretResolver) {
 	locks := db.NewJobLocks(pool)
 	context.AfterFunc(ctx, func() { locks.Close(context.Background()) })
 
@@ -365,7 +376,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		}},
 		// Every application with a connector is read once an hour.
 		{"aggregate applications", 5 * time.Minute, func(ctx context.Context) error {
-			runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, connector.EnvSecrets)
+			runs, err := accounts.AggregateDue(ctx, pool, tenantID, time.Hour, secrets)
 			for _, r := range runs {
 				m.RecordConnectorRun(ctx, r)
 				if r.Status == accounts.RunFailed {
@@ -379,14 +390,14 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// Under the "sensitive access" sign-in policy, Grantra Login asks
 		// for a second factor from whoever holds high-risk access now.
 		{"sync Grantra Login MFA", 5 * time.Minute, func(ctx context.Context) error {
-			s, err := login.SyncMFA(ctx, pool, tenantID, connector.EnvSecrets)
+			s, err := login.SyncMFA(ctx, pool, tenantID, secrets)
 			if s.Added+s.Removed > 0 {
 				log.InfoContext(ctx, "synced Grantra Login MFA role", "added", s.Added, "removed", s.Removed)
 			}
 			return err
 		}},
 		{"provision applications", 5 * time.Minute, func(ctx context.Context) error {
-			runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, connector.EnvSecrets)
+			runs, err := provisioning.ProvisionDue(ctx, pool, tenantID, secrets)
 			for _, r := range runs {
 				m.RecordConnectorRun(ctx, r.Run)
 				if r.Status == accounts.RunSucceeded {
@@ -507,7 +518,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			if h.ActivationsEnded+h.EligibilitiesEnded > 0 {
 				log.InfoContext(ctx, "ended just-in-time access", "activations", h.ActivationsEnded, "eligibilities", h.EligibilitiesEnded)
 			}
-			runs, err := provisioning.ProvisionQueued(ctx, pool, tenantID, connector.EnvSecrets)
+			runs, err := provisioning.ProvisionQueued(ctx, pool, tenantID, secrets)
 			for _, r := range runs {
 				m.RecordConnectorRun(ctx, r.Run)
 				if r.Status == accounts.RunSucceeded {
@@ -521,7 +532,7 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 		// Sign-ins are read from Grantra Login and looked at within a
 		// minute, and so is access that appeared outside Grantra.
 		{"detect identity threats", time.Minute, func(ctx context.Context) error {
-			res, err := itdr.Scanner{Pool: pool, TenantID: tenantID, Secrets: connector.EnvSecrets}.Scan(ctx)
+			res, err := itdr.Scanner{Pool: pool, TenantID: tenantID, Secrets: secrets}.Scan(ctx)
 			if errors.Is(err, itdr.ErrScanRunning) {
 				return nil // started from the console; it does this pass's work
 			}

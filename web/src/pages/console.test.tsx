@@ -308,6 +308,40 @@ describe("Connector gallery", () => {
     expect(screen.getByText(/12/)).toBeInTheDocument();
   });
 
+  it("changes a connector, keeping the secret saved before", async () => {
+    const okta = {
+      ...crm,
+      connector: "okta",
+      config: { org_url: "https://acme.okta.com", token: "secret:s1", apps: false },
+    };
+    let sent: unknown;
+    serve({
+      "GET /api/v1/me": ok(ada),
+      "GET /api/v1/me/inbox": ok(empty),
+      "GET /api/v1/applications": ok({ applications: [okta] }),
+      "GET /api/v1/applications/crm/entitlements": ok({ entitlements: [] }),
+      "PUT /api/v1/applications/crm/connector": (init) => {
+        sent = JSON.parse(init!.body as string);
+        return { status: 204, body: null };
+      },
+    });
+    renderAt("/governance/applications/crm");
+    expect(await screen.findByText("Kept encrypted by Grantra")).toBeInTheDocument();
+    expect(screen.queryByText("secret:s1")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Change settings" }));
+    const address = screen.getByLabelText("Okta address");
+    await userEvent.clear(address);
+    await userEvent.type(address, "https://acme.oktapreview.com");
+    expect(screen.getByLabelText("API token")).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() =>
+      expect(sent).toEqual({
+        kind: "okta",
+        config: { org_url: "https://acme.oktapreview.com", token: "secret:s1", apps: false },
+      }),
+    );
+  });
+
   it("shows an auditor the gallery without connecting", async () => {
     serve({
       "GET /api/v1/me": ok(audrey),

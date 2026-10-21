@@ -2,10 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { PlanSteps } from "@/components/ApprovalFlow";
+import { FormActions } from "@/components/FormActions";
 import { Loaded } from "@/components/Loaded";
 import { Manage } from "@/components/Manage";
 import { PersonSearch, PickPerson, type Picked } from "@/components/PersonSearch";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,9 +152,7 @@ function PolicyList({ onEdit }: { onEdit: (p: ApprovalPolicy | "new") => void })
           </Button>
         </Manage>
       </div>
-      {(reorder.error ?? remove.error) && (
-        <Alert variant="error">{(reorder.error ?? remove.error)!.message}</Alert>
-      )}
+      <ErrorAlert error={reorder.error ?? remove.error} />
       <Loaded loading={isPending} error={error}>
         <ol className="divide-y divide-slate-100">
           {policies.map((p, i) => (
@@ -506,15 +505,12 @@ function PolicyEditor({ policy, onDone }: { policy?: ApprovalPolicy; onDone: () 
             <Simulator draft={{ ...input(), name: p.name.trim() || "This policy" }} />
           </section>
 
-          {save.error && <Alert variant="error">{save.error.message}</Alert>}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={save.isPending || !p.name.trim()}>
-              {save.isPending ? "Saving…" : "Save policy"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions
+            action={save}
+            submit={save.isPending ? "Saving…" : "Save policy"}
+            disabled={!p.name.trim()}
+            onCancel={onDone}
+          />
         </form>
       </CardContent>
     </Card>
@@ -824,7 +820,7 @@ function Simulator({ draft }: { draft?: PolicyInput }) {
           Who approves it?
         </Button>
       </div>
-      {run.error && <Alert variant="error">{run.error.message}</Alert>}
+      <ErrorAlert error={run.error} />
       {run.data && (
         <div aria-live="polite">
           <PlanSteps plan={run.data.plan} conflicts={run.data.sod_conflicts} />

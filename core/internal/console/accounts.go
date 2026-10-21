@@ -27,7 +27,7 @@ func (a *API) setConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) error {
-		if err := accounts.SetConnector(r.Context(), tx, id, body.Kind, body.Config, a.secrets); err != nil {
+		if err := accounts.SetConnector(r.Context(), tx, id, body.Kind, body.Config, a.Secrets.Resolve); err != nil {
 			return err
 		}
 		// The config holds secret references, never secrets, so it is safe to log.
@@ -35,6 +35,26 @@ func (a *API) setConnector(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"kind": body.Kind, "config": body.Config})
 	})
 	a.noContent(w, r, err)
+}
+
+// createConnectorSecret seals a secret typed in the console, such as an API
+// token: {"label": "Okta API token", "value": "..."}. It answers the
+// reference to put in a connector config, {"ref": "secret:<id>"}; the value
+// is never shown again.
+func (a *API) createConnectorSecret(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Label string `json:"label"`
+		Value string `json:"value"`
+	}
+	if !decodeBody(w, r, &body, `{"label": "Okta API token", "value": "00a1b2..."}`) {
+		return
+	}
+	var ref string
+	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
+		ref, err = a.Secrets.Create(r.Context(), tx, me.Actor(), body.Label, body.Value)
+		return err
+	})
+	a.respond(w, r, http.StatusCreated, map[string]string{"ref": ref}, err)
 }
 
 // aggregate reads an application now. 200 when the read succeeded, 502 when
@@ -45,7 +65,7 @@ func (a *API) aggregate(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	run, err := accounts.Aggregate(r.Context(), a.pool, a.tenantID, r.PathValue("id"), me.Actor(), a.secrets)
+	run, err := accounts.Aggregate(r.Context(), a.pool, a.tenantID, r.PathValue("id"), me.Actor(), a.Secrets.Resolve)
 	status := http.StatusOK
 	if run.Status == accounts.RunFailed {
 		status = http.StatusBadGateway
@@ -166,7 +186,7 @@ func (a *API) setProvisioning(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	err := a.guarded(r, authz.ManageCatalog, func(tx pgx.Tx, me authz.Subject) (err error) {
-		if body, err = provisioning.SetSettings(r.Context(), tx, id, body, a.secrets); err != nil {
+		if body, err = provisioning.SetSettings(r.Context(), tx, id, body, a.Secrets.Resolve); err != nil {
 			return err
 		}
 		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "application.provisioning_set", "application", id,
@@ -197,7 +217,7 @@ func (a *API) provision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run, err := provisioning.Provision(r.Context(), a.pool, a.tenantID, r.PathValue("id"), me.Actor(),
-		provisioning.Options{DryRun: dryRun, Force: force}, a.secrets)
+		provisioning.Options{DryRun: dryRun, Force: force}, a.Secrets.Resolve)
 	status := http.StatusOK
 	switch run.Status {
 	case accounts.RunRefused:

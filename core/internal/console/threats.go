@@ -16,7 +16,7 @@ import (
 )
 
 func (a *API) scanner() itdr.Scanner {
-	return itdr.Scanner{Pool: a.pool, TenantID: a.tenantID, Secrets: a.secrets}
+	return itdr.Scanner{Pool: a.pool, TenantID: a.tenantID, Secrets: a.Secrets.Resolve}
 }
 
 // signInSource is where sign-ins come from, and when the last one came.
@@ -242,7 +242,7 @@ func (a *API) respondToThreat(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	rs := itdr.Responder{Pool: a.pool, TenantID: a.tenantID, Secrets: a.secrets}
+	rs := itdr.Responder{Pool: a.pool, TenantID: a.tenantID, Secrets: a.Secrets.Resolve}
 	out, err := rs.Respond(r.Context(), me.Actor(), r.PathValue("id"), body)
 	a.respond(w, r, http.StatusOK, out, err)
 }

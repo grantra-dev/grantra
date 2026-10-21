@@ -3,10 +3,11 @@ import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { CsvHelp } from "@/components/CsvHelp";
+import { FormActions } from "@/components/FormActions";
 import { Loaded } from "@/components/Loaded";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Tabs } from "@/components/Tabs";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,12 +42,14 @@ import {
   type ProvisioningRun,
   type ProvisioningSettings,
 } from "@/lib/admin";
+import { connectorTypes, secretShown } from "@/lib/connectors";
 import { cleanColumns } from "@/lib/csv";
 import { setEntitlementJIT, type JITSettings } from "@/lib/jit";
 import { formatDate, formatTime } from "@/lib/utils";
 import { NotFound } from "../NotFound";
 import { Authorization } from "./Authorization";
 import { ColumnMapping } from "./ColumnMapping";
+import { ConnectorSettings } from "./ConnectorSettings";
 import { Counts, RunStatus } from "./shared";
 import { usePages } from "@/lib/hooks";
 import { ShowMore } from "@/components/ShowMore";
@@ -113,6 +116,8 @@ function Connector({ app }: { app: CatalogApplication }) {
   const client = useQueryClient();
   const [run, setRun] = useState<ConnectorRun | null>(null);
   const [settingUp, setSettingUp] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const type = connectorTypes.find((t) => t.kind === app.connector && t.fields.length > 0);
   const read = useMutation({
     mutationFn: () => aggregate(app.id),
     onSuccess: (r) => {
@@ -123,6 +128,32 @@ function Connector({ app }: { app: CatalogApplication }) {
     },
   });
   if (settingUp) return <FileConnector app={app} onDone={() => setSettingUp(false)} />;
+  if (editing && type) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Change the {type.name} connector</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ConnectorSettings
+            type={type}
+            label={app.name}
+            current={app.config}
+            target={() => Promise.resolve(app.id)}
+            onSaved={() => {
+              setEditing(false);
+              void client.invalidateQueries({ queryKey: ["catalog-applications"] });
+            }}
+          >
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </ConnectorSettings>
+        </CardContent>
+      </Card>
+    );
+  }
+  const secrets = new Set(type?.fields.filter((f) => f.type === "secret").map((f) => f.key));
   const settings = Object.entries(app.config ?? {});
   return (
     <Card>
@@ -141,7 +172,11 @@ function Connector({ app }: { app: CatalogApplication }) {
               <div key={k} className="contents">
                 <dt className="text-slate-500">{k}</dt>
                 <dd className="font-mono text-xs break-all">
-                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                  {typeof v === "object"
+                    ? JSON.stringify(v)
+                    : secrets.has(k)
+                      ? secretShown(String(v))
+                      : String(v)}
                 </dd>
               </div>
             ))}
@@ -150,9 +185,9 @@ function Connector({ app }: { app: CatalogApplication }) {
         {app.connector === "manual" && (
           <>
             <p className="text-slate-500">
-              Nothing to read: access to this application is managed by hand. Connect it to SCIM or
-              LDAP from Settings, Connectors. An application with no API can load its accounts from
-              a CSV export.
+              Nothing to read: access to this application is managed by hand. Connect it from
+              Settings, Connectors. An application with no API can load its accounts from a CSV
+              export.
             </p>
             <Manage>
               <div>
@@ -166,14 +201,19 @@ function Connector({ app }: { app: CatalogApplication }) {
         <Manage>
           {app.connector === "csv" && <AccountFile app={app} onEdit={() => setSettingUp(true)} />}
           {app.connector !== "manual" && app.connector !== "csv" && (
-            <div>
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" disabled={read.isPending} onClick={() => read.mutate()}>
                 {read.isPending ? "Reading…" : "Read accounts now"}
               </Button>
+              {type && (
+                <Button variant="ghost" onClick={() => setEditing(true)}>
+                  Change settings
+                </Button>
+              )}
             </div>
           )}
         </Manage>
-        {read.error && <Alert variant="error">{read.error.message}</Alert>}
+        <ErrorAlert error={read.error} />
         {run && <ReadOutcome run={run} />}
       </CardContent>
     </Card>
@@ -254,7 +294,7 @@ function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => v
           Edit columns
         </Button>
       </div>
-      {upload.error && <Alert variant="error">{upload.error.message}</Alert>}
+      <ErrorAlert error={upload.error} />
       {run && <ReadOutcome run={run} fromFile />}
     </>
   );
@@ -305,15 +345,7 @@ function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () =>
               onChange={(e) => setSeparator(e.target.value)}
             />
           </div>
-          {save.error && <Alert variant="error">{save.error.message}</Alert>}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={save.isPending}>
-              Save
-            </Button>
-            <Button type="button" variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-          </div>
+          <FormActions action={save} submit="Save" onCancel={onDone} />
         </form>
       </CardContent>
     </Card>
@@ -424,8 +456,8 @@ function Provisioning({ app, connected }: { app: CatalogApplication; connected: 
                 </div>
               </Manage>
             </form>
-            {save.error && <Alert variant="error">{save.error.message}</Alert>}
-            {dryRun.error && <Alert variant="error">{dryRun.error.message}</Alert>}
+            <ErrorAlert error={save.error} />
+            <ErrorAlert error={dryRun.error} />
             {plan && <Plan run={plan} />}
           </>
         )}
@@ -544,11 +576,7 @@ function Entitlements({ appId }: { appId: string }) {
               <Button type="submit" disabled={add.isPending}>
                 Add entitlement
               </Button>
-              {add.error && (
-                <Alert variant="error" className="w-full">
-                  {add.error.message}
-                </Alert>
-              )}
+              <ErrorAlert error={add.error} className="w-full" />
             </form>
           </CardContent>
         </Card>
@@ -683,7 +711,7 @@ function JustInTime({ ent }: { ent: Entitlement }) {
           Cancel
         </Button>
       </div>
-      {save.error && <Alert variant="error">{save.error.message}</Alert>}
+      <ErrorAlert error={save.error} />
     </form>
   );
 }

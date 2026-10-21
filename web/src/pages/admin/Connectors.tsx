@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ExternalLink } from "lucide-react";
+import { Check } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Manage } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,21 +13,13 @@ import {
   connectorLabels,
   createApplication,
   listCatalogApplications,
-  setConnector,
   type CatalogApplication,
   type ConnectorRun,
 } from "@/lib/admin";
-import {
-  connectorConfig,
-  connectorTypes,
-  missingFields,
-  type ConnectorField,
-  type ConnectorType,
-} from "@/lib/connectors";
+import { connectorTypes, type ConnectorType } from "@/lib/connectors";
 import { cn } from "@/lib/utils";
+import { ConnectorSettings } from "./ConnectorSettings";
 import { Counts } from "./shared";
-
-const docsBase = "https://github.com/grantra-dev/grantra/blob/main/docs/connectors.md";
 
 /** Settings → Connectors: what Grantra can connect to, and a guided way to do it. */
 export function Connectors() {
@@ -143,28 +135,20 @@ function Wizard({
   const free = apps.filter((a) => a.connector === "manual");
   const [appId, setAppId] = useState("");
   const [name, setName] = useState("");
-  const [values, setValues] = useState<Record<string, string | boolean>>({
-    directory: "active_directory",
-  });
   const [app, setApp] = useState<CatalogApplication | null>(null);
   const [run, setRun] = useState<ConnectorRun | null>(null);
 
-  const save = useMutation({
-    mutationFn: async () => {
-      const target =
-        app && app.id === appId
-          ? app
-          : (free.find((a) => a.id === appId) ?? (await createApplication({ name: name.trim() })));
-      // An application made here keeps existing if the settings are wrong,
-      // so trying again fixes it rather than making another.
-      setApp(target);
-      setAppId(target.id);
-      await setConnector(target.id, type.kind!, connectorConfig(type, values));
-      return target;
-    },
-    onSuccess: () => setStep(2),
-    onSettled: () => void client.invalidateQueries({ queryKey: ["catalog-applications"] }),
-  });
+  // An application made here keeps existing if the settings are wrong, so
+  // trying again fixes it rather than making another.
+  const target = async () => {
+    const made =
+      app && app.id === appId
+        ? app
+        : (free.find((a) => a.id === appId) ?? (await createApplication({ name: name.trim() })));
+    setApp(made);
+    setAppId(made.id);
+    return made.id;
+  };
   const test = useMutation({
     mutationFn: () => aggregate(app!.id),
     onSuccess: (r) => {
@@ -173,7 +157,6 @@ function Wizard({
     },
   });
 
-  const missing = missingFields(type, values);
   const named = appId !== "" || name.trim() !== "";
   return (
     <Card>
@@ -250,46 +233,19 @@ function Wizard({
           </form>
         )}
         {step === 1 && (
-          <form
-            className="flex max-w-lg flex-col gap-4 text-sm"
-            onSubmit={(e) => {
-              e.preventDefault();
-              save.mutate();
+          <ConnectorSettings
+            type={type}
+            label={app?.name ?? (free.find((a) => a.id === appId)?.name || name.trim())}
+            target={target}
+            onSaved={() => {
+              setStep(2);
+              void client.invalidateQueries({ queryKey: ["catalog-applications"] });
             }}
           >
-            {type.fields.length === 0 ? (
-              <p className="text-slate-600">
-                Nothing to fill in: you upload the files from the application&apos;s page, where you
-                can also say which column is which.
-              </p>
-            ) : (
-              type.fields.map((f) => (
-                <Field
-                  key={f.key}
-                  f={f}
-                  value={values[f.key]}
-                  onChange={(v) => setValues({ ...values, [f.key]: v })}
-                />
-              ))
-            )}
-            <a
-              href={docsBase + type.docs}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-brand-600"
-            >
-              Every setting, explained <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-            {save.error && <Alert variant="error">{save.error.message}</Alert>}
-            <div className="flex gap-2">
-              <Button type="submit" disabled={missing.length > 0 || save.isPending}>
-                {save.isPending ? "Saving…" : "Save and continue"}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setStep(0)}>
-                Back
-              </Button>
-            </div>
-          </form>
+            <Button type="button" variant="ghost" onClick={() => setStep(0)}>
+              Back
+            </Button>
+          </ConnectorSettings>
         )}
         {step === 2 && app && (
           <div className="flex flex-col gap-3 text-sm">
@@ -315,12 +271,11 @@ function Wizard({
                     {test.isPending ? "Reading…" : "Test: read accounts now"}
                   </Button>
                 </div>
-                {test.error && <Alert variant="error">{test.error.message}</Alert>}
+                <ErrorAlert error={test.error} />
                 {run &&
                   (run.status === "failed" ? (
                     <Alert variant="error">
-                      Could not read {app.name}: {run.error}. Go back to fix the settings, or check
-                      that the secret is in the server&apos;s environment.
+                      Could not read {app.name}: {run.error}. Go back to fix the settings.
                     </Alert>
                   ) : (
                     <Alert variant="success">
@@ -341,56 +296,5 @@ function Wizard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Field({
-  f,
-  value,
-  onChange,
-}: {
-  f: ConnectorField;
-  value: string | boolean | undefined;
-  onChange: (v: string | boolean) => void;
-}) {
-  const id = `connector-${f.key}`;
-  if (f.type === "checkbox") {
-    return (
-      <label className="flex items-center gap-2">
-        <input
-          id={id}
-          type="checkbox"
-          checked={value === true}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        {f.label}
-      </label>
-    );
-  }
-  return (
-    <div>
-      <Label htmlFor={id}>{f.label}</Label>
-      {f.type === "select" ? (
-        <Select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-          {f.options?.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      ) : (
-        <Input
-          id={id}
-          type={f.type === "url" ? "url" : "text"}
-          required={f.required}
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={f.placeholder}
-          spellCheck={false}
-          autoComplete="off"
-        />
-      )}
-      {f.help && <p className="mt-1 text-xs text-slate-500">{f.help}</p>}
-    </div>
   );
 }

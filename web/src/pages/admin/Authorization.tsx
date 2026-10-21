@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,7 +139,7 @@ function Policies({
             )}
           </div>
         </Manage>
-        {save.error && <Alert variant="error">{save.error.message}</Alert>}
+        <ErrorAlert error={save.error} />
       </CardContent>
     </Card>
   );
@@ -286,7 +286,7 @@ function Playground({ appId, draft }: { appId: string; draft?: string }) {
           </div>
         </form>
         {bad && <Alert variant="error">{bad}</Alert>}
-        {run.error && <Alert variant="error">{run.error.message}</Alert>}
+        <ErrorAlert error={run.error} />
         {answer && (
           <div className="flex flex-col gap-2 text-sm">
             <Alert variant={answer.allowed ? "success" : "warning"}>
@@ -436,9 +436,7 @@ function Keys({ appId, keys }: { appId: string; keys: APIKey[] }) {
             </Button>
           </form>
         </Manage>
-        {(create.error ?? revoke.error) && (
-          <Alert variant="error">{(create.error ?? revoke.error)!.message}</Alert>
-        )}
+        <ErrorAlert error={create.error ?? revoke.error} />
       </CardContent>
     </Card>
   );

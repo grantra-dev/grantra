@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/grantra-dev/grantra/core/internal/accounts"
 	"github.com/grantra-dev/grantra/core/internal/authz"
 	"github.com/grantra-dev/grantra/core/internal/catalog"
+	"github.com/grantra-dev/grantra/core/internal/connector/connectortest"
+	_ "github.com/grantra-dev/grantra/core/internal/connector/okta"
 	_ "github.com/grantra-dev/grantra/core/internal/connector/scim"
+	"github.com/grantra-dev/grantra/core/internal/vault"
 )
 
 func TestConnectorsAndAccounts(t *testing.T) {
@@ -105,5 +109,51 @@ func TestConnectorsAndAccounts(t *testing.T) {
 		if a.ID == app.ID && (a.Connector != "scim" || string(a.Config) == "{}") {
 			t.Errorf("application = %+v", a)
 		}
+	}
+}
+
+// TestConnectorSecrets types an Okta token in the console and reads Okta
+// with it.
+func TestConnectorSecrets(t *testing.T) {
+	e := newEnv(t)
+	admin := e.identity("admin", "", authz.RoleAdmin)
+	auditor := e.identity("auditor", "", authz.RoleAuditor)
+
+	okta := connectortest.New(t, func(r *http.Request) bool { return r.Header.Get("Authorization") == "SSWS 00typed-in-console" })
+	okta.JSON("GET /api/v1/groups", []map[string]any{{"id": "g1", "profile": map[string]string{"name": "Finance"}}})
+	okta.JSON("GET /api/v1/groups/g1/users", []map[string]any{{"id": "u1"}})
+	okta.JSON("GET /api/v1/iam/assignees/users", map[string]any{"value": []any{}})
+	okta.JSON("GET /api/v1/users", []map[string]any{{"id": "u1", "status": "ACTIVE", "profile": map[string]string{"login": "ana@example.com", "email": "ana@example.com"}}})
+
+	secret := `{"label": "Okta API token", "value": "00typed-in-console"}`
+	if rec := e.do(admin, http.MethodPost, "/api/v1/connector-secrets", secret); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), vault.KeyEnv) {
+		t.Fatalf("store a secret with no vault key = %d %s", rec.Code, rec.Body)
+	}
+	key, err := vault.NewLocalKey("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.api.Secrets.Keys = key
+	if rec := e.do(auditor, http.MethodPost, "/api/v1/connector-secrets", secret); rec.Code != http.StatusForbidden {
+		t.Errorf("auditor stores a secret = %d", rec.Code)
+	}
+	rec := e.do(admin, http.MethodPost, "/api/v1/connector-secrets", secret)
+	ref := decode[struct{ Ref string }](t, rec).Ref
+	if rec.Code != http.StatusCreated || !strings.HasPrefix(ref, "secret:") {
+		t.Fatalf("store a secret = %d %s", rec.Code, ref)
+	}
+
+	app := decode[catalog.Application](t, e.do(admin, http.MethodPost, "/api/v1/applications", `{"name": "Okta"}`))
+	cfg := `{"kind": "okta", "config": {"org_url": "` + okta.URL + `", "token": "` + ref + `", "allow_http": true, "apps": false}}`
+	if rec := e.do(admin, http.MethodPut, "/api/v1/applications/"+app.ID+"/connector", cfg); rec.Code != http.StatusNoContent {
+		t.Fatalf("set connector = %d %s", rec.Code, rec.Body)
+	}
+	rec = e.do(admin, http.MethodPost, "/api/v1/applications/"+app.ID+"/aggregations", "")
+	if run := decode[accounts.Run](t, rec); rec.Code != http.StatusOK || run.Counts["accounts"] != 1 {
+		t.Fatalf("aggregate = %d %+v", rec.Code, run)
+	}
+	// The secret is in no response and no audit event.
+	if n := e.count(`SELECT count(*) FROM audit_events WHERE details::text LIKE '%typed-in-console%'`); n != 0 {
+		t.Errorf("the secret is in %d audit events", n)
 	}
 }

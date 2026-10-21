@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
 import { ReadOnlyFields } from "@/components/Manage";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
@@ -149,7 +149,7 @@ function DetectionRow({ detection: d }: { detection: Detection }) {
           </Button>
         </div>
       )}
-      {save.error && <Alert variant="error">{save.error.message}</Alert>}
+      <ErrorAlert error={save.error} />
     </form>
   );
 }

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loaded } from "@/components/Loaded";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/field";
@@ -124,11 +124,7 @@ function BreakGlassUse({
           </Button>
         </div>
       )}
-      {review.error && (
-        <Alert variant="error" className="mt-2">
-          {review.error.message}
-        </Alert>
-      )}
+      <ErrorAlert error={review.error} className="mt-2" />
     </li>
   );
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/gateways"
 	"github.com/grantra-dev/grantra/core/internal/gateways/cloud"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
+	"github.com/grantra-dev/grantra/core/internal/secretstore"
 	"github.com/grantra-dev/grantra/core/internal/settings"
 	"github.com/grantra-dev/grantra/core/internal/sshaccess"
 	"github.com/grantra-dev/grantra/core/internal/vault"
@@ -31,7 +32,10 @@ type API struct {
 	tenantID string
 	authz    *authz.Authorizer
 	log      *slog.Logger
-	secrets  connector.SecretResolver
+
+	// Secrets keeps the connector secrets typed in the console and resolves
+	// every secret reference in connector configs.
+	Secrets *secretstore.Store
 
 	// EmailEnabled says whether notification email is set up, so the
 	// console can tell people when their settings have no effect.
@@ -55,7 +59,7 @@ type API struct {
 
 // New returns the console API for the given tenant.
 func New(pool *pgxpool.Pool, tenantID string, az *authz.Authorizer, log *slog.Logger) *API {
-	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, secrets: connector.EnvSecrets,
+	return &API{pool: pool, tenantID: tenantID, authz: az, log: log, Secrets: &secretstore.Store{Pool: pool, TenantID: tenantID},
 		Vault: vault.New(nil, connector.EnvSecrets), SSH: sshaccess.New(nil), Gateways: gateways.New(nil)}
 }
 
@@ -109,6 +113,7 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("PUT /api/v1/access-rules/{id}", a.saveAccessRule)
 	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)
 	route("PUT /api/v1/applications/{id}/connector", a.setConnector)
+	route("POST /api/v1/connector-secrets", a.createConnectorSecret)
 	route("POST /api/v1/applications/{id}/aggregations", a.aggregate)
 	tokenRoute("POST /api/v1/applications/{id}/account-imports", a.importAccounts)
 	route("PUT /api/v1/applications/{id}/provisioning", a.setProvisioning)
