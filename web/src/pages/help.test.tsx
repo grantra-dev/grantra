@@ -166,6 +166,7 @@ describe("CSV help next to uploads", () => {
       connector: "csv",
       config: { separator: "|" },
       provisioning: { mode: "off" },
+      read_every_hours: 1,
       entitlement_count: 0,
       created_at: "2026-10-01T09:00:00Z",
     };

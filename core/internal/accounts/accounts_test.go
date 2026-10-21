@@ -257,13 +257,52 @@ func TestAggregateFailuresChangeNothing(t *testing.T) {
 func TestAggregateDue(t *testing.T) {
 	e := newEnv(t)
 	e.set(connector.Snapshot{Accounts: []connector.Account{{NativeID: "u1", Active: true}}}, nil)
-	runs, err := AggregateDue(context.Background(), e.pool, e.tenant, time.Hour, noSecrets)
+	ctx := context.Background()
+	runs, err := AggregateDue(ctx, e.pool, e.tenant, noSecrets)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("first pass = %v, %v", runs, err)
 	}
-	runs, err = AggregateDue(context.Background(), e.pool, e.tenant, time.Hour, noSecrets)
+	runs, err = AggregateDue(ctx, e.pool, e.tenant, noSecrets)
 	if err != nil || len(runs) != 0 {
 		t.Errorf("second pass within the hour = %v, %v", runs, err)
+	}
+
+	// Each application keeps its own schedule: read two hours ago, it is
+	// due at every hour or two, not at every three, never at 0 (only when
+	// asked) and never once retired.
+	due := func(set string) int {
+		t.Helper()
+		e.tx(func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE connector_runs SET started_at = now() - interval '2 hours' WHERE application_id = $1`, e.app)
+			if err == nil {
+				_, err = tx.Exec(ctx, `UPDATE applications SET `+set+` WHERE id = $1`, e.app)
+			}
+			return err
+		})
+		runs, err := AggregateDue(ctx, e.pool, e.tenant, noSecrets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(runs)
+	}
+	for _, c := range []struct {
+		set  string
+		want int
+	}{
+		{"read_every_hours = 3", 0},
+		{"read_every_hours = 0", 0},
+		{"read_every_hours = 1, retired_at = now()", 0},
+		{"read_every_hours = 2, retired_at = NULL", 1},
+	} {
+		if got := due(c.set); got != c.want {
+			t.Errorf("%s: %d runs, want %d", c.set, got, c.want)
+		}
+	}
+
+	// Nor can anyone read a retired application by hand.
+	due("retired_at = now()")
+	if _, err := Aggregate(ctx, e.pool, e.tenant, e.app, "identity:tester", noSecrets); !errors.As(err, new(*apperr.Conflict)) {
+		t.Errorf("aggregate a retired application = %v", err)
 	}
 }
 
@@ -389,7 +428,7 @@ func TestImportFile(t *testing.T) {
 	if _, err := Aggregate(ctx, e.pool, e.tenant, e.app, "identity:tester", noSecrets); !errors.As(err, new(*apperr.Invalid)) {
 		t.Errorf("aggregate a csv application = %v", err)
 	}
-	due, err := AggregateDue(ctx, e.pool, e.tenant, time.Nanosecond, noSecrets)
+	due, err := AggregateDue(ctx, e.pool, e.tenant, noSecrets)
 	if err != nil || len(due) != 0 {
 		t.Errorf("due = %v, %v", due, err)
 	}

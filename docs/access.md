@@ -40,6 +40,18 @@ A rule gives roles and entitlements to everyone whose attributes match its condi
 
 The engine reads lifecycle events from the outbox (`lifecycle_events` with `processed_at` empty) right after each sync and every 30 seconds, so start and end dates applied between syncs also take effect. Every change is audited as `access.assigned` or `access.removed`, with the rule and the reason.
 
+## Changing and retiring applications
+
+Everything about an application is set from its page in the console (Governance → Applications): its owner (who approves requests for its access under the default approval flow), description, how often Grantra reads it (every hour by default, from once a week to only when someone asks), and the name, description and risk of each entitlement. Risk is what approval flows, the separation of duties risk step and Grantra Login's sensitive-access sign-in policy look at, so give the entitlements a connector brings in (all low at first) the risk they deserve.
+
+**Delete** is for mistakes: an application with no accounts whose entitlements nobody holds, is assigned or eligible for, asked for, reviewed, or names in a role, birthright rule, separation of duties policy, vault account or remote access target. The same goes for an entitlement added by hand. Anything else has history the audit trail points at, so it is **retired** instead:
+
+- nobody can ask for its access, and roles, birthright rules and eligibilities cannot take it in;
+- Grantra stops reading it and provisioning turns off;
+- what people still hold stays, visible in access reviews and on each person's page, until a review or an admin removes it.
+
+It cannot be retired while a business role or birthright rule includes its access, or a request for it is still open, because they would keep handing it out: take it out of them, and decide or cancel the requests, first. **Bring back into service** undoes it; provisioning stays off until turned on again.
+
 ## API
 
 All endpoints need a signed-in session. Writes need `grantra-admin`; `grantra-auditor` reads everything.
@@ -47,7 +59,11 @@ All endpoints need a signed-in session. Writes need `grantra-admin`; `grantra-au
 | Endpoint | Action |
 |---|---|
 | `GET` / `POST /api/v1/applications` | `catalog.read` / `catalog.manage`: `{"name", "owner_id"}` |
+| `PUT /api/v1/applications/{id}` | `catalog.manage`: `{"name", "description", "owner_id", "read_every_hours"}`, audited with old and new values |
+| `PUT /api/v1/applications/{id}/retired` | `catalog.manage`: `{"retired": true}` retires it, `false` brings it back (see below) |
+| `DELETE /api/v1/applications/{id}` | `catalog.manage`: only an application without history (below); `409` otherwise |
 | `GET` / `POST /api/v1/applications/{id}/entitlements` | `catalog.read` / `catalog.manage`: `{"name", "native_id", "description", "risk"}` |
+| `PUT` / `DELETE /api/v1/entitlements/{id}` | `catalog.manage`: `{"name", "description", "risk"}`, audited with old and new values. The name of one read from a connected application comes from the application. Only an entitlement added by hand and without history can be deleted |
 | `GET` / `POST /api/v1/roles`, `GET` / `PUT /api/v1/roles/{id}` | `catalog.read` / `catalog.manage`: `{"name", "description", "owner_id", "entitlement_ids"}` |
 | `GET` / `POST /api/v1/access-rules`, `GET` / `PUT` / `DELETE /api/v1/access-rules/{id}` | `access_rule.read` / `access_rule.manage`. Writes answer with `changes: {added, removed}` |
 | `POST /api/v1/access-rules/preview` | `access_rule.read`: `{"conditions": {...}}` → `{matches, sample}` |

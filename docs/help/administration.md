@@ -18,11 +18,15 @@ The format of the file, a template and what each error means are in [CSV files](
 
 Add applications and their entitlements (roles, groups). Applications connect in one of three ways:
 
-- **Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center, Salesforce, SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Type the token or secret in: Grantra keeps it encrypted with the vault key and never shows it again (or give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN` to a variable in the server's environment). Grantra reads the accounts every hour, and can write changes back once provisioning is on. **Change settings** on the application's page changes them later; leave a secret blank to keep the one saved.
+- **Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center, Salesforce, SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Type the token or secret in: Grantra keeps it encrypted with the vault key and never shows it again (or give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN` to a variable in the server's environment). Grantra reads the accounts every hour (change it under **About** on the application's page), and can write changes back once provisioning is on. **Change settings** on the application's page changes them later; leave a secret blank to keep the one saved.
 - **Account files**, for applications with no API: **Load accounts from a file**, map the columns, then **Check file** and **Import**. See [CSV files](csv-files.md).
 - **By hand**: Grantra keeps the catalog, and someone makes the changes in the application.
 
 Each application's page shows its accounts, the ones nobody owns (orphans), past runs, and provisioning: whether Grantra writes changes back to the application, with a dry run to see what it would do first and a limit on how many changes one run can make.
+
+Under **About**, **Edit** sets the owner (who approves requests for its access under the default flow), a description and how often it is read. **Edit** next to an entitlement changes its description and risk, and its name if Grantra named it: entitlements a connector brings in all start low, and risk decides approval flows and who needs a second factor. On the **Accounts** tab, **Link to a person** ties an account nobody matched to its owner, or marks it as nobody's (a shared or service login).
+
+**Delete** is for an application added by mistake, with no accounts and no history. One with history is **retired** instead: nobody can ask for its access, Grantra stops reading it and provisioning turns off, and what people still hold stays until a review removes it. **Bring back into service** undoes it.
 
 ## Roles and rules
 

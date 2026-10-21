@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/grantra-dev/grantra/core/internal/authz"
+	"github.com/grantra-dev/grantra/core/internal/catalog"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
@@ -178,8 +179,8 @@ func (a *API) getHome(w http.ResponseWriter, r *http.Request) {
 		if err := tx.QueryRow(ctx,
 			`SELECT (SELECT count(*) FROM roles WHERE coalesce(btrim(description), '') = '')
 			      + (SELECT count(*) FROM entitlements e JOIN applications app ON app.id = e.application_id
-			         WHERE app.connector <> $1 AND e.missing_since IS NULL AND coalesce(btrim(e.description), '') = '')`,
-			authz.BuiltinConnector).Scan(&g.Undescribed); err != nil {
+			         WHERE `+catalog.RequestableSQL("app", "e")+` AND coalesce(btrim(e.description), '') = '')`).
+			Scan(&g.Undescribed); err != nil {
 			return err
 		}
 		if a.may(me, authz.ReadSoD, authz.SoDResource()) {

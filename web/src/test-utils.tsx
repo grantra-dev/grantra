@@ -3,7 +3,16 @@ import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 import { App } from "@/App";
-import type { ApprovalStep } from "@/lib/api";
+import type { ApprovalStep, Me } from "@/lib/api";
+
+/** Ada, a Grantra admin who manages nobody and owns no application. */
+export const adminMe: Me = {
+  identity_id: "ada",
+  display_name: "Ada Admin",
+  platform_roles: ["grantra-admin"],
+  manages_people: false,
+  owns_applications: false,
+};
 
 export type Handler = (init?: RequestInit) => { status: number; body: unknown };
 

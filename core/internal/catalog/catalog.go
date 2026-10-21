@@ -42,10 +42,17 @@ type Application struct {
 	Config json.RawMessage `json:"config"`
 	// Provisioning is how Grantra writes to the application, see the
 	// provisioning package.
-	Provisioning     json.RawMessage `json:"provisioning"`
-	OwnerID          string          `json:"owner_id,omitempty"`
-	EntitlementCount int             `json:"entitlement_count"`
-	CreatedAt        time.Time       `json:"created_at"`
+	Provisioning json.RawMessage `json:"provisioning"`
+	OwnerID      string          `json:"owner_id,omitempty"`
+	OwnerName    string          `json:"owner_name,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	// ReadEveryHours is how often the scheduled job reads the application
+	// through its connector; 0 reads it only when someone asks.
+	ReadEveryHours int `json:"read_every_hours"`
+	// RetiredAt is set once the application is retired, see Retire.
+	RetiredAt        *time.Time `json:"retired_at,omitempty"`
+	EntitlementCount int        `json:"entitlement_count"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // Entitlement is a permission inside an application.
@@ -117,7 +124,7 @@ func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID s
 	if err != nil {
 		return Application{}, err
 	}
-	a := Application{Name: name, Connector: ManualConnector, Config: json.RawMessage(`{}`), Provisioning: json.RawMessage(`{"mode": "off"}`), OwnerID: ownerID}
+	a := Application{Name: name, Connector: ManualConnector, Config: json.RawMessage(`{}`), Provisioning: json.RawMessage(`{"mode": "off"}`), OwnerID: ownerID, ReadEveryHours: DefaultReadEveryHours}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO applications (tenant_id, name, connector, owner_id) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (tenant_id, name) DO NOTHING RETURNING id, created_at`,
@@ -128,20 +135,24 @@ func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID s
 	return a, err
 }
 
+const applicationColumns = `a.id, a.name, a.connector, a.config, a.provisioning, coalesce(a.owner_id::text, ''),
+	coalesce((SELECT o.display_name FROM identities o WHERE o.id = a.owner_id), ''), coalesce(a.description, ''), a.read_every_hours, a.retired_at,
+	(SELECT count(*) FROM entitlements e WHERE e.application_id = a.id), a.created_at`
+
+func scanApplication(row pgx.CollectableRow) (Application, error) {
+	var a Application
+	err := row.Scan(&a.ID, &a.Name, &a.Connector, &a.Config, &a.Provisioning, &a.OwnerID, &a.OwnerName,
+		&a.Description, &a.ReadEveryHours, &a.RetiredAt, &a.EntitlementCount, &a.CreatedAt)
+	return a, err
+}
+
 // ListApplications returns every application, the built-in one included.
 func ListApplications(ctx context.Context, tx pgx.Tx) ([]Application, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT a.id, a.name, a.connector, a.config, a.provisioning, coalesce(a.owner_id::text, ''),
-		        (SELECT count(*) FROM entitlements e WHERE e.application_id = a.id), a.created_at
-		 FROM applications a ORDER BY a.name`)
+	rows, err := tx.Query(ctx, `SELECT `+applicationColumns+` FROM applications a ORDER BY a.name`)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Application, error) {
-		var a Application
-		err := row.Scan(&a.ID, &a.Name, &a.Connector, &a.Config, &a.Provisioning, &a.OwnerID, &a.EntitlementCount, &a.CreatedAt)
-		return a, err
-	})
+	return pgx.CollectRows(rows, scanApplication)
 }
 
 // EntitlementInput describes a new entitlement. NativeID is its id inside the
@@ -161,6 +172,9 @@ func CreateEntitlement(ctx context.Context, tx pgx.Tx, tenantID, applicationID s
 	}
 	if app.Connector == builtinConnector {
 		return Entitlement{}, apperr.Invalidf("platform roles are fixed; manage their members under platform roles")
+	}
+	if app.RetiredAt != nil {
+		return Entitlement{}, errRetired(app.Name)
 	}
 	name, err := checkName(in.Name)
 	if err != nil {
@@ -240,11 +254,7 @@ func SetJIT(ctx context.Context, tx pgx.Tx, tenantID, actor, id string, j JIT) (
 		"jit_only": j.JITOnly, "max_activation_hours": j.MaxActivationHours, "activation_approval": j.ActivationApproval}); err != nil {
 		return Entitlement{}, err
 	}
-	rows, err := tx.Query(ctx, `SELECT `+entitlementColumns+` FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1`, id)
-	if err != nil {
-		return Entitlement{}, err
-	}
-	return pgx.CollectExactlyOneRow(rows, scanEntitlement)
+	return entitlementByID(ctx, tx, id)
 }
 
 func lockApplication(ctx context.Context, tx pgx.Tx, id string) (Application, error) {
@@ -252,8 +262,8 @@ func lockApplication(ctx context.Context, tx pgx.Tx, id string) (Application, er
 	if !db.ValidUUID(id) {
 		return a, apperr.ErrNotFound
 	}
-	err := tx.QueryRow(ctx, `SELECT id, name, connector FROM applications WHERE id = $1 FOR SHARE`, id).
-		Scan(&a.ID, &a.Name, &a.Connector)
+	err := tx.QueryRow(ctx, `SELECT id, name, connector, retired_at FROM applications WHERE id = $1 FOR SHARE`, id).
+		Scan(&a.ID, &a.Name, &a.Connector, &a.RetiredAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, apperr.ErrNotFound
 	}
@@ -285,15 +295,17 @@ func ListEntitlements(ctx context.Context, tx pgx.Tx, applicationID string) ([]E
 }
 
 // CheckEntitlements verifies every id is an entitlement Grantra may hand out:
-// one of the tenant's, outside the built-in application. Platform roles are
-// granted only through their own guarded flow.
+// one of the tenant's, outside the built-in application and retired ones.
+// Platform roles are granted only through their own guarded flow.
 func CheckEntitlements(ctx context.Context, tx pgx.Tx, ids []string) error {
 	for _, id := range ids {
-		var connector string
+		var connector, app string
+		var retired bool
 		err := pgx.ErrNoRows
 		if db.ValidUUID(id) {
 			err = tx.QueryRow(ctx,
-				`SELECT a.connector FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1`, id).Scan(&connector)
+				`SELECT a.connector, a.name, a.retired_at IS NOT NULL
+				 FROM entitlements e JOIN applications a ON a.id = e.application_id WHERE e.id = $1`, id).Scan(&connector, &app, &retired)
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperr.Invalidf("entitlement %s does not exist", id)
@@ -303,6 +315,9 @@ func CheckEntitlements(ctx context.Context, tx pgx.Tx, ids []string) error {
 		}
 		if connector == builtinConnector {
 			return apperr.Invalidf("entitlement %s is a platform role; grant it under platform roles", id)
+		}
+		if retired {
+			return errRetired(app)
 		}
 	}
 	return nil

@@ -231,6 +231,7 @@ const crm = {
   connector: "manual",
   config: null,
   provisioning: null,
+  read_every_hours: 1,
   entitlement_count: 0,
   created_at: "2026-10-01T00:00:00Z",
 };

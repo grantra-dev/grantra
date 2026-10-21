@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Loaded } from "@/components/Loaded";
-import { ErrorAlert } from "@/components/ui/alert";
+import { FormActions } from "@/components/FormActions";
+import { PickPerson, type Picked } from "@/components/PersonSearch";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Manage } from "@/components/Manage";
 import { Input, Label } from "@/components/ui/field";
@@ -38,6 +38,7 @@ export function Applications() {
           <TableHeader>
             <TableRow>
               <TableHead>Application</TableHead>
+              <TableHead>Owner</TableHead>
               <TableHead>Connector</TableHead>
               <TableHead>Provisioning</TableHead>
               <TableHead>Entitlements</TableHead>
@@ -54,9 +55,14 @@ export function Applications() {
                     {a.name}
                   </Link>
                 </TableCell>
+                <TableCell>
+                  {a.owner_name ?? <span className="text-slate-500">Nobody yet</span>}
+                </TableCell>
                 <TableCell>{connectorLabels[a.connector] ?? a.connector}</TableCell>
                 <TableCell>
-                  {a.provisioning?.mode === "on" ? (
+                  {a.retired_at ? (
+                    <Badge>Retired</Badge>
+                  ) : a.provisioning?.mode === "on" ? (
                     <Badge variant="green">On</Badge>
                   ) : (
                     <Badge>Off, read only</Badge>
@@ -75,10 +81,12 @@ export function Applications() {
 function NewApplication() {
   const client = useQueryClient();
   const [name, setName] = useState("");
+  const [owner, setOwner] = useState<Picked>();
   const create = useMutation({
-    mutationFn: () => createApplication({ name }),
+    mutationFn: () => createApplication({ name, owner_id: owner?.id }),
     onSuccess: () => {
       setName("");
+      setOwner(undefined);
       void client.invalidateQueries({ queryKey: ["catalog-applications"] });
     },
   });
@@ -86,7 +94,7 @@ function NewApplication() {
     <Card>
       <CardContent className="pt-5">
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex flex-wrap items-start gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             create.mutate();
@@ -97,19 +105,26 @@ function NewApplication() {
             <Input
               id="app-name"
               required
+              maxLength={200}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Salesforce"
             />
           </div>
-          <Button type="submit" disabled={create.isPending}>
-            Add application
-          </Button>
+          <div className="w-full max-w-xs">
+            <Label htmlFor="app-owner">Owner</Label>
+            <PickPerson
+              id="app-owner"
+              value={owner}
+              onChange={setOwner}
+              placeholder="Who answers for it"
+            />
+          </div>
+          <FormActions action={create} submit="Add application" className="w-full" />
           <p className="w-full text-sm text-slate-500">
-            To read its accounts, connect it from Settings, Connectors, or from its own page once it
-            exists.
+            The owner approves requests for its access under the default approval flow. To read its
+            accounts, connect it from Settings, Connectors, or from its own page once it exists.
           </p>
-          <ErrorAlert error={create.error} className="w-full" />
         </form>
       </CardContent>
     </Card>

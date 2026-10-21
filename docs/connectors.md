@@ -139,7 +139,7 @@ To provision, Grantra assigns and removes permission sets and permission set gro
 
 ## Rate limits
 
-Every connector that calls a web API waits and tries again, up to five times, when the service says it is busy (`429 Too Many Requests`, or GitHub's `403` with its limit used up), as long as the service asks (`Retry-After`) or with a growing pause. Reads also try again on `502`, `503` and `504`. A wait longer than a minute fails the read instead, which changes nothing; the next hourly read tries again.
+Every connector that calls a web API waits and tries again, up to five times, when the service says it is busy (`429 Too Many Requests`, or GitHub's `403` with its limit used up), as long as the service asks (`Retry-After`) or with a growing pause. Reads also try again on `502`, `503` and `504`. A wait longer than a minute fails the read instead, which changes nothing; the next scheduled read tries again.
 
 ## SCIM 2.0
 
@@ -265,11 +265,11 @@ Any other column is kept as an attribute of the account. An export with one row 
 - **All or nothing.** A file with any error is refused (`422`) with every problem and its line, and changes nothing; the run is recorded as failed.
 - **Dry run.** `dry_run=true` answers with what would change, and changes nothing.
 - **Full lists.** The file is the whole application: accounts missing from it are marked `deleted`, as in any aggregation. A file with no accounts, where there were some, is refused.
-- The hourly aggregation leaves these applications alone, and the connector cannot provision: changes are made in the application by hand and show up with the next file.
+- The scheduled aggregation leaves these applications alone, and the connector cannot provision: changes are made in the application by hand and show up with the next file.
 
 ## Aggregation
 
-- Runs on demand (`POST /aggregations`) and on its own once an hour for every application with a connector.
+- Runs on demand (`POST /aggregations`) and on its own for every application with a connector, once an hour unless its page says otherwise (`read_every_hours`, 1 to 168, or 0 for only on demand). Retired applications are not read.
 - Each run is recorded in `connector_runs` with what changed (new accounts, orphans, membership changes...) and audited as `application.aggregated`.
 - **A failed read changes nothing.** Neither does a read that returns no accounts where there were some last time: that looks like a broken service, not a company that deleted every user. The API answers `502` and the run is recorded as failed.
 - Accounts no longer returned become `deleted`; entitlements no longer returned get `missing_since`. History is kept.
@@ -282,7 +282,7 @@ Each account is matched to the identity it belongs to, first match wins:
 2. The account email equals the identity's email (`rule:email`).
 3. The username is an email that equals the identity's email (`rule:username`).
 
-A match must be unique: an email two people share links nobody. Accounts that match nobody are **orphans**, listed with `GET /accounts?orphans=true`. An admin can link an account by hand (`PUT /api/v1/accounts/{id}/identity`), or mark it as nobody's (a shared or service login) with `{"identity_id": null}`. Manual decisions survive every aggregation.
+A match must be unique: an email two people share links nobody. Accounts that match nobody are **orphans**, listed with `GET /accounts?orphans=true`. An admin can link an account by hand, from the Accounts tab of the application (**Link to a person**) or with `PUT /api/v1/accounts/{id}/identity`, or mark it as nobody's (a shared or service login) with `{"identity_id": null}`. Manual decisions survive every aggregation.
 
 ## Provisioning
 

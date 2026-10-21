@@ -73,13 +73,13 @@ func (a *API) search(w http.ResponseWriter, r *http.Request) {
 			if err := find(
 				`(SELECT 'role', id::text, name, 'Business role', '' FROM roles
 				  WHERE lower(name) LIKE $1 OR lower(coalesce(description, '')) LIKE $1
-				  ORDER BY name, id LIMIT $3)
+				  ORDER BY name, id LIMIT $2)
 				 UNION ALL
 				 (SELECT 'entitlement', e.id::text, e.name, a.name, a.id::text
 				  FROM entitlements e JOIN applications a ON a.id = e.application_id
-				  WHERE a.connector <> $2 AND e.missing_since IS NULL
+				  WHERE `+catalog.RequestableSQL("a", "e")+`
 				    AND (lower(e.name) LIKE $1 OR lower(coalesce(e.description, '')) LIKE $1)
-				  ORDER BY e.name, e.id LIMIT $3)`, pattern, authz.BuiltinConnector, searchPerKind); err != nil {
+				  ORDER BY e.name, e.id LIMIT $2)`, pattern, searchPerKind); err != nil {
 				return err
 			}
 		}

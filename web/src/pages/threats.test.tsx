@@ -4,15 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Me } from "@/lib/api";
 import type { Inbox } from "@/lib/console";
 import type { Detection, ThreatAlert, ThreatsOverview } from "@/lib/threats";
-import { ok, renderAt, serve } from "@/test-utils";
+import { adminMe as ada, ok, renderAt, serve } from "@/test-utils";
 
-const ada: Me = {
-  identity_id: "ada",
-  display_name: "Ada Admin",
-  platform_roles: ["grantra-admin"],
-  manages_people: false,
-  owns_applications: false,
-};
 const audrey: Me = { ...ada, identity_id: "audrey", platform_roles: ["grantra-auditor"] };
 
 const travel: ThreatAlert = {

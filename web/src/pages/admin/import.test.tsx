@@ -1,17 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Me } from "@/lib/api";
 import type { CatalogApplication, ConnectorRun, IdentitySource, ServiceToken } from "@/lib/admin";
-import { ok, renderAt, serve } from "@/test-utils";
-
-const admin: Me = {
-  identity_id: "ada",
-  display_name: "Ada Admin",
-  platform_roles: ["grantra-admin"],
-  manages_people: false,
-  owns_applications: false,
-};
+import { adminMe as admin, ok, renderAt, serve } from "@/test-utils";
 
 const source: IdentitySource = {
   id: "hr",
@@ -187,6 +178,7 @@ describe("Account files", () => {
     connector: "manual",
     config: {},
     provisioning: { mode: "off" },
+    read_every_hours: 1,
     entitlement_count: 0,
     created_at: "2026-10-01T09:00:00Z",
     ...extra,

@@ -1,7 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Me } from "@/lib/api";
 import type {
   CatalogApplication,
   IdentitySource,
@@ -9,15 +8,7 @@ import type {
   SoDViolation,
   SyncResult,
 } from "@/lib/admin";
-import { ok, renderAt, serve } from "@/test-utils";
-
-const admin: Me = {
-  identity_id: "ada",
-  display_name: "Ada Admin",
-  platform_roles: ["grantra-admin"],
-  manages_people: false,
-  owns_applications: false,
-};
+import { adminMe as admin, ok, renderAt, serve } from "@/test-utils";
 
 const source: IdentitySource = {
   id: "hr",
@@ -116,6 +107,7 @@ describe("Applications", () => {
     connector: "scim",
     config: { base_url: "https://github.example/scim/v2", token: "env:GRANTRA_SECRET_GH" },
     provisioning: { mode: "off" },
+    read_every_hours: 1,
     entitlement_count: 1,
     created_at: "2026-10-01T09:00:00Z",
   };
@@ -180,6 +172,7 @@ describe("Application authorization", () => {
     connector: "manual",
     config: {},
     provisioning: { mode: "off" },
+    read_every_hours: 1,
     entitlement_count: 1,
     created_at: "2026-10-01T09:00:00Z",
   };
