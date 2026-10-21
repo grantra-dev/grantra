@@ -6,13 +6,13 @@ For Grantra admins. Applications, roles and rules, separation of duties and stan
 
 ## HR sources
 
-HR is the authority on who works here. An HR source reads an export (a CSV file) and turns the differences into joiners, movers and leavers.
+HR is the authority on who works here. An HR source reads an export (a CSV file), or Workday or BambooHR directly, and turns the differences into joiners, movers and leavers.
 
-1. **New HR source**: name it, choose what happens to people missing from a file, and set the leaver limit. Map your export's column names to Grantra's fields; a sample file shows which it already has.
-2. Choose the export and **Check file**. Nothing changes yet: you see every joiner, mover and leaver, and every error and warning.
-3. **Apply** it. A file stopped by the leaver limit can be applied anyway after you confirm.
+1. **New HR source**: pick where people come from, name it and set the leaver limit. For files, choose what happens to people missing from a file and map your export's column names to Grantra's fields; a sample file shows which it already has. For Workday or BambooHR, fill in how to reach it and how often to read it; type the password or API key in and Grantra keeps it encrypted.
+2. Choose the export and **Check file**, or **Check Workday now** (or BambooHR). Nothing changes yet: you see every joiner, mover and leaver, and every error and warning.
+3. **Apply** it. A sync stopped by the leaver limit can be applied anyway after you confirm. Workday and BambooHR are then read on their own, every day by default.
 
-The format of the file, a template and what each error means are in [CSV files](csv-files.md). A nightly job can send the export instead of a person, with an API token.
+The format of the file, a template and what each error means are in [CSV files](csv-files.md). A nightly job can send the export instead of a person, with an API token. How to set up Workday and BambooHR for Grantra is in the [identity lifecycle docs](../identity-lifecycle.md#hr-systems-grantra-reads-itself).
 
 ## Applications
 

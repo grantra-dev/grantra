@@ -122,7 +122,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, opts Options
 }
 
 func seed(ctx context.Context, tx pgx.Tx, tenantID string, opts Options) error {
-	src, err := lifecycle.CreateSource(ctx, tx, tenantID, "HR (demo)", "csv", lifecycle.Config{})
+	src, err := lifecycle.CreateSource(ctx, tx, tenantID, "HR (demo)", lifecycle.KindCSV, lifecycle.Config{}, nil)
 	if err != nil {
 		return err
 	}

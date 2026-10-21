@@ -1,18 +1,16 @@
 import { useMutation } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
-import { useState } from "react";
 import { FormActions } from "@/components/FormActions";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { setConnector } from "@/lib/admin";
 import {
-  connectorValues,
-  missingFields,
-  saveableConfig,
+  useConnection,
+  type Connection,
   type ConnectorField,
   type ConnectorType,
 } from "@/lib/connectors";
 
-const docsBase = "https://github.com/grantra-dev/grantra/blob/main/docs/connectors.md";
+const docsBase = "https://github.com/grantra-dev/grantra/blob/main/docs/";
 
 /**
  * A connector's settings, for a new connection or to change one. Secrets
@@ -38,18 +36,14 @@ export function ConnectorSettings({
   /** Buttons next to Save. */
   children?: React.ReactNode;
 }) {
-  const [values, setValues] = useState(() => connectorValues(type, current ?? null));
+  const connection = useConnection(type, current);
   const save = useMutation({
     mutationFn: async () => {
       const appId = await target();
-      const config = await saveableConfig(type, values, label, current);
-      // Secrets now stored are not stored again if saving fails and is tried again.
-      setValues((v) => ({ ...v, ...pickSecrets(type, config) }));
-      await setConnector(appId, type.kind!, config);
+      await setConnector(appId, type.kind, await connection.saveable(label));
     },
     onSuccess: onSaved,
   });
-  const missing = missingFields(type, values, current);
   return (
     <form
       className="flex max-w-lg flex-col gap-4 text-sm"
@@ -58,22 +52,38 @@ export function ConnectorSettings({
         save.mutate();
       }}
     >
-      {type.fields.length === 0 ? (
+      {type.fields.length === 0 && (
         <p className="text-slate-600">
           Nothing to fill in: you upload the files from the application&apos;s page, where you can
           also say which column is which.
         </p>
-      ) : (
-        type.fields.map((f) => (
-          <Field
-            key={f.key}
-            f={f}
-            value={values[f.key]}
-            kept={f.type === "secret" && typeof current?.[f.key] === "string"}
-            onChange={(v) => setValues({ ...values, [f.key]: v })}
-          />
-        ))
       )}
+      <ConnectionFields connection={connection} />
+      <FormActions
+        action={save}
+        submit={save.isPending ? "Saving…" : current ? "Save settings" : "Save and continue"}
+        disabled={!connection.complete}
+      >
+        {children}
+      </FormActions>
+    </form>
+  );
+}
+
+/** The fields of a connection, and where every setting is explained. */
+export function ConnectionFields({ connection }: { connection: Connection }) {
+  const { type, current, values, setValues } = connection;
+  return (
+    <>
+      {type.fields.map((f) => (
+        <Field
+          key={f.key}
+          f={f}
+          value={values[f.key]}
+          kept={f.type === "secret" && typeof current?.[f.key] === "string"}
+          onChange={(v) => setValues({ ...values, [f.key]: v })}
+        />
+      ))}
       <a
         href={docsBase + type.docs}
         target="_blank"
@@ -82,27 +92,9 @@ export function ConnectorSettings({
       >
         Every setting, explained <ExternalLink className="size-3.5" aria-hidden />
       </a>
-      <FormActions
-        action={save}
-        submit={save.isPending ? "Saving…" : current ? "Save settings" : "Save and continue"}
-        disabled={missing.length > 0}
-      >
-        {children}
-      </FormActions>
-    </form>
+    </>
   );
 }
-
-const pickSecrets = (
-  type: ConnectorType,
-  config: Record<string, string | boolean>,
-): Record<string, string | boolean> =>
-  Object.fromEntries(
-    type.fields.flatMap((f) => {
-      const v = config[f.key];
-      return f.type === "secret" && v !== undefined ? [[f.key, v]] : [];
-    }),
-  );
 
 function Field({
   f,

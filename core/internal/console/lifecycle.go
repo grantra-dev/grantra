@@ -52,7 +52,7 @@ func (a *API) createSource(w http.ResponseWriter, r *http.Request) {
 	}
 	var out lifecycle.Source
 	err := a.guardedOn(r, authz.ManageSources, authz.LifecycleResource(), func(tx pgx.Tx, me authz.Subject) (err error) {
-		if out, err = lifecycle.CreateSource(r.Context(), tx, a.tenantID, body.Name, body.Kind, body.Config); err != nil {
+		if out, err = lifecycle.CreateSource(r.Context(), tx, a.tenantID, body.Name, body.Kind, body.Config, a.Secrets.Resolve); err != nil {
 			return err
 		}
 		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "identity_source.created", "identity_source", out.ID,
@@ -77,7 +77,7 @@ func (a *API) updateSource(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if out, err = lifecycle.UpdateSource(r.Context(), tx, before.ID, body.Name, body.Config); err != nil {
+		if out, err = lifecycle.UpdateSource(r.Context(), tx, before.ID, body.Name, body.Config, a.Secrets.Resolve); err != nil {
 			return err
 		}
 		return db.Audit(r.Context(), tx, a.tenantID, me.Actor(), "identity_source.updated", "identity_source", out.ID,
@@ -107,17 +107,8 @@ func (a *API) listRuns(w http.ResponseWriter, r *http.Request) {
 // those last two cases. Scripts call it with a service token holding the
 // identity_source.sync scope.
 func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	dryRun, err1 := parseBool(q.Get("dry_run"))
-	force, err2 := parseBool(q.Get("force"))
-	if err1 != nil || err2 != nil {
-		httpjson.Error(w, http.StatusBadRequest, "dry_run and force must be true or false")
-		return
-	}
-	sourceID := r.PathValue("id")
-	actor, err := a.caller(r, authz.SyncSource, authz.LifecycleResource(), servicetoken.ScopeSyncSource, sourceID)
-	if err != nil {
-		a.fail(w, r, err)
+	opts, ok := a.syncOptions(w, r)
+	if !ok {
 		return
 	}
 	feed, ok := readUpload(w, r)
@@ -126,11 +117,45 @@ func (a *API) syncSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var out lifecycle.SyncResult
-	err = db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
-		out, err = lifecycle.Sync(r.Context(), tx, a.tenantID, sourceID, bytes.NewReader(feed),
-			lifecycle.Options{DryRun: dryRun, Force: force, Actor: actor})
+	err := db.InTenant(r.Context(), a.pool, a.tenantID, func(tx pgx.Tx) (err error) {
+		out, err = lifecycle.Sync(r.Context(), tx, a.tenantID, r.PathValue("id"), bytes.NewReader(feed), opts)
 		return err
 	})
+	a.synced(w, r, out, err)
+}
+
+// pullSource reads a source's HR system now (Workday, BambooHR) and applies
+// what changed, with the same ?dry_run and ?force and the same answers as
+// syncSource; 422 also when the HR system could not be read.
+func (a *API) pullSource(w http.ResponseWriter, r *http.Request) {
+	opts, ok := a.syncOptions(w, r)
+	if !ok {
+		return
+	}
+	out, err := lifecycle.Pull(r.Context(), a.pool, a.tenantID, r.PathValue("id"), opts, a.Secrets.Resolve)
+	a.synced(w, r, out, err)
+}
+
+// syncOptions reads ?dry_run and ?force and checks the caller may sync the
+// source, answering itself when not.
+func (a *API) syncOptions(w http.ResponseWriter, r *http.Request) (lifecycle.Options, bool) {
+	q := r.URL.Query()
+	dryRun, err1 := parseBool(q.Get("dry_run"))
+	force, err2 := parseBool(q.Get("force"))
+	if err1 != nil || err2 != nil {
+		httpjson.Error(w, http.StatusBadRequest, "dry_run and force must be true or false")
+		return lifecycle.Options{}, false
+	}
+	actor, err := a.caller(r, authz.SyncSource, authz.LifecycleResource(), servicetoken.ScopeSyncSource, r.PathValue("id"))
+	if err != nil {
+		a.fail(w, r, err)
+		return lifecycle.Options{}, false
+	}
+	return lifecycle.Options{DryRun: dryRun, Force: force, Actor: actor}, true
+}
+
+// synced answers a sync: the run with every change.
+func (a *API) synced(w http.ResponseWriter, r *http.Request, out lifecycle.SyncResult, err error) {
 	if err != nil {
 		a.fail(w, r, err)
 		return

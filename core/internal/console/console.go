@@ -96,6 +96,7 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("PUT /api/v1/identity-sources/{id}", a.updateSource)
 	route("GET /api/v1/identity-sources/{id}/runs", a.listRuns)
 	tokenRoute("POST /api/v1/identity-sources/{id}/runs", a.syncSource)
+	tokenRoute("POST /api/v1/identity-sources/{id}/pulls", a.pullSource)
 	route("GET /api/v1/lifecycle-events", a.listLifecycleEvents)
 	route("GET /api/v1/identities/{id}/access", a.identityAccess)
 	route("GET /api/v1/applications", a.listApplications)

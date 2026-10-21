@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grantra-dev/grantra/core/internal/apperr"
+	"github.com/grantra-dev/grantra/core/internal/connector"
 	"github.com/grantra-dev/grantra/core/internal/db"
 	"github.com/grantra-dev/grantra/core/internal/httpjson"
 	"github.com/grantra-dev/grantra/core/internal/nhi"
@@ -25,7 +26,8 @@ var ErrNotFound = apperr.ErrNotFound
 // ErrNameTaken is returned when creating a source with a name in use.
 var ErrNameTaken error = &apperr.Conflict{Msg: "a source with this name already exists"}
 
-// Kinds of source Grantra can read.
+// KindCSV is a source fed with exported files. HR systems Grantra reads
+// itself (Workday, BambooHR) register their own kinds with RegisterFeed.
 const KindCSV = "csv"
 
 // Source is a configured identity source.
@@ -59,17 +61,15 @@ const (
 	RunRefused = "refused"
 )
 
-// CreateSource adds an identity source.
-func CreateSource(ctx context.Context, tx pgx.Tx, tenantID, name, kind string, cfg Config) (Source, error) {
+// CreateSource adds an identity source. secrets resolves the secret
+// references of an HR system's connection, which is checked here.
+func CreateSource(ctx context.Context, tx pgx.Tx, tenantID, name, kind string, cfg Config, secrets connector.SecretResolver) (Source, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 200 {
 		return Source{}, &apperr.Invalid{Msg: "name must be between 1 and 200 characters"}
 	}
-	if kind != KindCSV {
-		return Source{}, &apperr.Invalid{Msg: `kind must be "csv"`}
-	}
-	if err := cfg.Validate(); err != nil {
-		return Source{}, &apperr.Invalid{Msg: err.Error()}
+	if err := cfg.validateFor(kind, secrets); err != nil {
+		return Source{}, err
 	}
 	s := Source{Name: name, Kind: kind, Config: cfg}
 	err := tx.QueryRow(ctx,
@@ -84,16 +84,22 @@ func CreateSource(ctx context.Context, tx pgx.Tx, tenantID, name, kind string, c
 
 // UpdateSource renames a source or changes how it is read. The next sync
 // uses the new config; past runs keep what they did.
-func UpdateSource(ctx context.Context, tx pgx.Tx, id, name string, cfg Config) (Source, error) {
+func UpdateSource(ctx context.Context, tx pgx.Tx, id, name string, cfg Config, secrets connector.SecretResolver) (Source, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 200 {
 		return Source{}, &apperr.Invalid{Msg: "name must be between 1 and 200 characters"}
 	}
-	if err := cfg.Validate(); err != nil {
-		return Source{}, &apperr.Invalid{Msg: err.Error()}
-	}
 	if !db.ValidUUID(id) {
 		return Source{}, ErrNotFound
+	}
+	var kind string
+	if err := tx.QueryRow(ctx, `SELECT kind FROM identity_sources WHERE id = $1`, id).Scan(&kind); errors.Is(err, pgx.ErrNoRows) {
+		return Source{}, ErrNotFound
+	} else if err != nil {
+		return Source{}, err
+	}
+	if err := cfg.validateFor(kind, secrets); err != nil {
+		return Source{}, err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE identity_sources SET name = $2, config = $3 WHERE id = $1`, id, name, cfg)
 	if db.IsUniqueViolation(err) {
@@ -228,10 +234,24 @@ type SyncResult struct {
 // is in the response to the sync.
 const maxStoredIssues = 500
 
-// Sync reads a feed for the source and, unless it is a dry run or the plan has
-// errors or breaks the leaver limit, applies it. Every outcome is recorded as
-// a run. It must run in a tenant transaction.
+// Sync reads an exported file for a csv source and, unless it is a dry run
+// or the plan has errors or breaks the leaver limit, applies it. Every
+// outcome is recorded as a run. It must run in a tenant transaction.
 func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Reader, opts Options) (SyncResult, error) {
+	return syncWith(ctx, tx, tenantID, sourceID, opts, func(kind string, cfg Config) ([]Record, []Issue, error) {
+		if kind != KindCSV {
+			return nil, nil, &apperr.Invalid{Msg: "this source reads its HR system itself: read it now instead of sending a file"}
+		}
+		return ParseCSV(feed, cfg)
+	})
+}
+
+// parseFunc turns what a sync was given into records, knowing the source's
+// kind and config. An *apperr.Invalid error refuses the sync without
+// recording a run; any other error is recorded as an invalid run.
+type parseFunc func(kind string, cfg Config) ([]Record, []Issue, error)
+
+func syncWith(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, opts Options, parse parseFunc) (SyncResult, error) {
 	if !db.ValidUUID(sourceID) {
 		return SyncResult{}, ErrNotFound
 	}
@@ -259,7 +279,11 @@ func Sync(ctx context.Context, tx pgx.Tx, tenantID, sourceID string, feed io.Rea
 		plan    Result
 		current []Current
 	)
-	records, issues, perr := ParseCSV(feed, cfg)
+	records, issues, perr := parse(kind, cfg)
+	var invalid *apperr.Invalid
+	if errors.As(perr, &invalid) {
+		return SyncResult{}, perr
+	}
 	switch {
 	case perr != nil:
 		plan = Result{Errors: []Issue{{Message: perr.Error()}}, Warnings: []Issue{}}

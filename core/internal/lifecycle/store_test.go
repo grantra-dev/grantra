@@ -28,7 +28,7 @@ func newDBEnv(t *testing.T, cfg Config) *dbEnv {
 	pool := dbtest.Open(t)
 	e := &dbEnv{t: t, pool: pool, tenant: dbtest.Tenant(t, pool, "lifecycle")}
 	e.tx(func(tx pgx.Tx) error {
-		s, err := CreateSource(context.Background(), tx, e.tenant, "HR", KindCSV, cfg)
+		s, err := CreateSource(context.Background(), tx, e.tenant, "HR", KindCSV, cfg, nil)
 		e.source = s.ID
 		return err
 	})
@@ -289,14 +289,14 @@ func TestCreateSource(t *testing.T) {
 	e := newDBEnv(t, Config{})
 	e.tx(func(tx pgx.Tx) error {
 		ctx := context.Background()
-		if _, err := CreateSource(ctx, tx, e.tenant, "HR", KindCSV, Config{}); !errors.Is(err, ErrNameTaken) {
+		if _, err := CreateSource(ctx, tx, e.tenant, "HR", KindCSV, Config{}, nil); !errors.Is(err, ErrNameTaken) {
 			t.Errorf("duplicate name = %v", err)
 		}
 		var inv *apperr.Invalid
-		if _, err := CreateSource(ctx, tx, e.tenant, "W", "workday", Config{}); !errors.As(err, &inv) {
+		if _, err := CreateSource(ctx, tx, e.tenant, "W", "workday", Config{}, nil); !errors.As(err, &inv) {
 			t.Errorf("unknown kind = %v", err)
 		}
-		if _, err := CreateSource(ctx, tx, e.tenant, " ", KindCSV, Config{}); !errors.As(err, &inv) {
+		if _, err := CreateSource(ctx, tx, e.tenant, " ", KindCSV, Config{}, nil); !errors.As(err, &inv) {
 			t.Errorf("empty name = %v", err)
 		}
 		if _, err := GetSource(ctx, tx, "nope"); !errors.Is(err, ErrNotFound) {

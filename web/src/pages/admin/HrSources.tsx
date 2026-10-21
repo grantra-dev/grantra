@@ -26,11 +26,16 @@ import {
   updateSource,
   type IdentitySource,
   type Issue,
+  type SourceConfig,
+  type SourceKind,
+  type SyncOptions,
   type SyncResult,
 } from "@/lib/admin";
+import { hrSystems, useConnection, type ConnectorType } from "@/lib/connectors";
 import { cleanColumns } from "@/lib/csv";
 import { formatTime } from "@/lib/utils";
 import { ColumnMapping } from "./ColumnMapping";
+import { ConnectionFields } from "./ConnectorSettings";
 import { Counts, RunStatus } from "./shared";
 
 export function HrSources() {
@@ -41,7 +46,8 @@ export function HrSources() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-slate-500">
           HR is the authority on who works here. Each sync turns the differences into joiners,
-          movers and leavers. Check a file first: nothing changes until you apply it.
+          movers and leavers. Send an export, or let Grantra read Workday or BambooHR itself. Check
+          first: nothing changes until you apply it.
         </p>
         {!adding && (
           <Manage>
@@ -55,7 +61,9 @@ export function HrSources() {
       <Loaded
         loading={isPending}
         error={error}
-        empty={data?.length === 0 && "No HR source yet. Add one to bring people in from an export."}
+        empty={
+          data?.length === 0 && "No HR source yet. Add one to bring people in from your HR system."
+        }
       >
         <div className="divide-y divide-slate-200">
           {data?.map((s) => (
@@ -67,20 +75,43 @@ export function HrSources() {
   );
 }
 
+/** The HR system a source reads, or none for a source fed with files. */
+const hrSystem = (kind: SourceKind) => hrSystems.find((t) => t.kind === kind);
+
+const files: ConnectorType = {
+  kind: "csv",
+  name: "CSV files",
+  mark: "",
+  blurb: "",
+  docs: "",
+  fields: [],
+};
+
 /** Creates a source, or edits one when given. */
 function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () => void }) {
   const client = useQueryClient();
+  const [kind, setKind] = useState<SourceKind>(source?.kind ?? "csv");
   const [name, setName] = useState(source?.name ?? "");
   const [missing, setMissing] = useState<"leave" | "ignore">(source?.config.missing ?? "leave");
   const [maxLeavers, setMaxLeavers] = useState(source?.config.max_leaver_percent ?? 10);
+  const [everyHours, setEveryHours] = useState(source?.config.every_hours ?? 24);
   const [columns, setColumns] = useState<Record<string, string>>(source?.config.columns ?? {});
+  const system = hrSystem(kind);
+  const connection = useConnection(system ?? files, source?.config.connection);
+  const mapsColumns = !system || system.mapsColumns;
   const save = useMutation({
-    mutationFn: () => {
-      const s = {
-        name,
-        config: { columns: cleanColumns(columns), missing, max_leaver_percent: maxLeavers },
-      };
-      return source ? updateSource(source.id, s) : createSource(s);
+    mutationFn: async () => {
+      const config: SourceConfig = { max_leaver_percent: maxLeavers };
+      if (mapsColumns) config.columns = cleanColumns(columns);
+      if (system) {
+        config.connection = await connection.saveable(name);
+        config.every_hours = everyHours;
+      } else {
+        config.missing = missing;
+      }
+      return source
+        ? updateSource(source.id, { name, config })
+        : createSource({ name, kind, config });
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["sources"] });
@@ -103,26 +134,56 @@ function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () =>
           }}
         >
           <div>
+            <Label htmlFor="source-kind">People come from</Label>
+            <Select
+              id="source-kind"
+              value={kind}
+              disabled={!!source}
+              onChange={(e) => setKind(e.target.value as SourceKind)}
+            >
+              <option value="csv">Files exported from any HR system</option>
+              {hrSystems.map((t) => (
+                <option key={t.kind} value={t.kind}>
+                  {t.name}, read by Grantra
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
             <Label htmlFor="source-name">Name</Label>
             <Input
               id="source-name"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Workday export"
+              placeholder={system?.name ?? "Workday export"}
             />
           </div>
-          <div>
-            <Label htmlFor="source-missing">People missing from a file</Label>
-            <Select
-              id="source-missing"
-              value={missing}
-              onChange={(e) => setMissing(e.target.value as "leave" | "ignore")}
-            >
-              <option value="leave">Become leavers (full exports)</option>
-              <option value="ignore">Stay as they are (files with only changes)</option>
-            </Select>
-          </div>
+          {system ? (
+            <div>
+              <Label htmlFor="source-every">Read it every (hours)</Label>
+              <Input
+                id="source-every"
+                type="number"
+                min={1}
+                max={168}
+                value={everyHours}
+                onChange={(e) => setEveryHours(Number(e.target.value))}
+              />
+            </div>
+          ) : (
+            <div>
+              <Label htmlFor="source-missing">People missing from a file</Label>
+              <Select
+                id="source-missing"
+                value={missing}
+                onChange={(e) => setMissing(e.target.value as "leave" | "ignore")}
+              >
+                <option value="leave">Become leavers (full exports)</option>
+                <option value="ignore">Stay as they are (files with only changes)</option>
+              </Select>
+            </div>
+          )}
           <div>
             <Label htmlFor="source-max">Stop if more than this % would leave at once</Label>
             <Input
@@ -134,19 +195,29 @@ function SourceForm({ source, onDone }: { source?: IdentitySource; onDone: () =>
               onChange={(e) => setMaxLeavers(Number(e.target.value))}
             />
           </div>
-          <div className="md:col-span-3">
-            <ColumnMapping fields={hrFields} value={columns} onChange={setColumns} />
-          </div>
-          <div className="flex items-center gap-1 text-sm text-slate-500 md:col-span-3">
-            <p>
-              Files are CSV with a header row and one person per line. Any other column is kept as
-              an attribute of the person.
-            </p>
-            <CsvHelp kind="hr" align="end" />
-          </div>
+          {system && (
+            <div className="flex flex-col gap-4 text-sm md:col-span-3 md:max-w-lg">
+              <ConnectionFields connection={connection} />
+            </div>
+          )}
+          {mapsColumns && (
+            <div className="md:col-span-3">
+              <ColumnMapping fields={hrFields} value={columns} onChange={setColumns} />
+            </div>
+          )}
+          {!system && (
+            <div className="flex items-center gap-1 text-sm text-slate-500 md:col-span-3">
+              <p>
+                Files are CSV with a header row and one person per line. Any other column is kept as
+                an attribute of the person.
+              </p>
+              <CsvHelp kind="hr" align="end" />
+            </div>
+          )}
           <FormActions
             action={save}
             submit={source ? "Save" : "Add source"}
+            disabled={!connection.complete}
             onCancel={onDone}
             className="md:col-span-3"
           />
@@ -163,7 +234,7 @@ function Source({ source }: { source: IdentitySource }) {
   const [showRuns, setShowRuns] = useState(false);
   const [editing, setEditing] = useState(false);
   const sync = useMutation({
-    mutationFn: (o: { dryRun: boolean; force?: boolean }) => syncSource(source.id, file!, o),
+    mutationFn: (o: SyncOptions) => syncSource(source.id, system ? null : file, o),
     onSuccess: (r) => {
       setResult(r);
       void client.invalidateQueries({ queryKey: ["sources"] });
@@ -171,6 +242,8 @@ function Source({ source }: { source: IdentitySource }) {
       if (r.status === "applied") void client.invalidateQueries({ queryKey: ["identities"] });
     },
   });
+  const system = hrSystem(source.kind);
+  const ready = system || file;
   const last = source.last_run;
   const checked = result?.dry_run && result.status === "planned";
   const mapped = Object.entries(source.config.columns ?? {});
@@ -188,10 +261,11 @@ function Source({ source }: { source: IdentitySource }) {
         <div>
           <h3 className="font-semibold">{source.name}</h3>
           <p className="text-sm text-slate-500">
-            CSV ·{" "}
-            {source.config.missing === "ignore"
-              ? "people missing from a file stay as they are"
-              : "people missing from a file become leavers"}{" "}
+            {system
+              ? `${system.name} · read every ${source.config.every_hours ?? 24} h`
+              : source.config.missing === "ignore"
+                ? "CSV · people missing from a file stay as they are"
+                : "CSV · people missing from a file become leavers"}{" "}
             · stops above {source.config.max_leaver_percent ?? 10}% leavers
           </p>
           {mapped.length > 0 && (
@@ -214,31 +288,36 @@ function Source({ source }: { source: IdentitySource }) {
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Manage>
-          <label className="text-sm">
-            <span className="sr-only">HR export for {source.name}</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              aria-label={`HR export for ${source.name}`}
-              onChange={(e) => {
-                setFile(e.target.files?.[0] ?? null);
-                setResult(null);
-              }}
-              className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
-            />
-          </label>
-          <CsvHelp kind="hr" />
+          {!system && (
+            <>
+              <label className="text-sm">
+                <span className="sr-only">HR export for {source.name}</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  aria-label={`HR export for ${source.name}`}
+                  onChange={(e) => {
+                    setFile(e.target.files?.[0] ?? null);
+                    setResult(null);
+                  }}
+                  className="text-sm file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm"
+                />
+              </label>
+              <CsvHelp kind="hr" />
+            </>
+          )}
           <Button
             variant="outline"
-            disabled={!file || sync.isPending}
+            disabled={!ready || sync.isPending}
             onClick={() => sync.mutate({ dryRun: true })}
           >
-            Check file
+            {system ? `Check ${system.name} now` : "Check file"}
           </Button>
           <Button
-            disabled={!file || !checked || sync.isPending}
+            disabled={!ready || !checked || sync.isPending}
             onClick={() => {
-              if (window.confirm(`Apply this file to ${source.name}?`))
+              const what = system ? `what ${system.name} has now` : "this file";
+              if (window.confirm(`Apply ${what} to ${source.name}?`))
                 sync.mutate({ dryRun: false });
             }}
           >
@@ -293,7 +372,7 @@ function SyncOutcome({ result, onForce }: { result: SyncResult; onForce: () => v
       </div>
       {result.status === "planned" && (
         <p className="p-3 text-sm text-slate-600">
-          Nothing has changed yet. Apply the file to make these changes.
+          Nothing has changed yet. Apply to make these changes.
         </p>
       )}
       {result.status === "applied" && (

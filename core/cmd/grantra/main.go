@@ -47,6 +47,8 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/gateways/proxy"
 	"github.com/grantra-dev/grantra/core/internal/itdr"
 	"github.com/grantra-dev/grantra/core/internal/lifecycle"
+	_ "github.com/grantra-dev/grantra/core/internal/lifecycle/bamboohr" // registers the bamboohr HR source
+	_ "github.com/grantra-dev/grantra/core/internal/lifecycle/workday"  // registers the workday HR source
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
@@ -359,6 +361,19 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 			activated, left, err := lifecycle.ApplyDueDates(ctx, pool, tenantID, time.Now())
 			if activated+left > 0 {
 				log.InfoContext(ctx, "applied start and end dates", "activated", activated, "left", left)
+			}
+			return err
+		}},
+		// HR systems Grantra reads itself are read every few hours, as each
+		// source says.
+		{"read HR systems", 15 * time.Minute, func(ctx context.Context) error {
+			runs, err := lifecycle.PullDue(ctx, pool, tenantID, secrets)
+			for _, r := range runs {
+				if r.Status == lifecycle.RunApplied {
+					log.InfoContext(ctx, "read HR system", "source", r.SourceID, "counts", r.Counts)
+				} else {
+					log.WarnContext(ctx, "HR system read did not apply", "source", r.SourceID, "status", r.Status, "errors", r.Errors)
+				}
 			}
 			return err
 		}},

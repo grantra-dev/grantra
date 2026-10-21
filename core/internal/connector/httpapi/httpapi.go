@@ -48,6 +48,14 @@ type Auth func(ctx context.Context, req *http.Request) error
 // Bearer sends a fixed token as "Authorization: Bearer".
 func Bearer(token string) Auth { return Header("Authorization", "Bearer "+token) }
 
+// Basic sends a user name and password with HTTP basic authentication.
+func Basic(user, password string) Auth {
+	return func(_ context.Context, req *http.Request) error {
+		req.SetBasicAuth(user, password)
+		return nil
+	}
+}
+
 // Header sends a fixed header, such as Okta's "Authorization: SSWS".
 func Header(name, value string) Auth {
 	return func(_ context.Context, req *http.Request) error {

@@ -52,12 +52,19 @@ export interface SourceConfig {
   columns?: Record<string, string>;
   missing?: "leave" | "ignore";
   max_leaver_percent?: number;
+  /** How Grantra reaches the HR system, for every kind but csv. */
+  connection?: Record<string, unknown>;
+  /** How often Grantra reads the HR system on its own. */
+  every_hours?: number;
 }
+
+/** csv is fed with files; the others are HR systems Grantra reads itself. */
+export type SourceKind = "csv" | "workday" | "bamboohr";
 
 export interface IdentitySource {
   id: string;
   name: string;
-  kind: "csv";
+  kind: SourceKind;
   config: SourceConfig;
   created_at: string;
   last_run?: SourceRun;
@@ -82,8 +89,8 @@ export interface SyncResult extends SourceRun {
 export const listSources = () =>
   api<{ sources: IdentitySource[] }>("/api/v1/identity-sources").then((r) => r.sources);
 
-export const createSource = (s: { name: string; config: SourceConfig }) =>
-  send<IdentitySource>("POST", "/api/v1/identity-sources", { ...s, kind: "csv" });
+export const createSource = (s: { name: string; kind: SourceKind; config: SourceConfig }) =>
+  send<IdentitySource>("POST", "/api/v1/identity-sources", s);
 
 export const updateSource = (sourceId: string, s: { name: string; config: SourceConfig }) =>
   send<IdentitySource>("PUT", `/api/v1/identity-sources/${id(sourceId)}`, s);
@@ -109,15 +116,24 @@ export const listSourceRuns = (sourceId: string) =>
     (r) => r.runs,
   );
 
-/** Sends an HR export. 422 (errors in the file) and 409 (too many leavers) carry the run. */
-export function syncSource(sourceId: string, file: Blob, o: { dryRun: boolean; force?: boolean }) {
+export interface SyncOptions {
+  dryRun: boolean;
+  force?: boolean;
+}
+
+/**
+ * Syncs a source: with an HR export for a csv source, or by reading its HR
+ * system now for the others. 422 (errors in the file, or the HR system could
+ * not be read) and 409 (too many leavers) carry the run.
+ */
+export function syncSource(sourceId: string, file: Blob | null, o: SyncOptions) {
   const params = new URLSearchParams({ dry_run: String(o.dryRun) });
   if (o.force) params.set("force", "true");
-  return outcome<SyncResult>(
-    `/api/v1/identity-sources/${id(sourceId)}/runs?${params}`,
-    { method: "POST", headers: { "Content-Type": "text/csv" }, body: file },
-    [409, 422],
-  );
+  const path = `/api/v1/identity-sources/${id(sourceId)}/${file ? "runs" : "pulls"}?${params}`;
+  const init: RequestInit = file
+    ? { method: "POST", headers: { "Content-Type": "text/csv" }, body: file }
+    : { method: "POST" };
+  return outcome<SyncResult>(path, init, [409, 422]);
 }
 
 // Catalog
@@ -210,7 +226,7 @@ export const listAccessRules = () =>
 export const connectorLabels: Record<string, string> = {
   manual: "None, managed by hand",
   grantra: "Built in",
-  ...Object.fromEntries(connectorTypes.flatMap((t) => (t.kind ? [[t.kind, t.name]] : []))),
+  ...Object.fromEntries(connectorTypes.map((t) => [t.kind, t.name])),
 };
 
 /** How an application with the csv connector reads its files. */
