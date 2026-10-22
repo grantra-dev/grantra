@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,10 +64,10 @@ func TestCatalogAndBirthright(t *testing.T) {
 	}
 	post(admin, "/api/v1/roles", `{"name": "Sales rep"}`, http.StatusConflict)
 	post(admin, "/api/v1/roles", `{"name": "Bad", "entitlement_ids": ["nope"]}`, http.StatusBadRequest)
-	if rec := e.do(admin, http.MethodPut, "/api/v1/roles/"+role.ID, `{"name": "Sales representative", "entitlement_ids": []}`); rec.Code != http.StatusOK {
+	if rec := e.do(admin, http.MethodPut, "/api/v1/roles/"+role.ID, `{"name": "Sales representative", "owner_id": "`+admin+`", "entitlement_ids": []}`); rec.Code != http.StatusOK {
 		t.Errorf("update role = %d %s", rec.Code, rec.Body)
 	}
-	if got := decode[catalog.Role](t, e.do(auditor, http.MethodGet, "/api/v1/roles/"+role.ID, "")); got.Name != "Sales representative" || len(got.Entitlements) != 0 {
+	if got := decode[catalog.Role](t, e.do(auditor, http.MethodGet, "/api/v1/roles/"+role.ID, "")); got.Name != "Sales representative" || len(got.Entitlements) != 0 || got.OwnerName != "admin" {
 		t.Errorf("updated role = %+v", got)
 	}
 	e.do(admin, http.MethodPut, "/api/v1/roles/"+role.ID, `{"name": "Sales rep", "entitlement_ids": ["`+ent.ID+`"]}`)
@@ -89,6 +90,19 @@ func TestCatalogAndBirthright(t *testing.T) {
 	ids := map[string]string{}
 	for _, i := range people.Identities {
 		ids[i.ExternalID] = i.ID
+	}
+
+	// The attributes people have, to write conditions with.
+	attrs := decode[struct{ Attributes []access.Attribute }](t, e.do(auditor, http.MethodGet, "/api/v1/access-rules/attributes", ""))
+	byName := map[string][]string{}
+	for _, a := range attrs.Attributes {
+		byName[a.Name] = a.Values
+	}
+	if !slices.Equal(byName["department"], []string{"Engineering", "Sales"}) || !slices.Contains(byName["kind"], "human") {
+		t.Errorf("attributes = %+v", attrs.Attributes)
+	}
+	if rec := e.do(helpdesk, http.MethodGet, "/api/v1/access-rules/attributes", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("helpdesk reads attributes = %d", rec.Code)
 	}
 
 	// Preview, then create a rule: it applies at once.

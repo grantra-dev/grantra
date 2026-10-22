@@ -299,6 +299,36 @@ func Preview(ctx context.Context, tx pgx.Tx, conds Conditions, limit int) (int, 
 	return n, sample, nil
 }
 
+// Attribute is an HR attribute people have, with the values most of them
+// take, to help write conditions.
+type Attribute struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+}
+
+// Attributes lists the attributes of identities that are not terminated,
+// with up to limit of their most common values each, plus "kind".
+func Attributes(ctx context.Context, tx pgx.Tx, limit int) ([]Attribute, error) {
+	rows, err := tx.Query(ctx, `
+		WITH v AS (
+		  SELECT a.key, btrim(a.value) AS value, count(*) AS n
+		  FROM identities i, jsonb_each_text(i.attributes) a
+		  WHERE i.status <> 'terminated' AND btrim(a.value) <> ''
+		  GROUP BY 1, 2
+		  UNION ALL
+		  SELECT 'kind', kind, count(*) FROM identities WHERE status <> 'terminated' GROUP BY 2),
+		ranked AS (SELECT key, value, row_number() OVER (PARTITION BY key ORDER BY n DESC, value) AS r FROM v)
+		SELECT key, array_agg(value ORDER BY r) FROM ranked WHERE r <= $1 GROUP BY key ORDER BY key`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Attribute, error) {
+		var a Attribute
+		err := row.Scan(&a.Name, &a.Values)
+		return a, err
+	})
+}
+
 func dedupe(ids []string) []string {
 	set := map[string]bool{}
 	for _, id := range ids {

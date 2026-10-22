@@ -35,7 +35,7 @@ A rule gives roles and entitlements to everyone whose attributes match its condi
 
 - Every attribute must match one of its values, ignoring case and surrounding spaces. Attributes come from HR (`department`, `title`, `location`, and any extra column). `kind` matches the identity kind (`human`, `service`, `agent`, `workload`). `{}` matches every person. [Non-human identities](non-human-identities.md) only match rules that name their `kind`, so a rule for everyone never gives a service account an employee's access.
 - **Joiners** get matching access as soon as their sync is applied, already while `pending`, so it can be ready on day one. **Movers** gain what their new attributes match and lose birthright access they no longer match; manual and requested access stays. **Leavers** lose every assignment, whatever its origin. Suspended identities keep theirs.
-- Creating, changing, disabling or deleting a rule applies to everyone at once. `POST /api/v1/access-rules/preview` shows who a set of conditions selects before saving.
+- Creating, changing, disabling or deleting a rule applies to everyone at once. `POST /api/v1/access-rules/preview` shows who a set of conditions selects before saving, and `GET /api/v1/access-rules/attributes` lists the attributes people have with their most common values. The console's rule editor (Governance → Roles and rules, and the **Add application** wizard) uses both.
 - Platform roles cannot be given by a rule.
 
 The engine reads lifecycle events from the outbox (`lifecycle_events` with `processed_at` empty) right after each sync and every 30 seconds, so start and end dates applied between syncs also take effect. Every change is audited as `access.assigned` or `access.removed`, with the rule and the reason.
@@ -67,4 +67,5 @@ All endpoints need a signed-in session. Writes need `grantra-admin`; `grantra-au
 | `GET` / `POST /api/v1/roles`, `GET` / `PUT /api/v1/roles/{id}` | `catalog.read` / `catalog.manage`: `{"name", "description", "owner_id", "entitlement_ids"}` |
 | `GET` / `POST /api/v1/access-rules`, `GET` / `PUT` / `DELETE /api/v1/access-rules/{id}` | `access_rule.read` / `access_rule.manage`. Writes answer with `changes: {added, removed}` |
 | `POST /api/v1/access-rules/preview` | `access_rule.read`: `{"conditions": {...}}` → `{matches, sample}` |
+| `GET /api/v1/access-rules/attributes` | `access_rule.read`: `{attributes: [{name, values}]}`, the HR attributes of people still here (and `kind`), most used first, with up to 50 values each |
 | `GET /api/v1/identities/{id}/access` | `identity.read`: the person, their manager, helpdesk, auditors and admins |

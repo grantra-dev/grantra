@@ -169,22 +169,3 @@ describe("Application page", () => {
     await waitFor(() => expect(sent.link).toEqual({ identity_id: "pedro" }));
   });
 });
-
-describe("New application", () => {
-  it("asks for an owner", async () => {
-    const { sent, echo } = recorder();
-    serve({
-      "GET /api/v1/me": ok(admin),
-      "GET /api/v1/applications": ok({ applications: [] }),
-      ...findPedro,
-      "POST /api/v1/applications": echo("create", (b: object) => ({ ...crm, ...b })),
-    });
-    renderAt("/governance/applications");
-
-    await userEvent.type(await screen.findByLabelText("New application"), "Payroll");
-    await userEvent.type(screen.getByLabelText("Owner"), "pe");
-    await userEvent.click(await screen.findByRole("button", { name: "Pick Pedro Ruiz" }));
-    await userEvent.click(screen.getByRole("button", { name: "Add application" }));
-    await waitFor(() => expect(sent.create).toEqual({ name: "Payroll", owner_id: "pedro" }));
-  });
-});

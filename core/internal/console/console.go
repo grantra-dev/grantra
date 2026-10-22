@@ -113,6 +113,7 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("GET /api/v1/access-rules", a.listAccessRules)
 	route("POST /api/v1/access-rules", a.saveAccessRule)
 	route("POST /api/v1/access-rules/preview", a.previewAccessRule)
+	route("GET /api/v1/access-rules/attributes", a.listAttributes)
 	route("GET /api/v1/access-rules/{id}", a.getAccessRule)
 	route("PUT /api/v1/access-rules/{id}", a.saveAccessRule)
 	route("DELETE /api/v1/access-rules/{id}", a.deleteAccessRule)

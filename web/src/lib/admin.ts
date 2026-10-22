@@ -189,6 +189,7 @@ export interface BusinessRole {
   name: string;
   description?: string;
   owner_id?: string;
+  owner_name?: string;
   entitlements: Entitlement[];
   created_at: string;
 }
@@ -252,6 +253,61 @@ export const listRoles = () => api<{ roles: BusinessRole[] }>("/api/v1/roles").t
 
 export const listAccessRules = () =>
   api<{ rules: AccessRule[] }>("/api/v1/access-rules").then((r) => r.rules);
+
+/** What a business role is made of: entitlements, never other roles. */
+export interface RoleInput {
+  name: string;
+  description: string;
+  owner_id: string;
+  entitlement_ids: string[];
+}
+
+/** Creates a role, or replaces the one with roleId. */
+export const saveRole = (r: RoleInput, roleId?: string) =>
+  roleId
+    ? send<BusinessRole>("PUT", `/api/v1/roles/${id(roleId)}`, r)
+    : send<BusinessRole>("POST", "/api/v1/roles", r);
+
+export interface RuleInput {
+  name: string;
+  description: string;
+  conditions: Record<string, string[]>;
+  enabled: boolean;
+  role_ids: string[];
+  entitlement_ids: string[];
+}
+
+/** How many people a rule's changes gave access to and took it from. */
+export interface RuleChanges {
+  added: number;
+  removed: number;
+}
+
+/** Creates a rule, or replaces the one with ruleId; either applies at once. */
+export const saveAccessRule = (r: RuleInput, ruleId?: string) =>
+  (ruleId
+    ? send<AccessRule & { changes: RuleChanges }>("PUT", `/api/v1/access-rules/${id(ruleId)}`, r)
+    : send<AccessRule & { changes: RuleChanges }>("POST", "/api/v1/access-rules", r)
+  ).then((x) => x.changes);
+
+export const deleteAccessRule = (ruleId: string) =>
+  send<{ changes: RuleChanges }>("DELETE", `/api/v1/access-rules/${id(ruleId)}`).then(
+    (x) => x.changes,
+  );
+
+/** Who conditions match now: how many, and the first of them. */
+export const previewAccessRule = (conditions: Record<string, string[]>) =>
+  send<{ matches: number; sample: { id: string; display_name: string; status: string }[] }>(
+    "POST",
+    "/api/v1/access-rules/preview",
+    { conditions },
+  );
+
+/** The HR attributes people have, with their most common values. */
+export const listAttributes = () =>
+  api<{ attributes: { name: string; values: string[] }[] }>("/api/v1/access-rules/attributes").then(
+    (r) => r.attributes,
+  );
 
 // Connectors and provisioning
 
@@ -507,6 +563,10 @@ export function useAccessOptions() {
     entitlements: ents.flatMap((q) => q.data ?? []),
   };
 }
+
+/** The ids of the roles, or of the entitlements, among AccessOptions values. */
+export const idsOf = (values: string[], kind: "role" | "entitlement") =>
+  values.filter((v) => v.startsWith(`${kind}:`)).map((v) => v.slice(kind.length + 1));
 
 /** The role or entitlement an AccessOptions value names. */
 export function refOf(value: string): { role_id?: string; entitlement_id?: string } {

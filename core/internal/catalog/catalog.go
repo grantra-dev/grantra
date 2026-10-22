@@ -85,6 +85,7 @@ type Role struct {
 	Name         string        `json:"name"`
 	Description  string        `json:"description,omitempty"`
 	OwnerID      string        `json:"owner_id,omitempty"`
+	OwnerName    string        `json:"owner_name,omitempty"`
 	Entitlements []Entitlement `json:"entitlements"`
 	CreatedAt    time.Time     `json:"created_at"`
 }
@@ -135,8 +136,14 @@ func CreateApplication(ctx context.Context, tx pgx.Tx, tenantID, name, ownerID s
 	return a, err
 }
 
-const applicationColumns = `a.id, a.name, a.connector, a.config, a.provisioning, coalesce(a.owner_id::text, ''),
-	coalesce((SELECT o.display_name FROM identities o WHERE o.id = a.owner_id), ''), coalesce(a.description, ''), a.read_every_hours, a.retired_at,
+// ownerName is the SQL for the display name of the identity owner (an SQL
+// expression such as a.owner_id), or empty when there is none.
+func ownerName(owner string) string {
+	return `coalesce((SELECT o.display_name FROM identities o WHERE o.id = ` + owner + `), '')`
+}
+
+var applicationColumns = `a.id, a.name, a.connector, a.config, a.provisioning, coalesce(a.owner_id::text, ''),
+	` + ownerName("a.owner_id") + `, coalesce(a.description, ''), a.read_every_hours, a.retired_at,
 	(SELECT count(*) FROM entitlements e WHERE e.application_id = a.id), a.created_at`
 
 func scanApplication(row pgx.CollectableRow) (Application, error) {
@@ -440,14 +447,14 @@ func listRoles(ctx context.Context, tx pgx.Tx, id string) ([]Role, error) {
 		return nil, nil
 	}
 	rows, err := tx.Query(ctx,
-		`SELECT id, name, coalesce(description, ''), coalesce(owner_id::text, ''), created_at
-		 FROM roles WHERE $1 = '' OR id = $1::uuid ORDER BY name, id`, id)
+		`SELECT r.id, r.name, coalesce(r.description, ''), coalesce(r.owner_id::text, ''), `+ownerName("r.owner_id")+`, r.created_at
+		 FROM roles r WHERE $1 = '' OR r.id = $1::uuid ORDER BY r.name, r.id`, id)
 	if err != nil {
 		return nil, err
 	}
 	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Role, error) {
 		r := Role{Entitlements: []Entitlement{}}
-		err := row.Scan(&r.ID, &r.Name, &r.Description, &r.OwnerID, &r.CreatedAt)
+		err := row.Scan(&r.ID, &r.Name, &r.Description, &r.OwnerID, &r.OwnerName, &r.CreatedAt)
 		return r, err
 	})
 	if err != nil || len(roles) == 0 {

@@ -1,7 +1,7 @@
 // Attack paths (who reaches the riskiest access, and how) and access
 // insights (unused access, suggestions for reviewers, roles to create).
-import { api, send } from "./api";
-import type { Risk } from "./admin";
+import { api } from "./api";
+import { saveAccessRule, saveRole, type Risk } from "./admin";
 
 export type StepKind =
   "person" | "rule" | "role" | "entitlement" | "account" | "vault_account" | "gateway_target";
@@ -173,17 +173,20 @@ export async function createSuggestedRole(
   entitlementIds: string[],
   rule: boolean,
 ) {
-  const role = await send<{ id: string; name: string }>("POST", "/api/v1/roles", {
+  const role = await saveRole({
     name,
     description: `Suggested by Grantra from what ${s.name} hold.`,
+    owner_id: "",
     entitlement_ids: entitlementIds,
   });
   if (rule) {
-    await send("POST", "/api/v1/access-rules", {
+    await saveAccessRule({
       name,
       description: `Gives the ${name} role to everyone in ${s.name}.`,
       conditions: s.conditions,
+      enabled: true,
       role_ids: [role.id],
+      entitlement_ids: [],
     });
   }
   return role;
