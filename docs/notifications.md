@@ -19,6 +19,7 @@ someone already decided it.
 | `sod_violation` | Admins | A separation of duties check (every 30 minutes, or run from the console) finds new violations or ends exceptions. One email per check lists up to 20, most severe first |
 | `service_token_creator_left` | Admins | Someone who created [API tokens](service-tokens.md) that still work leaves the company. One email per HR sync or end-date check lists their tokens |
 | `setting_change_proposed` | Admins other than the one who proposed it | An admin asks to make a [setting](settings.md) less strict, which waits for another admin |
+| `report_ready` | The admins and auditors a [scheduled pack](compliance-reports.md#scheduled-packs) names | A scheduled evidence pack is ready to download, or could not be made (with why) |
 | `non_human_owner_left` | Admins, and whoever takes them over | Someone who owned [service accounts, AI agents or workloads](non-human-identities.md) leaves. Admins get the whole list; each new owner (the leaver's manager) gets what is theirs now |
 
 Nobody is emailed about their own access as an approver. Withdrawn requests,

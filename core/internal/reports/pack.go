@@ -199,8 +199,10 @@ func SHA256(data []byte) string {
 
 // Download is one report or pack someone downloaded, for the audit log.
 type Download struct {
-	// Kind is "report" or "framework", and ID the one downloaded.
+	// Kind is "report" or "report_framework", and ID the one downloaded.
 	Kind, ID string
+	// Schedule is the schedule that made a pack on its own.
+	Schedule string
 	// Format is csv, html or zip; Table the table of a CSV file.
 	Format, Table string
 	Params        Params
@@ -222,6 +224,9 @@ func Record(ctx context.Context, tx pgx.Tx, tenantID, actor string, d Download) 
 	}
 	if d.Files > 0 {
 		details["files"] = d.Files
+	}
+	if d.Schedule != "" {
+		details["schedule_id"] = d.Schedule
 	}
 	return db.Audit(ctx, tx, tenantID, actor, "report.generated", d.Kind, d.ID, details)
 }
@@ -315,4 +320,51 @@ func (v *Verification) checkPack(zr *zip.Reader) ([]byte, error) {
 		}
 	}
 	return raw, nil
+}
+
+// ForReport frames one report's result for a download.
+func ForReport(res Result, who Who) Summary {
+	return Summary{Title: res.Report.Title, Params: res.Params, Application: res.Application, GeneratedAt: res.GeneratedAt,
+		GeneratedBy: who, Results: []Result{res}}
+}
+
+// ForFramework runs every report the controls of fw point to, once each,
+// for p (which Check validated), and frames them for a download.
+func ForFramework(ctx context.Context, tx pgx.Tx, fw Framework, p Params, now time.Time, who Who) (Summary, error) {
+	if len(fw.Controls) == 0 {
+		return Summary{}, apperr.Invalidf("%s has no controls yet", fw.Name)
+	}
+	s := Summary{Title: fw.Name, Framework: &fw, Params: p, GeneratedAt: now.UTC(), GeneratedBy: who}
+	for _, c := range fw.Controls {
+		for _, id := range c.Reports {
+			if slices.ContainsFunc(s.Results, func(r Result) bool { return r.Report.ID == id }) {
+				continue
+			}
+			res, err := Run(ctx, tx, id, p, now)
+			if err != nil {
+				return s, err
+			}
+			s.Results = append(s.Results, res)
+		}
+	}
+	return s, nil
+}
+
+// Files is how many files a pack of s holds: a CSV file for each table, the
+// summary, the manifest, and the controls of a framework.
+func (s Summary) Files() int {
+	n := 2
+	if s.Framework != nil {
+		n++
+	}
+	for _, r := range s.Results {
+		n += len(r.Tables)
+	}
+	return n
+}
+
+// FileName is the name, without extension, of a download about id for the
+// period of p.
+func FileName(id string, p Params) string {
+	return "grantra-" + id + "-" + p.From.Format(time.DateOnly) + "-" + p.To.Format(time.DateOnly)
 }

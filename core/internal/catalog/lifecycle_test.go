@@ -38,8 +38,8 @@ func TestEveryReferenceIsKnown(t *testing.T) {
 		t.Errorf("tables referencing entitlements = %v, entitlementUses has %v", got, known)
 	}
 	// Accounts block deleting an application; the rest is operational and
-	// goes with it.
-	app := []string{"accounts", "app_api_keys", "app_authz_policies", "connector_runs", "entitlements", "jit_provisioning_queue"}
+	// goes with it (a report schedule narrowed to it too; its packs stay).
+	app := []string{"accounts", "app_api_keys", "app_authz_policies", "connector_runs", "entitlements", "jit_provisioning_queue", "report_schedules"}
 	if got := refs("applications"); !slices.Equal(got, app) {
 		t.Errorf("tables referencing applications = %v, want %v", got, app)
 	}

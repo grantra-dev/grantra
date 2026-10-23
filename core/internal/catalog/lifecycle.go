@@ -127,6 +127,7 @@ var entitlementUses = []struct{ table, what string }{
 	{"vault_accounts", "a vault account uses it"},
 	{"ssh_targets", "an SSH target uses it"},
 	{"gateway_targets", "a gateway target uses it"},
+	{"access_history", "the access history records it"},
 }
 
 // inUse tells the first reason any of the entitlements cannot be deleted,

@@ -18,7 +18,7 @@ When the person who created a token leaves the company, the token **keeps workin
 | `identity_source.sync` | `POST /api/v1/identity-sources/{id}/runs`: feed an [HR source](identity-lifecycle.md), with `dry_run` and `force` |
 | `application.import_accounts` | `POST /api/v1/applications/{id}/account-imports`: load an [account file](connectors.md#csv-files) |
 | `sign_in_event.send` | `POST /api/v1/sign-in-events`: send sign-ins from another identity provider for [threat detection](threat-detection.md). It cannot be pinned |
-| `report.read` | `GET /api/v1/reports/{id}` and `GET /api/v1/report-frameworks/{id}/pack`: download [compliance reports](compliance-reports.md) and evidence packs, for a job that collects evidence. It cannot be pinned |
+| `report.read` | `GET /api/v1/reports/{id}`, `GET /api/v1/report-frameworks/{id}/pack` and `GET /api/v1/report-deliveries/{id}/file`: download [compliance reports](compliance-reports.md) and evidence packs, for a job that collects evidence. It cannot be pinned |
 
 Pin a scope to one source or application with its id, `identity_source.sync:<source id>`, so a leaked token cannot touch anything else. Tokens open only these endpoints; anything else answers `401`.
 

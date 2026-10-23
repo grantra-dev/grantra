@@ -9,14 +9,15 @@ import (
 
 // Report ids, which frameworks' controls point to.
 const (
-	Reviews    = "reviews"
-	Leavers    = "leavers"
-	Requests   = "requests"
-	SoD        = "sod"
-	Privileged = "privileged"
-	Access     = "access"
-	Admin      = "admin"
-	Threats    = "threats"
+	Reviews       = "reviews"
+	Leavers       = "leavers"
+	Requests      = "requests"
+	SoD           = "sod"
+	Privileged    = "privileged"
+	Access        = "access"
+	AccessHistory = "access_history"
+	Admin         = "admin"
+	Threats       = "threats"
 )
 
 // stillHeld is true when a review item's person still holds what it is
@@ -35,7 +36,7 @@ var adminActions = []string{
 	"application.connector_set", "application.provisioning_set", "access_rule.created", "access_rule.updated",
 	"access_rule.deleted", "role.", "entitlement.", "identity_source.created", "identity_source.updated",
 	"connector_secret.", "service_token.created", "service_token.revoked", "module.", "login.", "itdr.detection_saved",
-	"app_authz.", "report_framework.", "vault.account_", "vault.secret_set", "ssh.target_", "gateway.target_",
+	"app_authz.", "report_framework.", "report_schedule.", "external_auditor.", "vault.account_", "vault.secret_set", "ssh.target_", "gateway.target_",
 	"identity.created", "identity.owner_changed", "identity.retired", "authz.denied",
 }
 
@@ -348,6 +349,7 @@ var definitions = []Definition{
 			{label: "Assignments", table: "assignments"},
 		},
 	},
+	accessHistory,
 	{
 		ID:          Admin,
 		Title:       "Administration changes",

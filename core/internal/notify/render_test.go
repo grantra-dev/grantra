@@ -27,6 +27,7 @@ func TestRenderEveryKind(t *testing.T) {
 	data["identities"] = []any{map[string]any{"name": "billing-bot", "kind": "service", "from": "Ana", "to": "Boss"}}
 	data["tokens"] = []any{map[string]any{"name": "Nightly HR", "prefix": "grantra_st_abc123", "creator": "Ana"}}
 	data["title"], data["old_value"], data["value"], data["proposed_by"] = "Longest break-glass check-out", "60 minutes", "120 minutes", "Ana"
+	data["from"], data["to"] = "2026-07-01", "2026-09-30"
 	data["uses"] = []any{map[string]any{"person": "Ana", "account": "Production database root", "reason": "INC-1234", "checked_out_at": "2026-11-13T07:00:00Z"}}
 	for _, k := range Kinds {
 		subject, body, err := render(k.Kind, view{Name: "Boss", RecipientID: "boss", URL: "https://g/x", Data: data, SettingsURL: "https://g/s"})
@@ -36,6 +37,19 @@ func TestRenderEveryKind(t *testing.T) {
 		if subject == "" || strings.Contains(subject+body, "<no value>") || !strings.Contains(body, "https://g/s") {
 			t.Errorf("%s rendered badly:\n%s\n%s", k.Kind, subject, body)
 		}
+	}
+}
+
+func TestRenderReportReady(t *testing.T) {
+	data := map[string]any{"title": "SOC 2", "from": "2026-07-01", "to": "2026-09-30"}
+	subject, body, err := render(ReportReady, view{Name: "Ines", URL: "https://g/r", Data: data, SettingsURL: "https://g/s"})
+	if err != nil || subject != "Evidence pack ready: SOC 2" || !strings.Contains(body, `"SOC 2" for 2026-07-01 to 2026-09-30 is ready`) {
+		t.Errorf("ready: %q\n%s (%v)", subject, body, err)
+	}
+	data["error"] = "Leavers has more than 100000 rows"
+	subject, body, _ = render(ReportReady, view{Name: "Ines", URL: "https://g/r", Data: data, SettingsURL: "https://g/s"})
+	if subject != "A scheduled report could not be made: SOC 2" || !strings.Contains(body, "more than 100000 rows") {
+		t.Errorf("failed: %q\n%s", subject, body)
 	}
 }
 

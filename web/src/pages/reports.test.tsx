@@ -2,7 +2,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Me } from "@/lib/api";
-import type { Framework, ReportDefinition, ReportResult } from "@/lib/reports";
+import type {
+  ExternalAuditor,
+  Framework,
+  ReportDefinition,
+  ReportResult,
+  Schedule,
+} from "@/lib/reports";
 import { adminMe, ok, renderAt, serve } from "@/test-utils";
 
 const audrey: Me = { ...adminMe, identity_id: "audrey", platform_roles: ["grantra-auditor"] };
@@ -41,6 +47,45 @@ const soc2: Framework = {
   customized: false,
   enabled: true,
   controls: [{ id: "CC6.2", title: "Users are registered and removed", reports: ["leavers"] }],
+};
+
+const inbox = ok({ approvals: [], reviews: [], break_glass: [], threats: [], total: 0 });
+
+const quarterly: Schedule = {
+  id: "s1",
+  name: "SOC 2 for the auditors",
+  framework: "soc2",
+  months: 3,
+  recipients: [
+    { id: "audrey", name: "Audrey", allowed: true },
+    { id: "gone", name: "Gonzalo", allowed: false },
+  ],
+  enabled: true,
+  updated_by: "Admin",
+  updated_at: "2026-10-01T00:00:00Z",
+  next_from: "2026-10-01",
+  next_to: "2026-12-31",
+  last: {
+    id: "d1",
+    title: "SOC 2",
+    from: "2026-07-01",
+    to: "2026-09-30",
+    status: "ready",
+    bytes: 4096,
+    recipients: 1,
+    created_at: "2026-10-01T00:05:00Z",
+  },
+};
+
+const ines: ExternalAuditor = {
+  id: "ines",
+  name: "Ines Ruiz",
+  email: "ines@audit.example",
+  company: "Audit & Co",
+  until: "2026-11-30",
+  status: "active",
+  sponsor: "Admin",
+  invited_at: "2026-10-01T00:00:00Z",
 };
 
 const reportList = ok({
@@ -110,13 +155,7 @@ describe("Reports", () => {
     let saved: unknown;
     serve({
       "GET /api/v1/me": ok(adminMe),
-      "GET /api/v1/me/inbox": ok({
-        approvals: [],
-        reviews: [],
-        break_glass: [],
-        threats: [],
-        total: 0,
-      }),
+      "GET /api/v1/me/inbox": inbox,
       "GET /api/v1/reports": reportList,
       "GET /api/v1/report-frameworks": ok({ frameworks: [soc2] }),
       "PUT /api/v1/report-frameworks/soc2": (init) => {
@@ -175,5 +214,144 @@ describe("Reports", () => {
     expect(alert).toHaveTextContent("does not match");
     expect(alert).toHaveTextContent("leavers/leavers.csv was changed");
     expect(alert).toHaveTextContent("SOC 2, 2026-07-01 to 2026-09-30");
+  });
+
+  it("shows scheduled packs to auditors, with their downloads", async () => {
+    serve({
+      "GET /api/v1/me": ok(audrey),
+      "GET /api/v1/reports": reportList,
+      "GET /api/v1/report-frameworks": ok({ frameworks: [soc2] }),
+      "GET /api/v1/report-schedules": ok({ schedules: [quarterly] }),
+      "GET /api/v1/report-deliveries": ok({ deliveries: [quarterly.last] }),
+    });
+    renderAt("/governance/reports?tab=scheduled");
+    const section = (await screen.findByRole("heading", { name: quarterly.name })).closest(
+      "section",
+    )!;
+    expect(section).toHaveTextContent("SOC 2 · Every quarter · next: 2026-10-01 to 2026-12-31");
+    expect(section).toHaveTextContent("no longer an admin or auditor");
+    expect(within(section).getByRole("link", { name: /Download/ })).toHaveAttribute(
+      "href",
+      "/api/v1/report-deliveries/d1/file",
+    );
+    expect(await screen.findByRole("link", { name: /4 KB/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Schedule a pack" })).not.toBeInTheDocument();
+  });
+
+  it("lets an admin schedule a framework's pack for admins and auditors", async () => {
+    let saved: unknown;
+    serve({
+      "GET /api/v1/me": ok(adminMe),
+      "GET /api/v1/me/inbox": inbox,
+      "GET /api/v1/reports": reportList,
+      "GET /api/v1/report-frameworks": ok({ frameworks: [soc2] }),
+      "GET /api/v1/report-schedules": ok({ schedules: [] }),
+      "GET /api/v1/report-deliveries": ok({ deliveries: [] }),
+      "GET /api/v1/platform-roles": ok({
+        roles: [
+          {
+            name: "grantra-auditor",
+            display_name: "Auditor",
+            description: "",
+            risk: "high",
+            members: [
+              {
+                role: "grantra-auditor",
+                identity_id: "audrey",
+                display_name: "Audrey",
+                status: "active",
+                granted_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+          },
+          {
+            name: "grantra-helpdesk",
+            display_name: "Helpdesk",
+            description: "",
+            risk: "medium",
+            members: [
+              {
+                role: "grantra-helpdesk",
+                identity_id: "hal",
+                display_name: "Hal",
+                status: "active",
+                granted_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+          },
+        ],
+      }),
+      "POST /api/v1/report-schedules": (init) => {
+        saved = JSON.parse(init?.body as string);
+        return { status: 201, body: quarterly };
+      },
+    });
+    renderAt("/governance/reports?tab=scheduled");
+    await userEvent.click(await screen.findByRole("button", { name: "Schedule a pack" }));
+    const form = screen.getByRole("heading", { name: "Schedule a pack" }).closest("form")!;
+    await userEvent.type(within(form).getByLabelText("Name"), "SOC 2 for the auditors");
+    await userEvent.selectOptions(within(form).getByLabelText("What"), "framework:soc2");
+    expect(within(form).queryByLabelText("Application")).not.toBeInTheDocument();
+    // Only admins and auditors can get packs.
+    expect(within(form).queryByLabelText("Hal")).not.toBeInTheDocument();
+    await userEvent.click(within(form).getByLabelText("Audrey"));
+    await userEvent.click(within(form).getByRole("button", { name: "Schedule it" }));
+    await waitFor(() =>
+      expect(saved).toEqual({
+        name: "SOC 2 for the auditors",
+        report: "",
+        framework: "soc2",
+        application_id: "",
+        months: 3,
+        recipients: ["audrey"],
+        enabled: true,
+      }),
+    );
+  });
+
+  it("invites an external auditor until a date, and ends it early", async () => {
+    let invited: unknown;
+    let ended = false;
+    serve({
+      "GET /api/v1/me": ok(adminMe),
+      "GET /api/v1/me/inbox": inbox,
+      "GET /api/v1/reports": reportList,
+      "GET /api/v1/external-auditors": ok({ auditors: [ines] }),
+      "POST /api/v1/external-auditors": (init) => {
+        invited = JSON.parse(init?.body as string);
+        return {
+          status: 201,
+          body: { ...ines, id: "joe", name: "Joe", login_error: "Grantra Login is not set up" },
+        };
+      },
+      "DELETE /api/v1/external-auditors/ines": () => {
+        ended = true;
+        return { status: 204, body: null };
+      },
+    });
+    renderAt("/governance/reports?tab=auditors");
+    const row = await screen.findByRole("row", { name: /Ines Ruiz/ });
+    expect(row).toHaveTextContent("ines@audit.example · Audit & Co");
+    expect(within(row).getByLabelText("Last day of Ines Ruiz")).toHaveValue("2026-11-30");
+
+    await userEvent.click(screen.getByRole("button", { name: "Invite an auditor" }));
+    await userEvent.type(screen.getByLabelText("Name"), "Joe");
+    await userEvent.type(screen.getByLabelText("Email"), "joe@audit.example");
+    const until = screen.getByLabelText("Last day");
+    await userEvent.clear(until);
+    await userEvent.type(until, "2026-12-15");
+    await userEvent.click(screen.getByRole("button", { name: "Invite" }));
+    expect(await screen.findByText(/Joe is invited. No Grantra Login account/)).toBeInTheDocument();
+    expect(invited).toEqual({
+      name: "Joe",
+      email: "joe@audit.example",
+      company: "",
+      until: "2026-12-15",
+      login: true,
+    });
+
+    await userEvent.click(within(row).getByRole("button", { name: "End now" }));
+    await waitFor(() => expect(ended).toBe(true));
   });
 });

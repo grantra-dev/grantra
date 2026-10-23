@@ -567,8 +567,7 @@ func ApplyDueDates(ctx context.Context, pool *pgxpool.Pool, tenantID string, now
 		}
 		changes := make([]*Change, len(ended))
 		for i, r := range ended {
-			changes[i] = &Change{Kind: Leaver, IdentityID: r.ID, ExternalID: r.ExternalID, DisplayName: r.DisplayName,
-				Status: "terminated", Reason: ReasonEndDate, Changes: map[string]FieldChange{"status": {r.Status, "terminated"}}}
+			changes[i] = r.change(ReasonEndDate)
 		}
 		if err := recordAll(ctx, tx, tenantID, "system:lifecycle", "", changes, Options{Now: now}); err != nil {
 			return err
@@ -585,6 +584,30 @@ type dueRow struct {
 
 type dueLeaver struct {
 	ID, ExternalID, DisplayName, Status string
+}
+
+func (r dueLeaver) change(reason string) *Change {
+	return &Change{Kind: Leaver, IdentityID: r.ID, ExternalID: r.ExternalID, DisplayName: r.DisplayName,
+		Status: "terminated", Reason: reason, Changes: map[string]FieldChange{"status": {r.Status, "terminated"}}}
+}
+
+// Leave makes someone a leaver now, for an admin ending their access before
+// their end date: their last day becomes today (unless it was earlier), and
+// everything a leaver sets off follows, as when the date passes. It does
+// nothing to someone who already left.
+func Leave(ctx context.Context, tx pgx.Tx, tenantID, actor, identityID, reason string, now time.Time) error {
+	r, err := db.QueryOne(ctx, tx, pgx.RowToStructByPos[dueLeaver],
+		`WITH cur AS (SELECT id, status FROM identities WHERE id = $1 FOR UPDATE)
+		 UPDATE identities i SET status = 'terminated', end_date = least(coalesce(i.end_date, $2), $2), updated_at = now()
+		 FROM cur WHERE i.id = cur.id AND cur.status <> 'terminated'
+		 RETURNING i.id, coalesce(i.external_id, ''), i.display_name, cur.status`, identityID, dateOnly(now))
+	if errors.Is(err, apperr.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return recordAll(ctx, tx, tenantID, actor, "", []*Change{r.change(reason)}, Options{Now: now})
 }
 
 func capIssues(in []Issue) []Issue {

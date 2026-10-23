@@ -19,3 +19,6 @@ export const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   },
 );
+
+/** A link, such as a download, that looks like a small outline button. */
+export const linkButton = buttonVariants({ variant: "outline", size: "sm" });
