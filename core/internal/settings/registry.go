@@ -27,6 +27,10 @@ const (
 	RareMinPeers        = "insights.rare_min_peers"
 	NHIExpiringDays     = "nhi.expiring_days"
 
+	LeaverSLAHours       = "reports.leaver_sla_hours"
+	ReportPeriodMonths   = "reports.period_months"
+	FiscalYearStartMonth = "reports.fiscal_year_start_month"
+
 	SessionIdleMinutes = "console.session_idle_minutes"
 	SessionMaxHours    = "console.session_max_hours"
 )
@@ -39,6 +43,7 @@ const (
 	GroupPAM      = "pam"
 	GroupThreats  = "threats"
 	GroupInsights = "insights"
+	GroupReports  = "reports"
 	GroupConsole  = "console"
 )
 
@@ -107,6 +112,16 @@ var definitions = []Definition{
 	{Key: NHIExpiringDays, Group: GroupInsights, Kind: Number, Unit: "days", Default: 30, Min: 1, Max: 180,
 		Title: "Non-human identities expiring soon",
 		Help:  "A service account, agent or workload whose end date is this close is flagged as expiring."},
+
+	{Key: LeaverSLAHours, Group: GroupReports, Kind: Number, Unit: "hours", Default: 24, Min: 1, Max: 30 * 24, Looser: Higher,
+		Title: "Time to close a leaver's accounts",
+		Help:  "The leavers report checks every leaver's accounts were disabled within this long of their last day, and flags those that were not. Use what your policy promises auditors."},
+	{Key: ReportPeriodMonths, Group: GroupReports, Kind: Number, Unit: "months", Default: 3, Min: 1, Max: 12,
+		Title: "Period reports cover",
+		Help:  "Reports open on the last full period of this many months: 3 for quarters, 12 for years. Anyone can still pick other dates."},
+	{Key: FiscalYearStartMonth, Group: GroupReports, Kind: Number, Unit: "month", Default: 1, Min: 1, Max: 12,
+		Title: "First month of the fiscal year",
+		Help:  "Periods line up with your fiscal year: with 4 (April) and 3 months, quarters run April to June, July to September, and so on."},
 
 	{Key: SessionIdleMinutes, Group: GroupConsole, Kind: Number, Unit: "minutes", Default: 30, Min: 5, Max: 8 * 60, Looser: Higher,
 		Title: "Sign out after inactivity",

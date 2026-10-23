@@ -9,6 +9,7 @@ import csvFiles from "../../../docs/help/csv-files.md?raw";
 import gettingStarted from "../../../docs/help/getting-started.md?raw";
 import peopleAndAudit from "../../../docs/help/people-and-audit.md?raw";
 import privilegedAccess from "../../../docs/help/privileged-access.md?raw";
+import reports from "../../../docs/help/reports.md?raw";
 import insights from "../../../docs/help/insights.md?raw";
 import nonHuman from "../../../docs/help/non-human-identities.md?raw";
 import threats from "../../../docs/help/threats.md?raw";
@@ -68,6 +69,12 @@ export const helpPages: HelpPage[] = [
     "threats",
     threats,
     "Suspicious sign-ins and access, attack paths, and how to respond.",
+    (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
+  ),
+  page(
+    "reports",
+    reports,
+    "Evidence for auditors, frameworks and checking a downloaded pack.",
     (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
   ),
   page("insights", insights, "Unused access and role suggestions.", (me) =>

@@ -64,6 +64,9 @@ entity SoD;
 // Threat detection: sign-ins, alerts and the detections' settings.
 entity Threats;
 
+// Compliance reports, the frameworks they map to and evidence packs.
+entity Reports;
+
 // One threat alert, and who it is about (none for an address).
 entity ThreatAlert {
   identity?: Identity,
@@ -255,6 +258,20 @@ action "threat.respond" in ["write"] appliesTo {
 action "threat_alert.close" in ["write"] appliesTo {
   principal: Identity,
   resource: ThreatAlert,
+  context: {},
+};
+
+// read runs reports and downloads evidence packs (auditors included);
+// manage edits the frameworks and their controls.
+action "report.read" in ["read"] appliesTo {
+  principal: Identity,
+  resource: Reports,
+  context: {},
+};
+
+action "report.manage" in ["write"] appliesTo {
+  principal: Identity,
+  resource: Reports,
   context: {},
 };
 

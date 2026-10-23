@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, send, type Me } from "./api";
 
 export type SettingGroup =
-  "requests" | "reviews" | "sod" | "pam" | "threats" | "insights" | "console";
+  "requests" | "reviews" | "sod" | "pam" | "threats" | "insights" | "reports" | "console";
 
 /** The groups, in the order the page shows them. */
 export const settingGroups: { id: SettingGroup; title: string }[] = [
@@ -14,6 +14,7 @@ export const settingGroups: { id: SettingGroup; title: string }[] = [
   { id: "pam", title: "Privileged access" },
   { id: "threats", title: "Threat detection" },
   { id: "insights", title: "Insights" },
+  { id: "reports", title: "Compliance reports" },
   { id: "console", title: "Console sign-in" },
 ];
 

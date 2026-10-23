@@ -126,3 +126,28 @@ func TestValidateMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestWrite(t *testing.T) {
+	var b strings.Builder
+	err := Write(&b, []string{"Name", "Note"}, [][]string{
+		{"Ana", "fine, with a comma"},
+		{"=HYPERLINK(\"http://evil\")", "+1"},
+		{"-2", "@sum"},
+		{"", ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\xef\xbb\xbfName,Note\nAna,\"fine, with a comma\"\n\"'=HYPERLINK(\"\"http://evil\"\")\",'+1\n'-2,'@sum\n,\n"
+	if b.String() != want {
+		t.Errorf("Write =\n%q\nwant\n%q", b.String(), want)
+	}
+	// What Grantra writes, it reads back.
+	f, err := Open(strings.NewReader(b.String()), []string{"name"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Next(); err != nil || f.Get("name") != "Ana" {
+		t.Errorf("read back = %q, %v", f.Get("name"), err)
+	}
+}

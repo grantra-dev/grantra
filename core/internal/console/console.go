@@ -69,7 +69,8 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, require(sameOrigin(h)))
 	}
-	// Uploads that scripts make with a service token instead of a session.
+	// Uploads and downloads that scripts make with a service token instead
+	// of a session.
 	tokenRoute := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, a.sessionOrToken(require, sameOrigin(h)))
 	}
@@ -240,6 +241,14 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("POST /api/v1/non-human-identities/{id}/retire", a.retireNonHuman)
 	route("GET /api/v1/unused-access", a.listUnusedAccess)
 	route("GET /api/v1/role-suggestions", a.listRoleSuggestions)
+	route("GET /api/v1/reports", a.listReports)
+	tokenRoute("GET /api/v1/reports/{id}", a.getReport)
+	route("POST /api/v1/report-verifications", a.verifyReport)
+	route("GET /api/v1/report-frameworks", a.listReportFrameworks)
+	route("POST /api/v1/report-frameworks", a.saveReportFramework)
+	route("PUT /api/v1/report-frameworks/{id}", a.saveReportFramework)
+	route("DELETE /api/v1/report-frameworks/{id}", a.deleteReportFramework)
+	tokenRoute("GET /api/v1/report-frameworks/{id}/pack", a.frameworkPack)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)
@@ -414,9 +423,6 @@ type auditEvent struct {
 	Details    json.RawMessage `json:"details"`
 }
 
-// uuidRegexp matches a row id, for SQL that must not cast anything else.
-const uuidRegexp = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
-
 // listAuditEvents pages backwards from the newest event: ?limit=50&before=<id>.
 // ?identity=<id> keeps the events that identity did or that were done to it.
 func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
@@ -449,8 +455,8 @@ func (a *API) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 			 SELECT e.id, e.occurred_at, e.actor, e.action, coalesce(e.target_type, ''), coalesce(e.target_id, ''),
 			        coalesce(ai.display_name, ''), coalesce(ti.display_name, ''), e.details
 			 FROM page e
-			 LEFT JOIN identities ai ON ai.id = CASE WHEN e.actor ~ '^identity:`+uuidRegexp+`$' THEN substr(e.actor, 10)::uuid END
-			 LEFT JOIN identities ti ON ti.id = CASE WHEN e.target_type = 'identity' AND e.target_id ~ '^`+uuidRegexp+`$' THEN e.target_id::uuid END
+			 LEFT JOIN identities ai ON ai.id = `+db.ActorIdentitySQL("e.actor")+`
+			 LEFT JOIN identities ti ON e.target_type = 'identity' AND ti.id = `+db.IdentityIDSQL("e.target_id")+`
 			 ORDER BY e.id DESC LIMIT $2`, before, limit, identityID)
 		if err != nil {
 			return err

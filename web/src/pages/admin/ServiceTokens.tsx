@@ -39,6 +39,7 @@ function useTargets() {
       .filter((a) => a.connector === "csv")
       .map((a) => ({ id: a.id, name: a.name })),
     "sign_in_event.send": [],
+    "report.read": [],
   } satisfies Record<TokenScope, { id: string; name: string }[]>;
 }
 
@@ -67,9 +68,9 @@ export function ServiceTokens() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-slate-500">
-        Scripts and scheduled jobs use a token to send HR exports, account files and sign-ins
-        without anyone signing in. A token can only do what you allow, stops working on its expiry
-        date, and everything it does is in the audit log under its name.
+        Scripts and scheduled jobs use a token to send HR exports, account files and sign-ins, or to
+        download compliance reports, without anyone signing in. A token can only do what you allow,
+        stops working on its expiry date, and everything it does is in the audit log under its name.
       </p>
       <Manage>
         <NewToken onCreated={setCreated} />

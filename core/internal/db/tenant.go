@@ -93,3 +93,19 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 // ValidUUID reports whether id has the shape of a row id (a UUID), so that
 // malformed ids answer "not found" instead of failing the query.
 func ValidUUID(id string) bool { return uuidPattern.MatchString(id) }
+
+// uuidRegexp matches a row id, for SQL that must not cast anything else.
+const uuidRegexp = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`
+
+// ActorIdentitySQL is an SQL expression giving the identity id an actor
+// (an SQL expression, such as an audit event's actor column) names, or NULL
+// when the actor is not a person (a job, a token, an identity source).
+func ActorIdentitySQL(actor string) string {
+	return `CASE WHEN ` + actor + ` ~ '^identity:` + uuidRegexp + `$' THEN substr(` + actor + `, 10)::uuid END`
+}
+
+// IdentityIDSQL is an SQL expression giving text (such as an audit event's
+// target id) as an identity id when it is one, else NULL.
+func IdentityIDSQL(text string) string {
+	return `CASE WHEN ` + text + ` ~ '^` + uuidRegexp + `$' THEN ` + text + `::uuid END`
+}

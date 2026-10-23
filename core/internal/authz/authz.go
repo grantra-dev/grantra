@@ -100,6 +100,8 @@ const (
 	ManageThreats       Action = "threat.manage"
 	RespondToThreat     Action = "threat.respond"
 	CloseThreatAlert    Action = "threat_alert.close"
+	ReadReports         Action = "report.read"
+	ManageReports       Action = "report.manage"
 )
 
 var actionGroup = map[Action]string{
@@ -150,6 +152,8 @@ var actionGroup = map[Action]string{
 	ManageThreats:       "write",
 	RespondToThreat:     "write",
 	CloseThreatAlert:    "write",
+	ReadReports:         "read",
+	ManageReports:       "write",
 }
 
 // Writes reports whether the action changes something.
@@ -242,6 +246,10 @@ func ThreatAlertResource(id, identity string) Resource {
 	e := cedar.Entity{UID: cedar.NewEntityUID("ThreatAlert", cedar.String(id)), Attributes: cedar.NewRecord(attrs)}
 	return Resource{uid: e.UID, entity: &e}
 }
+
+// ReportsResource is the compliance reports, the frameworks they are
+// mapped to and the evidence packs downloaded from them.
+func ReportsResource() Resource { return Resource{uid: cedar.NewEntityUID("Reports", "tenant")} }
 
 // RequestsResource is every access request of the tenant.
 func RequestsResource() Resource { return Resource{uid: cedar.NewEntityUID("Requests", "tenant")} }
