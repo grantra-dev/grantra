@@ -16,9 +16,9 @@ The format of the file, a template and what each error means are in [CSV files](
 
 ## Applications
 
-Add applications and their entitlements (roles, groups). Applications connect in one of three ways:
+**Add application** (on Governance → Applications, or **Connect** in Settings → Connectors) walks through it in one go: name and owner, how Grantra reaches it, a first read, the accounts nobody matched, its entitlements and their risk, who gets it by default (a birthright rule), and how often to read it and whether to write changes back. Every step after the first can be skipped and done later from the application's page; an application added by hand can be connected later with **Connect it**. Applications connect in one of three ways:
 
-- **Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center, Salesforce, SCIM or LDAP / Active Directory**, from **Settings → Connectors**: pick the connector, pick the application (or name a new one), fill in its settings, then **Test: read accounts now**. Type the token or secret in: Grantra keeps it encrypted with the vault key and never shows it again (or give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN` to a variable in the server's environment). Grantra reads the accounts every hour (change it under **About** on the application's page), and can write changes back once provisioning is on. **Change settings** on the application's page changes them later; leave a secret blank to keep the one saved.
+- **Microsoft Entra ID, Google Workspace, Okta, GitHub, AWS IAM Identity Center, Salesforce, SCIM or LDAP / Active Directory**: pick the connector, fill in its settings, then **Test: read accounts now**. Type the token or secret in: Grantra keeps it encrypted with the vault key and never shows it again (or give a reference such as `env:GRANTRA_SECRET_CRM_TOKEN` to a variable in the server's environment). Grantra reads the accounts every hour (change it under **About** on the application's page), and can write changes back once provisioning is on. **Change settings** on the application's page changes them later; leave a secret blank to keep the one saved.
 - **Account files**, for applications with no API: **Load accounts from a file**, map the columns, then **Check file** and **Import**. See [CSV files](csv-files.md).
 - **By hand**: Grantra keeps the catalog, and someone makes the changes in the application.
 
@@ -30,7 +30,7 @@ Under **About**, **Edit** sets the owner (who approves requests for its access u
 
 ## Roles and rules
 
-Business roles bundle entitlements; birthright rules give them by job ("Engineering gets the Engineer role"). They are listed here and edited through the API.
+Business roles bundle entitlements; birthright rules give them by job ("Engineering gets the Engineer role"). **Add role** and **Edit** set a role's name, owner and entitlements; whoever holds it gets what is added and loses what is taken out. **Add rule** writes who a rule is for, one HR attribute per line (suggested from what people have), and shows how many people match as you type; **Edit** and **Delete** apply to everyone at once, and Grantra says how many people gained and lost access.
 
 ## Approval flows
 

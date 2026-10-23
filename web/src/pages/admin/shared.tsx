@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/field";
 import { useAccessOptions } from "@/lib/admin";
 
 const runVariants: Record<string, "green" | "amber" | "red" | "brand" | "default"> = {
@@ -67,9 +68,12 @@ export function Counts({ counts }: { counts: Record<string, number | undefined> 
 /**
  * Every business role and entitlement as select options, by application,
  * valued "role:<id>" and "entitlement:<id>" (see refOf in lib/admin).
+ * Without roles, only entitlements.
  */
-export function AccessOptions() {
-  const { roles, entitlements } = useAccessOptions();
+export function AccessOptions({ roles: withRoles = true }: { roles?: boolean }) {
+  const access = useAccessOptions();
+  const roles = withRoles ? access.roles : [];
+  const entitlements = access.entitlements;
   const byApp = new Map<string, typeof entitlements>();
   for (const e of entitlements)
     byApp.set(e.application_name, [...(byApp.get(e.application_name) ?? []), e]);
@@ -94,5 +98,42 @@ export function AccessOptions() {
         </optgroup>
       ))}
     </>
+  );
+}
+
+/**
+ * Several roles and entitlements to pick, valued as AccessOptions values.
+ * Without roles, only entitlements.
+ */
+export function AccessPicker({
+  id,
+  label,
+  value,
+  onChange,
+  roles = true,
+  required,
+}: {
+  id: string;
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  roles?: boolean;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <select
+        id={id}
+        multiple
+        required={required}
+        value={value}
+        onChange={(e) => onChange(Array.from(e.target.selectedOptions, (o) => o.value))}
+        className="h-40 w-full rounded-md border border-slate-300 bg-white p-1 text-sm focus:outline-2 focus:outline-brand-600"
+      >
+        <AccessOptions roles={roles} />
+      </select>
+      <p className="mt-1 text-xs text-slate-500">Hold Ctrl or ⌘ to pick several.</p>
+    </div>
   );
 }

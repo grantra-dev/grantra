@@ -247,7 +247,7 @@ describe("Read-only pages for auditors", () => {
     renderAt("/governance/applications");
     expect(await screen.findByRole("link", { name: "CRM" })).toBeInTheDocument();
     expect(screen.getByText(/only admins change it/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add application" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add application" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("link", { name: "CRM" }));
     expect(await screen.findByRole("heading", { name: "CRM" })).toBeInTheDocument();
@@ -262,13 +262,13 @@ describe("Read-only pages for auditors", () => {
       "GET /api/v1/applications": ok({ applications: [crm] }),
     });
     renderAt("/governance/applications");
-    expect(await screen.findByRole("button", { name: "Add application" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Add application" })).toBeInTheDocument();
     expect(screen.queryByText(/only admins change it/)).not.toBeInTheDocument();
   });
 });
 
 describe("Connector gallery", () => {
-  it("connects an application in three steps and tests it", async () => {
+  it("connects an application added by hand and tests it", async () => {
     const sent: Record<string, unknown> = {};
     serve({
       "GET /api/v1/me": ok(ada),
@@ -289,12 +289,13 @@ describe("Connector gallery", () => {
       }),
     });
     renderAt("/settings/connectors");
-    await userEvent.click(await screen.findByRole("button", { name: "Connect SCIM 2.0" }));
-    expect(screen.getByText("Microsoft Entra ID")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Application"), "crm");
+    expect(await screen.findByText("Microsoft Entra ID")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: "Connect SCIM 2.0" }));
+    // Add application, with SCIM picked already.
+    await userEvent.selectOptions(await screen.findByLabelText("Application"), "crm");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    const save = screen.getByRole("button", { name: "Save and continue" });
+    const save = await screen.findByRole("button", { name: "Save and continue" });
     expect(save).toBeDisabled();
     await userEvent.type(screen.getByLabelText("SCIM endpoint"), "https://crm.example.com/scim/v2");
     await userEvent.type(screen.getByLabelText("Bearer token"), "env:GRANTRA_SECRET_CRM");
@@ -305,8 +306,8 @@ describe("Connector gallery", () => {
     });
 
     await userEvent.click(await screen.findByRole("button", { name: "Test: read accounts now" }));
-    expect(await screen.findByText(/It works/)).toBeInTheDocument();
-    expect(screen.getByText(/12/)).toBeInTheDocument();
+    expect(await screen.findByText("12 accounts")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
   });
 
   it("changes a connector, keeping the secret saved before", async () => {

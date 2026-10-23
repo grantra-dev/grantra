@@ -32,7 +32,7 @@ import {
   type SoDViolation,
 } from "@/lib/admin";
 import { exceptionChoices, SettingKey, useSetting } from "@/lib/settings";
-import { AccessOptions } from "./shared";
+import { AccessPicker } from "./shared";
 import { formatDate } from "@/lib/utils";
 
 export function SeparationOfDuties() {
@@ -140,35 +140,6 @@ function Policies() {
   );
 }
 
-function SidePicker({
-  id,
-  label,
-  value,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  return (
-    <div>
-      <Label htmlFor={id}>{label}</Label>
-      <select
-        id={id}
-        multiple
-        required
-        value={value}
-        onChange={(e) => onChange(Array.from(e.target.selectedOptions, (o) => o.value))}
-        className="h-40 w-full rounded-md border border-slate-300 bg-white p-1 text-sm focus:outline-2 focus:outline-brand-600"
-      >
-        <AccessOptions />
-      </select>
-      <p className="mt-1 text-xs text-slate-500">Hold Ctrl or ⌘ to pick several.</p>
-    </div>
-  );
-}
-
 const toRefs = (picked: string[]): SoDRef[] => picked.map(refOf);
 
 function NewPolicy({ onDone }: { onDone: () => void }) {
@@ -231,8 +202,20 @@ function NewPolicy({ onDone }: { onDone: () => void }) {
             </Select>
           </div>
           <div className="md:col-span-3 grid gap-4 md:grid-cols-2">
-            <SidePicker id="sod-a" label="Nobody holding any of these…" value={a} onChange={setA} />
-            <SidePicker id="sod-b" label="…may also hold any of these" value={b} onChange={setB} />
+            <AccessPicker
+              id="sod-a"
+              label="Nobody holding any of these…"
+              value={a}
+              onChange={setA}
+              required
+            />
+            <AccessPicker
+              id="sod-b"
+              label="…may also hold any of these"
+              value={b}
+              onChange={setB}
+              required
+            />
           </div>
           <FormActions
             action={create}

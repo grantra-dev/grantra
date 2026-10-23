@@ -10,6 +10,7 @@ import { Tabs } from "@/components/Tabs";
 import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Manage, ReadOnlyFields } from "@/components/Manage";
 import { PersonSearch, PickPerson } from "@/components/PersonSearch";
@@ -137,6 +138,30 @@ const readChoices = [
 const readLabel = (hours: number) =>
   readChoices.find(([h]) => h === hours)?.[1] ?? `Every ${hours} hours`;
 
+/** How often Grantra reads an application, as a Select; any value the API set is kept. */
+export function ReadEverySelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: number;
+  onChange: (hours: number) => void;
+}) {
+  const choices = readChoices.some(([h]) => h === value)
+    ? readChoices
+    : [...readChoices, [value, readLabel(value)] as const];
+  return (
+    <Select id={id} value={value} onChange={(e) => onChange(Number(e.target.value))}>
+      {choices.map(([h, label]) => (
+        <option key={h} value={h}>
+          {label}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 /** Who answers for the application, what it is for and how often it is read; and its retirement. */
 function About({ app }: { app: CatalogApplication }) {
   const client = useQueryClient();
@@ -174,11 +199,6 @@ function About({ app }: { app: CatalogApplication }) {
       void navigate("/governance/applications");
     },
   });
-  // The choices, plus whatever the API set if it is not one of them.
-  const choices = readChoices.some(([h]) => h === form.read_every_hours)
-    ? readChoices
-    : [...readChoices, [form.read_every_hours, readLabel(form.read_every_hours)] as const];
-
   return (
     <Card className="mb-6">
       <CardHeader className="flex-row items-start justify-between gap-2">
@@ -238,17 +258,11 @@ function About({ app }: { app: CatalogApplication }) {
             </div>
             <div>
               <Label htmlFor="app-edit-read">Read its accounts</Label>
-              <Select
+              <ReadEverySelect
                 id="app-edit-read"
                 value={form.read_every_hours}
-                onChange={(e) => setForm({ ...form, read_every_hours: Number(e.target.value) })}
-              >
-                {choices.map(([h, label]) => (
-                  <option key={h} value={h}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
+                onChange={(read_every_hours) => setForm({ ...form, read_every_hours })}
+              />
             </div>
             <FormActions
               action={save}
@@ -411,13 +425,18 @@ function Connector({ app }: { app: CatalogApplication }) {
         {app.connector === "manual" && (
           <>
             <p className="text-slate-500">
-              Nothing to read: access to this application is managed by hand. Connect it from
-              Settings, Connectors. An application with no API can load its accounts from a CSV
-              export.
+              Nothing to read: access to this application is managed by hand. Connect it to read its
+              accounts, or, with no API, load them from a CSV export.
             </p>
             <Manage>
-              <div>
-                <Button variant="outline" onClick={() => setSettingUp(true)}>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to={`/governance/applications/new?app=${app.id}&step=1`}
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  Connect it
+                </Link>
+                <Button variant="ghost" onClick={() => setSettingUp(true)}>
                   Load accounts from a file
                 </Button>
               </div>
@@ -446,7 +465,7 @@ function Connector({ app }: { app: CatalogApplication }) {
   );
 }
 
-function ReadOutcome({ run, fromFile }: { run: ConnectorRun; fromFile?: boolean }) {
+export function ReadOutcome({ run, fromFile }: { run: ConnectorRun; fromFile?: boolean }) {
   if (run.status === "failed") {
     return (
       <Alert variant="error">
@@ -464,7 +483,7 @@ function ReadOutcome({ run, fromFile }: { run: ConnectorRun; fromFile?: boolean 
 }
 
 /** Uploads an account file: checked first, then imported. */
-function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => void }) {
+export function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => void }) {
   const client = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [run, setRun] = useState<ConnectorRun | null>(null);
@@ -527,7 +546,15 @@ function AccountFile({ app, onEdit }: { app: CatalogApplication; onEdit: () => v
 }
 
 /** Sets an application up to read its accounts from files. */
-function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () => void }) {
+export function FileConnector({
+  app,
+  onDone,
+  onCancel = onDone,
+}: {
+  app: CatalogApplication;
+  onDone: () => void;
+  onCancel?: () => void;
+}) {
   const client = useQueryClient();
   const current = (app.connector === "csv" ? app.config : null) as FileConnectorConfig | null;
   const [columns, setColumns] = useState<Record<string, string>>(current?.columns ?? {});
@@ -571,14 +598,14 @@ function FileConnector({ app, onDone }: { app: CatalogApplication; onDone: () =>
               onChange={(e) => setSeparator(e.target.value)}
             />
           </div>
-          <FormActions action={save} submit="Save" onCancel={onDone} />
+          <FormActions action={save} submit="Save" onCancel={onCancel} />
         </form>
       </CardContent>
     </Card>
   );
 }
 
-function Provisioning({ app, connected }: { app: CatalogApplication; connected: boolean }) {
+export function Provisioning({ app, connected }: { app: CatalogApplication; connected: boolean }) {
   const client = useQueryClient();
   const current: ProvisioningSettings = {
     mode: app.provisioning?.mode ?? "off",
@@ -728,7 +755,7 @@ function Plan({ run }: { run: ProvisioningRun }) {
   );
 }
 
-function Entitlements({ app }: { app: CatalogApplication }) {
+export function Entitlements({ app }: { app: CatalogApplication }) {
   const appId = app.id;
   const client = useQueryClient();
   const { data, error, isPending } = useQuery({
@@ -1063,8 +1090,8 @@ function JustInTime({ ent }: { ent: Entitlement }) {
   );
 }
 
-function Accounts({ appId }: { appId: string }) {
-  const [orphans, setOrphans] = useState(false);
+export function Accounts({ appId, orphansOnly = false }: { appId: string; orphansOnly?: boolean }) {
+  const [orphans, setOrphans] = useState(orphansOnly);
   const list = usePages(
     ["accounts", appId, orphans],
     (after?: string) => listAccounts(appId, { orphans, after }),

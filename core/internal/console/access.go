@@ -279,6 +279,17 @@ func (a *API) previewAccessRule(w http.ResponseWriter, r *http.Request) {
 	a.respond(w, r, http.StatusOK, map[string]any{"matches": n, "sample": sample}, err)
 }
 
+// listAttributes lists the HR attributes people have and their common
+// values, for writing a rule's conditions.
+func (a *API) listAttributes(w http.ResponseWriter, r *http.Request) {
+	var out []access.Attribute
+	err := a.guarded(r, authz.ReadAccessRules, func(tx pgx.Tx, _ authz.Subject) (err error) {
+		out, err = access.Attributes(r.Context(), tx, 50)
+		return err
+	})
+	a.respond(w, r, http.StatusOK, map[string]any{"attributes": httpjson.NonNil(out)}, err)
+}
+
 // identityAccess lists what an identity should have and why. Whoever may see
 // the identity may see its access: the person, their manager, helpdesk,
 // auditors and admins.

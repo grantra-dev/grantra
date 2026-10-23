@@ -91,6 +91,10 @@ export const iga: NavItem[] = [
     page: lazyPage(applications, "Applications"),
     header: true,
     subpages: [
+      {
+        path: "/governance/applications/new",
+        page: lazyPage(() => import("@/pages/admin/AddApplication"), "AddApplication"),
+      },
       { path: "/governance/applications/:id", page: lazyPage(application, "Application") },
     ],
   },
