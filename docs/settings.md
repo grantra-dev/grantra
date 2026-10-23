@@ -31,10 +31,13 @@ Stricter changes, and changes to settings that are neither, take effect at once.
 | | Peers needed to call access common | `insights.common_min_peers` | 3 people | 2 to 50 | |
 | | Peers needed to call access rare | `insights.rare_min_peers` | 5 people | 3 to 100 | |
 | | Non-human identities expiring soon | `nhi.expiring_days` | 30 days | 1 to 180 | |
+| Compliance reports | Time to close a leaver's accounts | `reports.leaver_sla_hours` | 24 hours | 1 to 720 | higher |
+| | Period reports cover | `reports.period_months` | 3 months | 1 to 12 | |
+| | First month of the fiscal year | `reports.fiscal_year_start_month` | 1 (January) | 1 to 12 | |
 | Console sign-in | Sign out after inactivity | `console.session_idle_minutes` | 30 minutes | 5 to 480 | higher |
 | | Longest console session | `console.session_max_hours` | 8 hours | 1 to 24 | higher |
 
-Settings of a module the tenant turned off (privileged access, threat detection) are hidden. A change applies from then on. A request step, break-glass check-out or console session already running keeps the end it was given when it started; reminders, insights and the inactivity limit read the setting each time.
+Settings of a module the tenant turned off (privileged access, threat detection) are hidden. A change applies from then on. A request step, break-glass check-out or console session already running keeps the end it was given when it started; reminders, insights, reports and the inactivity limit read the setting each time.
 
 ## Limits set by the operator
 

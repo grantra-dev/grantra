@@ -2,7 +2,8 @@
 // exports and account lists. Both have a header row whose column names are
 // matched loosely ("Employee ID" is employee_id) and can be renamed with a
 // mapping, and both are read a row at a time, so a large file is never held
-// twice in memory.
+// twice in memory. It also writes the CSV files Grantra hands out, such as
+// report evidence, safe to open in a spreadsheet.
 package csvfile
 
 import (
@@ -192,4 +193,33 @@ func blank(row []string) bool {
 		}
 	}
 	return true
+}
+
+// formulaStart are the first characters that make a spreadsheet read a cell
+// as a formula.
+const formulaStart = "=+-@\t\r"
+
+// Write writes a CSV file that spreadsheets open as it is: UTF-8 with a
+// byte order mark, a header row, then rows. A cell that starts like a
+// formula gets a ' in front, so a spreadsheet shows it rather than runs it
+// (a person named "=HYPERLINK(...)" stays a name).
+func Write(w io.Writer, header []string, rows [][]string) error {
+	if _, err := io.WriteString(w, "\xef\xbb\xbf"); err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	safe := make([]string, len(header))
+	for _, row := range append([][]string{header}, rows...) {
+		for i, v := range row {
+			if v != "" && strings.ContainsRune(formulaStart, rune(v[0])) {
+				v = "'" + v
+			}
+			safe[i] = v
+		}
+		if err := cw.Write(safe[:len(row)]); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
 }

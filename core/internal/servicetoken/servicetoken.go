@@ -40,10 +40,14 @@ const (
 	// threat detection, as POST /api/v1/sign-in-events. It cannot be
 	// pinned to anything.
 	ScopeSendSignIns = "sign_in_event.send"
+	// ScopeReadReports downloads compliance reports and evidence packs, as
+	// GET /api/v1/reports/{id} and /api/v1/report-frameworks/{id}/pack. It
+	// cannot be pinned to anything.
+	ScopeReadReports = "report.read"
 )
 
 // Scopes lists every scope.
-var Scopes = []string{ScopeSyncSource, ScopeImportAccounts, ScopeSendSignIns}
+var Scopes = []string{ScopeSyncSource, ScopeImportAccounts, ScopeSendSignIns, ScopeReadReports}
 
 // Limits on what a token is created with.
 const (

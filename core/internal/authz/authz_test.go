@@ -100,6 +100,13 @@ func TestDecisions(t *testing.T) {
 		{"helpdesk cannot read audit log", Request{Principal: helpdesk, Action: ReadAuditLog, Resource: AuditLogResource()}, false, nil},
 		{"employee cannot read audit log", Request{Principal: report, Action: ReadAuditLog, Resource: AuditLogResource()}, false, nil},
 
+		// Compliance reports.
+		{"auditor runs reports", Request{Principal: auditor, Action: ReadReports, Resource: ReportsResource()}, true, []string{"auditor-read-all"}},
+		{"auditor cannot edit frameworks", Request{Principal: auditor, Action: ManageReports, Resource: ReportsResource()}, false, nil},
+		{"admin edits frameworks", Request{Principal: admin, Action: ManageReports, Resource: ReportsResource()}, true, []string{"admin-all"}},
+		{"helpdesk cannot run reports", Request{Principal: helpdesk, Action: ReadReports, Resource: ReportsResource()}, false, nil},
+		{"employee cannot run reports", Request{Principal: report, Action: ReadReports, Resource: ReportsResource()}, false, nil},
+
 		// Platform roles.
 		{"auditor sees role members", Request{Principal: auditor, Action: ReadPlatformRole, Resource: RoleResource(RoleAdmin)}, true, nil},
 		{"helpdesk does not see role members", Request{Principal: helpdesk, Action: ReadPlatformRole, Resource: RoleResource(RoleAdmin)}, false, nil},

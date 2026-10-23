@@ -18,7 +18,7 @@ import (
 )
 
 func TestDefinitions(t *testing.T) {
-	groups := []string{GroupRequests, GroupReviews, GroupSoD, GroupPAM, GroupThreats, GroupInsights, GroupConsole}
+	groups := []string{GroupRequests, GroupReviews, GroupSoD, GroupPAM, GroupThreats, GroupInsights, GroupReports, GroupConsole}
 	seen := map[string]bool{}
 	for _, d := range List() {
 		switch {

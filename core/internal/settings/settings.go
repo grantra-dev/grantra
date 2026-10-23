@@ -202,10 +202,10 @@ const (
 	Withdrawn = "withdrawn"
 )
 
-const changeColumns = `c.id, c.key, c.old_value, c.value, coalesce(c.reason, ''), c.proposed_by, coalesce(i.display_name, ''),
+var changeColumns = `c.id, c.key, c.old_value, c.value, coalesce(c.reason, ''), c.proposed_by, coalesce(i.display_name, ''),
 	c.proposed_at, c.status, coalesce(c.decided_by, ''), c.decided_at, coalesce(c.comment, '')
 	FROM tenant_setting_changes c
-	LEFT JOIN identities i ON i.id = CASE WHEN c.proposed_by ~ '^identity:[0-9a-f-]{36}$' THEN substr(c.proposed_by, 10)::uuid END`
+	LEFT JOIN identities i ON i.id = ` + db.ActorIdentitySQL("c.proposed_by")
 
 func scanChange(row pgx.CollectableRow) (Change, error) {
 	var c Change

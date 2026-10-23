@@ -1,6 +1,7 @@
 import {
   Blocks,
   CircleHelp,
+  FileChartColumn,
   FileSearch,
   House,
   Inbox,
@@ -15,6 +16,7 @@ import { lazyPage, type NavItem } from "./types";
 const people = () => import("@/pages/People");
 const person = () => import("@/pages/Person");
 const help = () => import("@/pages/Help");
+const reports = () => import("@/pages/Reports");
 
 /** What every part of Grantra shares: home, people, audit, tokens and help. */
 export const home: NavItem = {
@@ -63,6 +65,18 @@ export const platform: NavItem[] = [
     group: "governance",
     visible: (me) => hasRole(me, PlatformRole.Admin, PlatformRole.Auditor),
     page: lazyPage(() => import("@/pages/AuditLog"), "AuditLog"),
+  },
+  {
+    path: "/governance/reports",
+    title: "Reports",
+    description:
+      "Evidence for auditors (SOX, ISO 27001, SOC 2, NIS2): reviews, leavers, approvals, privileged access, who holds what.",
+    icon: FileChartColumn,
+    module: "platform",
+    group: "governance",
+    visible: governs,
+    page: lazyPage(reports, "Reports"),
+    subpages: [{ path: "/governance/reports/:id", page: lazyPage(reports, "ReportView") }],
   },
   {
     path: "/settings/general",
