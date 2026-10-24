@@ -57,7 +57,7 @@ var builtins = []Framework{
 			{"ITGC-AC-03", "Access is reviewed periodically and inappropriate access removed", []string{Reviews}},
 			{"ITGC-AC-04", "Privileged access is restricted and monitored", []string{Privileged, Admin}},
 			{"ITGC-AC-05", "Incompatible duties are segregated", []string{SoD}},
-			{"ITGC-AC-06", "Complete population of user access", []string{Access}},
+			{"ITGC-AC-06", "Complete population of user access", []string{Access, AccessHistory}},
 		}},
 	{ID: "iso27001", Name: "ISO/IEC 27001:2022",
 		Description: "The Annex A controls on identities and access.",
@@ -73,7 +73,7 @@ var builtins = []Framework{
 	{ID: "soc2", Name: "SOC 2",
 		Description: "The Trust Services Criteria on logical access, monitoring and change management.",
 		Controls: []Control{
-			{"CC6.1", "Logical access security over protected information assets", []string{Access, Privileged}},
+			{"CC6.1", "Logical access security over protected information assets", []string{Access, AccessHistory, Privileged}},
 			{"CC6.2", "Users are registered and authorized before access is granted, and removed when no longer needed", []string{Requests, Leavers}},
 			{"CC6.3", "Access is granted, changed and removed based on roles, least privilege and segregation of duties", []string{Reviews, SoD, Leavers}},
 			{"CC7.2", "Anomalies that could be security events are monitored and evaluated", []string{Threats}},

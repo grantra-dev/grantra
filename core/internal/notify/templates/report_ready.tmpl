@@ -1,0 +1,15 @@
+{{define "subject"}}{{if .Data.error}}A scheduled report could not be made: {{.Data.title}}{{else}}Evidence pack ready: {{.Data.title}}{{end}}{{end}}
+{{define "body"}}Hi {{.Name}},
+
+{{if .Data.error -}}
+Grantra could not make the evidence pack "{{.Data.title}}" for {{.Data.from}} to {{.Data.to}}:
+
+{{.Data.error}}
+
+An admin can change the schedule in Reports. It is not tried again for this period.
+{{- else -}}
+The evidence pack "{{.Data.title}}" for {{.Data.from}} to {{.Data.to}} is ready. Download it from Reports, under Scheduled. Each file's fingerprint is in the pack and in the audit log, so anyone can check it later.
+{{- end}}
+
+{{.URL}}
+{{end}}

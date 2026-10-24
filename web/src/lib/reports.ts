@@ -120,3 +120,111 @@ export const deleteFramework = (id: string) =>
 
 export const verifyReport = (file: Blob) =>
   api<Verification>("/api/v1/report-verifications", { method: "POST", body: file });
+
+/** Someone a schedule sends to; not allowed once they lose the admin or auditor role. */
+export interface Recipient {
+  id: string;
+  name: string;
+  allowed: boolean;
+}
+
+/** One pack a schedule made, or could not make. */
+export interface Delivery {
+  id: string;
+  schedule_id?: string;
+  title: string;
+  from: string;
+  to: string;
+  status: "ready" | "failed";
+  error?: string;
+  file_name?: string;
+  sha256?: string;
+  bytes: number;
+  recipients: number;
+  created_at: string;
+}
+
+/** An evidence pack Grantra makes on its own as each period ends. */
+export interface Schedule {
+  id: string;
+  name: string;
+  report?: string;
+  framework?: string;
+  application_id?: string;
+  application?: string;
+  months: number;
+  recipients: Recipient[];
+  enabled: boolean;
+  updated_by: string;
+  updated_at: string;
+  next_from: string;
+  next_to: string;
+  last?: Delivery;
+}
+
+export interface ScheduleInput {
+  name: string;
+  report: string;
+  framework: string;
+  application_id: string;
+  months: number;
+  recipients: string[];
+  enabled: boolean;
+}
+
+export const listSchedules = () =>
+  api<{ schedules: Schedule[] }>("/api/v1/report-schedules").then((r) => r.schedules);
+
+/** Adds a schedule, or changes the one id names. */
+export const saveSchedule = (id: string | undefined, s: ScheduleInput) =>
+  id
+    ? send<Schedule>("PUT", `/api/v1/report-schedules/${encodeURIComponent(id)}`, s)
+    : send<Schedule>("POST", "/api/v1/report-schedules", s);
+
+export const deleteSchedule = (id: string) =>
+  send<void>("DELETE", `/api/v1/report-schedules/${encodeURIComponent(id)}`);
+
+export const listDeliveries = () =>
+  api<{ deliveries: Delivery[] }>("/api/v1/report-deliveries").then((r) => r.deliveries);
+
+/** Where a scheduled pack downloads from; the download goes to the audit log. */
+export const deliveryFile = (id: string) =>
+  `/api/v1/report-deliveries/${encodeURIComponent(id)}/file`;
+
+/** Someone from outside the company with the auditor role until a date. */
+export interface ExternalAuditor {
+  id: string;
+  name: string;
+  email: string;
+  company?: string;
+  /** Their last day (UTC). */
+  until: string;
+  status: "active" | "terminated" | "pending" | "suspended";
+  sponsor_id?: string;
+  sponsor?: string;
+  invited_at: string;
+  /** Their Grantra Login account, if they have one. */
+  login?: "active" | "disabled";
+}
+
+export interface AuditorInput {
+  name: string;
+  email: string;
+  company: string;
+  until: string;
+  /** Also give them a Grantra Login account. */
+  login: boolean;
+}
+
+export const listExternalAuditors = () =>
+  api<{ auditors: ExternalAuditor[] }>("/api/v1/external-auditors").then((r) => r.auditors);
+
+export const inviteAuditor = (a: AuditorInput) =>
+  send<ExternalAuditor & { login_error?: string }>("POST", "/api/v1/external-auditors", a);
+
+export const extendAuditor = (id: string, until: string) =>
+  send<ExternalAuditor>("PUT", `/api/v1/external-auditors/${encodeURIComponent(id)}`, { until });
+
+/** Ends an external auditor's access now. */
+export const endAuditor = (id: string) =>
+  send<void>("DELETE", `/api/v1/external-auditors/${encodeURIComponent(id)}`);

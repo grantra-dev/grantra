@@ -37,6 +37,8 @@ const (
 	OwnerLeft Kind = "non_human_owner_left"
 	// SettingChange is a setting change waiting for a second admin.
 	SettingChange Kind = "setting_change_proposed"
+	// ReportReady is a scheduled evidence pack ready to download.
+	ReportReady Kind = "report_ready"
 )
 
 // KindInfo describes a kind of notification to the people who get it.
@@ -62,6 +64,7 @@ var Kinds = []KindInfo{
 	{ThreatDetected, "Identity threats", "For admins: Grantra found a high or critical threat, such as a password spray or a leaver signing in.", false},
 	{OwnerLeft, "Service accounts and agents whose owner left", "For admins, and for whoever takes them over: someone who left owned service accounts, AI agents or workloads, which passed to their manager.", false},
 	{SettingChange, "Setting changes to approve", "For admins: another admin made a setting less strict, such as a longer break-glass check-out, and it waits for a second admin.", false},
+	{ReportReady, "Scheduled compliance reports", "For admins and auditors a schedule names: an evidence pack Grantra made on its own is ready to download, or could not be made.", false},
 }
 
 // required reports whether nobody may turn k off.

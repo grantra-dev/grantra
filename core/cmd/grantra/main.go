@@ -52,6 +52,7 @@ import (
 	"github.com/grantra-dev/grantra/core/internal/login"
 	"github.com/grantra-dev/grantra/core/internal/notify"
 	"github.com/grantra-dev/grantra/core/internal/provisioning"
+	"github.com/grantra-dev/grantra/core/internal/reports"
 	"github.com/grantra-dev/grantra/core/internal/requests"
 	"github.com/grantra-dev/grantra/core/internal/reviews"
 	"github.com/grantra-dev/grantra/core/internal/secretstore"
@@ -472,6 +473,28 @@ func startJobs(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, tenant
 				log.InfoContext(ctx, "closed access review campaigns", "campaigns", n)
 			}
 			return err
+		}},
+		// Who held what, kept as it changes, so reports can answer for a
+		// past date.
+		{"record access history", 15 * time.Minute, func(ctx context.Context) error {
+			h, err := reports.RecordHistory(ctx, pool, tenantID)
+			if h.Started+h.Ended+h.Pruned > 0 {
+				log.InfoContext(ctx, "recorded access history", "started", h.Started, "ended", h.Ended, "pruned", h.Pruned)
+			}
+			return err
+		}},
+		// Scheduled evidence packs are made once their period ends, and the
+		// sign-in of external auditors whose access ended is closed.
+		{"send scheduled reports", 15 * time.Minute, func(ctx context.Context) error {
+			sent, err := reports.SendScheduled(ctx, pool, tenantID, time.Now())
+			if sent.Ready+sent.Failed+sent.Pruned > 0 {
+				log.InfoContext(ctx, "made scheduled evidence packs", "ready", sent.Ready, "failed", sent.Failed, "pruned", sent.Pruned)
+			}
+			closed, cerr := reports.CloseAuditorLogins(ctx, pool, tenantID, secrets)
+			if closed > 0 {
+				log.InfoContext(ctx, "disabled the Grantra Login accounts of external auditors whose access ended", "accounts", closed)
+			}
+			return errors.Join(err, cerr)
 		}},
 		// Vault check-outs end on time, and passwords rotate when their
 		// schedule says or after someone used them.

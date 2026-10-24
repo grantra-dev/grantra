@@ -30,6 +30,9 @@ const (
 	LeaverSLAHours       = "reports.leaver_sla_hours"
 	ReportPeriodMonths   = "reports.period_months"
 	FiscalYearStartMonth = "reports.fiscal_year_start_month"
+	ExternalAuditorDays  = "reports.external_auditor_max_days"
+	DeliveryKeepDays     = "reports.delivery_keep_days"
+	AccessHistoryDays    = "reports.access_history_keep_days"
 
 	SessionIdleMinutes = "console.session_idle_minutes"
 	SessionMaxHours    = "console.session_max_hours"
@@ -122,6 +125,15 @@ var definitions = []Definition{
 	{Key: FiscalYearStartMonth, Group: GroupReports, Kind: Number, Unit: "month", Default: 1, Min: 1, Max: 12,
 		Title: "First month of the fiscal year",
 		Help:  "Periods line up with your fiscal year: with 4 (April) and 3 months, quarters run April to June, July to September, and so on."},
+	{Key: ExternalAuditorDays, Group: GroupReports, Kind: Number, Unit: "days", Default: 90, Min: 1, Max: 365, Looser: Higher,
+		Title: "Longest access for an external auditor",
+		Help:  "How far ahead an admin may set the end date of an auditor invited from outside the company. Extending it later allows the same, counted from that day."},
+	{Key: DeliveryKeepDays, Group: GroupReports, Kind: Number, Unit: "days", Default: 400, Min: 30, Max: 3650,
+		Title: "Keep scheduled packs for",
+		Help:  "Evidence packs Grantra made on a schedule can be downloaded again for this long, then they are deleted. The audit log keeps their fingerprints, so a copy someone kept can still be verified."},
+	{Key: AccessHistoryDays, Group: GroupReports, Kind: Number, Unit: "days", Default: 1095, Min: 400, Max: 3650,
+		Title: "Keep the history of who held what for",
+		Help:  "Grantra records when each membership started and ended, to answer who had access on a past date. Memberships that ended longer ago than this are forgotten. Three years covers most audits; some regulations ask for more."},
 
 	{Key: SessionIdleMinutes, Group: GroupConsole, Kind: Number, Unit: "minutes", Default: 30, Min: 5, Max: 8 * 60, Looser: Higher,
 		Title: "Sign out after inactivity",

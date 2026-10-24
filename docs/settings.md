@@ -34,6 +34,9 @@ Stricter changes, and changes to settings that are neither, take effect at once.
 | Compliance reports | Time to close a leaver's accounts | `reports.leaver_sla_hours` | 24 hours | 1 to 720 | higher |
 | | Period reports cover | `reports.period_months` | 3 months | 1 to 12 | |
 | | First month of the fiscal year | `reports.fiscal_year_start_month` | 1 (January) | 1 to 12 | |
+| | Longest access for an external auditor | `reports.external_auditor_max_days` | 90 days | 1 to 365 | higher |
+| | Keep scheduled packs for | `reports.delivery_keep_days` | 400 days | 30 to 3650 | |
+| | Keep the history of who held what for | `reports.access_history_keep_days` | 1095 days | 400 to 3650 | |
 | Console sign-in | Sign out after inactivity | `console.session_idle_minutes` | 30 minutes | 5 to 480 | higher |
 | | Longest console session | `console.session_max_hours` | 8 hours | 1 to 24 | higher |
 

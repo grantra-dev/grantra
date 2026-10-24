@@ -249,6 +249,16 @@ func (a *API) Register(mux *http.ServeMux, require func(http.Handler) http.Handl
 	route("PUT /api/v1/report-frameworks/{id}", a.saveReportFramework)
 	route("DELETE /api/v1/report-frameworks/{id}", a.deleteReportFramework)
 	tokenRoute("GET /api/v1/report-frameworks/{id}/pack", a.frameworkPack)
+	route("GET /api/v1/report-schedules", a.listReportSchedules)
+	route("POST /api/v1/report-schedules", a.saveReportSchedule)
+	route("PUT /api/v1/report-schedules/{id}", a.saveReportSchedule)
+	route("DELETE /api/v1/report-schedules/{id}", a.deleteReportSchedule)
+	route("GET /api/v1/report-deliveries", a.listReportDeliveries)
+	tokenRoute("GET /api/v1/report-deliveries/{id}/file", a.getReportDelivery)
+	route("GET /api/v1/external-auditors", a.listExternalAuditors)
+	route("POST /api/v1/external-auditors", a.inviteExternalAuditor)
+	route("PUT /api/v1/external-auditors/{id}", a.updateExternalAuditor)
+	route("DELETE /api/v1/external-auditors/{id}", a.endExternalAuditor)
 
 	// Apps' backends ask with an API key, not a session.
 	mux.HandleFunc("POST /api/v1/authz/check", a.authzCheck)

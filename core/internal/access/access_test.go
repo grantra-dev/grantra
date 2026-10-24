@@ -21,6 +21,7 @@ import (
 
 func TestConditions(t *testing.T) {
 	sales := map[string]string{"department": "Sales", "location": " Madrid "}
+	guest := map[string]string{"department": "Sales", GuestAttribute: "auditor"}
 	tests := []struct {
 		conds Conditions
 		attrs map[string]string
@@ -38,6 +39,10 @@ func TestConditions(t *testing.T) {
 		{Conditions{}, sales, "service", false},
 		{Conditions{"department": {"Sales"}}, sales, "agent", false},
 		{Conditions{"kind": {"service"}, "department": {"Sales"}}, sales, "service", true},
+		// Guests only match rules that name them.
+		{Conditions{}, guest, "human", false},
+		{Conditions{"department": {"Sales"}}, guest, "human", false},
+		{Conditions{GuestAttribute: {"auditor"}}, guest, "human", true},
 	}
 	for _, tt := range tests {
 		if got := tt.conds.Match(tt.attrs, tt.kind); got != tt.want {

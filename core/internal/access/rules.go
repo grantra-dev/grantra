@@ -29,8 +29,13 @@ import (
 // values, compared ignoring case and surrounding spaces. "kind" matches the
 // identity's kind (human, service, agent, workload). No conditions match
 // every person. Non-human identities only match rules that name their kind,
-// so a rule for everyone never gives a service account an employee's access.
+// and guests (people from outside invited for a while, such as external
+// auditors) only rules that name GuestAttribute, so a rule for everyone never
+// gives a service account or a guest an employee's access.
 type Conditions map[string][]string
+
+// GuestAttribute marks a guest: its value says what for ("auditor").
+const GuestAttribute = "grantra_guest"
 
 // Validate checks the conditions are usable.
 func (c Conditions) Validate() error {
@@ -56,6 +61,9 @@ func (c Conditions) Validate() error {
 // Match reports whether an identity with these attributes and kind matches.
 func (c Conditions) Match(attrs map[string]string, kind string) bool {
 	if _, named := c["kind"]; !named && kind != "human" {
+		return false
+	}
+	if _, named := c[GuestAttribute]; !named && attrs[GuestAttribute] != "" {
 		return false
 	}
 	for attr, values := range c {

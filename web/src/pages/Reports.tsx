@@ -10,7 +10,7 @@ import { Tabs } from "@/components/Tabs";
 import { Alert, ErrorAlert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { buttonVariants } from "@/components/ui/button-variants";
+import { linkButton } from "@/components/ui/button-variants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import {
@@ -41,10 +41,9 @@ import {
 } from "@/lib/reports";
 import { isAdmin } from "@/lib/roles";
 import { cn, formatTime } from "@/lib/utils";
+import { ExternalAuditors, Schedules } from "./ReportAutomation";
 
-type Tab = "reports" | "frameworks" | "verify";
-
-const linkButton = buttonVariants({ variant: "outline", size: "sm" });
+type Tab = "reports" | "frameworks" | "scheduled" | "auditors" | "verify";
 
 /** The period (and application) in the address, so a report's link can be shared. */
 function useReportParams() {
@@ -81,6 +80,8 @@ export function Reports({ me }: { me: Me }) {
         tabs={[
           ["reports", "Reports"],
           ["frameworks", "Frameworks"],
+          ["scheduled", "Scheduled"],
+          ["auditors", "External auditors"],
           ["verify", "Verify a file"],
         ]}
         current={tab}
@@ -90,13 +91,19 @@ export function Reports({ me }: { me: Me }) {
         <Loaded loading={defaults.isPending} error={defaults.error}>
           <ReportList reports={defaults.data?.reports ?? []} />
         </Loaded>
-      ) : tab === "frameworks" ? (
-        // Anyone here reads and downloads; only admins edit the frameworks.
-        <ManageContext.Provider value={isAdmin(me)}>
-          <Frameworks reports={defaults.data?.reports ?? []} />
-        </ManageContext.Provider>
-      ) : (
+      ) : tab === "verify" ? (
         <Verify />
+      ) : (
+        // Anyone here reads and downloads; only admins change these.
+        <ManageContext.Provider value={isAdmin(me)}>
+          {tab === "frameworks" ? (
+            <Frameworks reports={defaults.data?.reports ?? []} />
+          ) : tab === "scheduled" ? (
+            <Schedules reports={defaults.data?.reports ?? []} />
+          ) : (
+            <ExternalAuditors />
+          )}
+        </ManageContext.Provider>
       )}
     </div>
   );
